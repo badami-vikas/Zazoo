@@ -84,6 +84,12 @@
   },
   {
    "family": "tool",
+   "pathPrefix": "apps/api/src/router-shared.ts",
+   "reason": "recordResearchStep (shared by research.recordStep and research.execute after the 2026-09-04 merge of PR #75) carries the model step shape through to the store; same LLM tool-calling contract as the agentOrchestration.ts entry above.",
+   "reviewed": "AP-106 · 2026-08-05 · TASK-036"
+  },
+  {
+   "family": "tool",
    "pathPrefix": "apps/web/src/app/pages/ResearchRunsPage.tsx",
    "reason": "Renders the research step timeline, keying an icon off the model's tool name. Display of a foreign contract's value, not a Bridge product noun — the page has no Tool concept of its own to rename.",
    "reviewed": "AP-106 · 2026-08-05 · TASK-036"
@@ -249,6 +255,12 @@
    "pathPrefix": "apps/desktop/scripts/prepare-bundle.test.mjs",
    "reason": "Tauri's own bundler schema key `createUpdaterArtifacts`, not the retired Bridge product noun. TASK-079 disables updater-bundle creation on local builds by passing the deepEqual assertions pinning that same override object to `tauri build --config`; the key name is Tauri v2's config contract and is not ours to rename. Every Bridge-owned name around it was renamed instead (updaterBundleConfig, reworded log/test copy).",
    "reviewed": "AP-167 · 2026-08-27 · TASK-079"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "apps/api/test/research-executor.test.ts",
+   "reason": "LLM tool-calling, not the retired Bridge product noun. These fixtures drive the research planner's {\"tool\":\"search\"|\"read\"} contract and assert the tool field on persisted step evidence — the same model-owned vocabulary already exempted for packages/research and packages/core/src/research-run.ts. Renaming it would rename the model's own function-calling field, not a Bridge identifier.",
+   "reviewed": "AP-096 · 2026-09-03 · TASK-028 (kernel-executor bridge)"
   }
  ]
 }

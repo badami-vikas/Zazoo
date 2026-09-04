@@ -39,6 +39,7 @@ import { modulesRouter } from "./routers/modules.js";
 import { commonsRouter } from "./routers/commons.js";
 import { chiefOfStaffRouter } from "./routers/chiefOfStaff.js";
 import { agentOrchestrationRouter } from "./routers/agentOrchestration.js";
+import { recordsRouter } from "./routers/records.js";
 import { procedure, t } from "./router-shared.js";
 
 export * from "./router-shared.js";
@@ -69,6 +70,7 @@ export const appRouter = t.router({
   builder: builderRouter,
   moduleGovernance: moduleGovernanceRouter,
   tableSchema: tableSchemaRouter,
+  records: recordsRouter,
   accounting: accountingRouter,
   d2c: d2cRouter,
   d2cResearch: d2cResearchRouter,

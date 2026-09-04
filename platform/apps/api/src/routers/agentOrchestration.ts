@@ -3,10 +3,27 @@ import { join } from "node:path";
 import { z } from "zod";
 import { LEARNING_AGENT, materializeCultureSourceFetch, cancelCultureSourceFetch } from "../wiring.js";
 import type { Actor, DataScope } from "@bridge/core";
-import { resolveSkillForTask, cancelChildAgentRun, SearchProvidersUnavailableError, completeChildAgentRun, createChildAgentRun, failChildAgentRun, ResearchRunAlreadyTerminalError, ResearchRunNotFoundError, RESEARCH_STEP_TOOLS, RESEARCH_STOP_REASONS, hashTaintValue, labelAtSource, type ParentRunEnvelope } from "@bridge/core";
-import { WEB_RESEARCH_SKILL_ID } from "../web-research-skill.js";
+import { resolveSkillForTask, cancelChildAgentRun, ResearchRunAlreadyTerminalError, ResearchRunNotFoundError, RESEARCH_STEP_TOOLS, RESEARCH_STOP_REASONS } from "@bridge/core";
 import { transition } from "@bridge/jobpilot";
-import { assertWebResearchModuleBinding, authenticatedProcedure, goalCreateInput, organizationGuard, persistWebResearchOutcome, provisionResearchRunTask, provisionWebResearchTask, resolveSkillInput, t, taskCreateInput, taskReassignInput } from "../router-shared.js";
+import {
+  authenticatedProcedure,
+  completeResearchRun,
+  createGovernedModelProvider,
+  createGuardedPageReader,
+  executeResearchRun,
+  goalCreateInput,
+  organizationGuard,
+  recordResearchStep,
+  resolveConfiguredModel,
+  resolveSkillInput,
+  runWebResearchSkill,
+  startResearchRun,
+  t,
+  taskCreateInput,
+  taskReassignInput,
+  webResearchOutputSchema,
+  type ResearchExecutorHooks,
+} from "../router-shared.js";
 
 /**
  * AGS0-AGS2 (TASK-007) — typed Goals/Tasks, the fail-closed Goal/Task-bound
@@ -105,82 +122,7 @@ export const agentOrchestrationRouter = t.router({
           .strict(),
       )
       .use(organizationGuard).mutation(async ({ input, ctx }) => {
-        await assertWebResearchModuleBinding(
-          ctx.wiring,
-          input.organizationId,
-        );
-        const goalTaskRef = await provisionWebResearchTask(
-          ctx.wiring,
-          input.organizationId,
-        );
-        try {
-          const proposal = await ctx.wiring.pipeline.propose(
-            {
-              organizationId: input.organizationId,
-              actor: {
-                type: "agent",
-                id: LEARNING_AGENT,
-                plane: "cloud",
-              },
-              onBehalfOf: { type: "user", id: ctx.identity.id },
-              action: "read",
-              resourceType: "external:fetch",
-              inputs: {
-                objective: input.objective,
-                scope: input.scope,
-                searchQueries: input.searchQueries,
-                budget: input.budget,
-              },
-              taintLabel: labelAtSource("human_input", {
-                ref: `web-research:${ctx.identity.id}:${goalTaskRef.taskId}`,
-                valueHash: hashTaintValue({
-                  objective: input.objective,
-                  searchQueries: input.searchQueries,
-                }),
-                sensitivity: "public",
-                instructionRisk: "instruction_like",
-              }),
-              skill: WEB_RESEARCH_SKILL_ID,
-              dataScope: "public",
-              goalTaskRef,
-              context: {
-                type: "record",
-                id: goalTaskRef.taskId,
-                runId: ctx.run.ids.next(),
-              },
-            },
-            ctx.run,
-          );
-          if (proposal.status === "rejected") {
-            throw new TRPCError({
-              code: "FORBIDDEN",
-              message:
-                proposal.rejectionReason ??
-                "web research was rejected before persistence",
-            });
-          }
-          const resultEvidence = await persistWebResearchOutcome(
-            ctx.wiring,
-            ctx.run,
-            ctx.identity.id,
-            input.organizationId,
-            goalTaskRef,
-            proposal,
-          );
-          return { ...proposal, resultEvidence };
-        } catch (error) {
-          if (error instanceof SearchProvidersUnavailableError) {
-            const attempts = error.attempts
-              .map((attempt) => `${attempt.providerId}:${attempt.status}`)
-              .join(", ");
-            throw new TRPCError({
-              code: "BAD_GATEWAY",
-              message: `web research unavailable (${attempts})`,
-              cause: error,
-            });
-          }
-          throw error;
-        }
+        return runWebResearchSkill(ctx, input.organizationId, input);
       }),
 
     /** Read-only preview of AGS1 resolution — never invokes the Skill. Lets
@@ -246,26 +188,159 @@ export const agentOrchestrationRouter = t.router({
           .strict(),
       )
       .use(organizationGuard).mutation(async ({ input, ctx }) => {
-        const goalTaskRef = await provisionResearchRunTask(ctx.wiring, input.organizationId);
-        return ctx.wiring.researchRuns.create({
-          id: ctx.run.ids.next(),
-          organizationId: input.organizationId,
-          ownerUserId: ctx.identity.id,
-          objective: input.objective,
-          status: "running",
-          stopRequested: false,
-          parentRunId: ctx.run.ids.next(),
-          goalId: goalTaskRef.goalId,
-          taskId: goalTaskRef.taskId,
-          stopReason: null,
-          brief: null,
-          citations: [],
-          blockedActions: [],
-          injectionReports: [],
-          stepsTaken: 0,
-          startedAt: ctx.run.clock.nowISO(),
-          endedAt: null,
-        });
+        return startResearchRun(ctx, input.organizationId, input.objective);
+      }),
+    /**
+     * TASK-028 — the kernel drives the Research Run itself: start the Run,
+     * then run the plan→search→read→synthesize loop server-side under the
+     * same governed web-research Skill and child-Run evidence the desktop
+     * executor records. Returns the running Run immediately; the loop is
+     * detached and observable through `research.get` / `research.steps`.
+     */
+    execute: authenticatedProcedure
+      .input(
+        z
+          .object({
+            organizationId: z.string().min(1),
+            objective: z.string().trim().min(1).max(500),
+            maxSteps: z.number().int().min(1).max(24).optional(),
+          })
+          .strict(),
+      )
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
+        // A planner is not optional: without a model the loop cannot choose
+        // a next step, and a Run that cannot plan must not be started and
+        // then quietly fail. Local plane only — this never opts a Run into
+        // cloud model egress on the user's behalf.
+        const model = resolveConfiguredModel(ctx.wiring.models, "reasoning");
+        if (!model) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "no local-plane model is configured, so a background Research Run has nothing to plan with",
+          });
+        }
+        const governedModel = createGovernedModelProvider(
+          ctx,
+          input.organizationId,
+          model,
+          "research_run_planning",
+        );
+        const run = await startResearchRun(ctx, input.organizationId, input.objective);
+        const reader = createGuardedPageReader();
+        const warnings: string[] = [];
+
+        const hooks: ResearchExecutorHooks = {
+          reader,
+          onWarning: (message) => {
+            warnings.push(message);
+          },
+          async search(objective, query) {
+            const proposal = await runWebResearchSkill(ctx, input.organizationId, {
+              objective: objective.slice(0, 500),
+              scope: "public_web",
+              searchQueries: [query.slice(0, 160)],
+              budget: {
+                maxResults: 5,
+                maxResponseBytes: 256 * 1_024,
+                maxProviderAttempts: 2,
+                timeoutMs: 10_000,
+              },
+            });
+            const parsed = webResearchOutputSchema.safeParse(
+              proposal.output?.proposedOutput,
+            );
+            if (!parsed.success) return [];
+            return parsed.data.citations.map((citation) => ({
+              url: citation.url,
+              title: null,
+              excerpt: citation.summary,
+              providerId: citation.providerId,
+              retrievedAt: citation.retrievedAt,
+            }));
+          },
+          async chat(messages) {
+            const system = messages
+              .filter((message) => message.role === "system")
+              .map((message) => message.content)
+              .join("\n\n");
+            const prompt = messages
+              .filter((message) => message.role !== "system")
+              .map((message) => message.content)
+              .join("\n\n");
+            const completion = await governedModel.provider.complete({
+              ...(system.length > 0 ? { system } : {}),
+              prompt,
+              maxTokens: 1_024,
+              tier: "reasoning",
+              cache: { strategy: "stable_system_prefix", ttl: "5m" },
+            });
+            return completion.text;
+          },
+          async appendStep(entry) {
+            await recordResearchStep(ctx, input.organizationId, run, {
+              stepIndex: entry.stepIndex,
+              tool: entry.tool,
+              summary: entry.summary.slice(0, 4_000),
+              sourceUrl: entry.sourceUrl,
+              ...(entry.quarantined
+                ? {
+                    quarantined: {
+                      sourceUrl: entry.quarantined.sourceUrl.slice(0, 2_048),
+                      text: entry.quarantined.text.slice(0, 400_000),
+                    },
+                  }
+                : {}),
+            });
+          },
+          async loadSteps() {
+            const rows = await ctx.wiring.researchRuns.listSteps(
+              input.organizationId,
+              ctx.identity.id,
+              run.id,
+            );
+            return rows.map((row) => ({
+              stepIndex: row.stepIndex,
+              tool: row.tool,
+              summary: row.summary,
+              sourceUrl: row.sourceUrl,
+              ...(row.quarantinedText && row.quarantinedSourceUrl
+                ? {
+                    quarantined: {
+                      trustOrigin: "untrusted_external" as const,
+                      taintLabel: "untrusted_external" as const,
+                      sourceUrl: row.quarantinedSourceUrl,
+                      text: row.quarantinedText,
+                    },
+                  }
+                : {}),
+            }));
+          },
+          async stopRequested() {
+            const current = await ctx.wiring.researchRuns.get(
+              input.organizationId,
+              ctx.identity.id,
+              run.id,
+            );
+            return current?.stopRequested ?? false;
+          },
+          async finish(outcome) {
+            await completeResearchRun(ctx, input.organizationId, run.id, outcome);
+          },
+        };
+
+        const loop = executeResearchRun(
+          {
+            runId: run.id,
+            objective: run.objective,
+            ...(input.maxSteps ? { bounds: { maxSteps: input.maxSteps } } : {}),
+          },
+          hooks,
+        );
+        // `executeResearchRun` never rejects — it always freezes an outcome —
+        // so detaching cannot strand an unhandled rejection.
+        void loop;
+        return run;
       }),
 
     recordStep: authenticatedProcedure
@@ -306,89 +381,8 @@ export const agentOrchestrationRouter = t.router({
           });
         }
 
-        const onBehalfOf = {
-          type: (ctx.identity.type === "team" ? "team" : "user") as "user" | "team",
-          id: ctx.identity.id,
-        };
-        const [learningScope, learningDataScope] = await Promise.all([
-          ctx.wiring.agents.capabilityScope(LEARNING_AGENT),
-          ctx.wiring.agents.dataScope(LEARNING_AGENT),
-        ]);
-        // The step already executed under the engine's green-tier authority
-        // (AP-088): reading the public web is autonomous, so the child Run
-        // records at "notify", never a retroactive "approve" that would
-        // imply a Human decision existed. Steps run on the user's machine —
-        // the LOCAL plane; the quarantined text they carry is untrusted web.
-        const parentEnvelope: ParentRunEnvelope = {
-          runId: run.parentRunId,
-          agentId: LEARNING_AGENT,
-          organizationId: input.organizationId,
-          authorityScope: learningScope,
-          eligibleSkills: [WEB_RESEARCH_SKILL_ID],
-          dataScope: learningDataScope,
-          plane: "local",
-          budgetRemaining: { calls: 1_000, cost: 1_000 },
-          reviewMode: "notify",
-          childRunPolicy: "allowed",
-          delegationDepth: 0,
-          onBehalfOf,
-          taintLabel: labelAtSource("human_input", {
-            ref: `research-run:${run.id}`,
-            valueHash: hashTaintValue({ objective: run.objective }),
-            sensitivity: "public",
-            instructionRisk: "instruction_like",
-          }),
-        };
-        const childRun = await createChildAgentRun(
-          { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
-          parentEnvelope,
-          {
-            goalId: run.goalId,
-            taskId: run.taskId,
-            delegatedScope: ["external:fetch:read"],
-            selectedSkills: [WEB_RESEARCH_SKILL_ID],
-            budget: { maxCalls: 1, maxCost: 1 },
-            deadline: new Date(Date.now() + 10 * 60_000).toISOString(),
-            stopCondition: `record one ${input.tool} step of Research Run ${run.id} and stop`,
-            requestedDataScope: "public",
-            ...(input.quarantined
-              ? {
-                  requestedTaintLabel: labelAtSource("web_search", {
-                    ref: input.quarantined.sourceUrl,
-                    valueHash: hashTaintValue({ text: input.quarantined.text }),
-                    sensitivity: "public",
-                    instructionRisk: "instruction_like",
-                  }),
-                }
-              : {}),
-          },
-          ctx.run,
-        );
-        const transition = input.failed ? failChildAgentRun : completeChildAgentRun;
-        await transition(
-          { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
-          input.organizationId,
-          childRun.id,
-          { type: "agent", id: LEARNING_AGENT },
-          ctx.run,
-        );
-
         try {
-          const step = await ctx.wiring.researchRuns.appendStep({
-            id: ctx.run.ids.next(),
-            runId: run.id,
-            organizationId: input.organizationId,
-            ownerUserId: ctx.identity.id,
-            stepIndex: input.stepIndex,
-            tool: input.tool,
-            summary: input.summary,
-            sourceUrl: input.sourceUrl ?? null,
-            childRunId: childRun.id,
-            quarantinedText: input.quarantined?.text ?? null,
-            quarantinedSourceUrl: input.quarantined?.sourceUrl ?? null,
-            createdAt: ctx.run.clock.nowISO(),
-          });
-          return { step, childRunId: childRun.id };
+          return await recordResearchStep(ctx, input.organizationId, run, input);
         } catch (error) {
           if (error instanceof ResearchRunAlreadyTerminalError) {
             throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
@@ -437,21 +431,15 @@ export const agentOrchestrationRouter = t.router({
       )
       .use(organizationGuard).mutation(async ({ input, ctx }) => {
         try {
-          return await ctx.wiring.researchRuns.complete(
-            input.organizationId,
-            ctx.identity.id,
-            input.researchRunId,
-            {
-              status: input.status,
-              stopReason: input.stopReason,
-              brief: input.brief,
-              citations: input.citations,
-              blockedActions: input.blockedActions,
-              injectionReports: input.injectionReports,
-              stepsTaken: input.stepsTaken,
-            },
-            ctx.run.clock.nowISO(),
-          );
+          return await completeResearchRun(ctx, input.organizationId, input.researchRunId, {
+            status: input.status,
+            stopReason: input.stopReason,
+            brief: input.brief,
+            citations: input.citations,
+            blockedActions: input.blockedActions,
+            injectionReports: input.injectionReports,
+            stepsTaken: input.stepsTaken,
+          });
         } catch (error) {
           if (error instanceof ResearchRunAlreadyTerminalError) {
             throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });

@@ -585,6 +585,25 @@ test("action.propose handles null inputs without crashing policy evaluation", as
   }
 });
 
+test("action.propose handles null inputs without crashing policy evaluation", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    const proposal = await caller.action.propose({
+      organizationId: PILOT_ORGANIZATION,
+      actor: { type: "user", id: PILOT_USER },
+      action: "write",
+      resourceType: "person",
+      inputs: null,
+      skill: "stageMutation",
+    });
+    assert.equal(proposal.status, "applied");
+    assert.equal(proposal.output?.proposedOutput, null);
+  } finally {
+    await wiring.close();
+  }
+});
+
 test("action.propose: a Human directly invoking the governed skill fails closed even with a valid goalTaskRef", async () => {
   const wiring = await buildWiring();
   try {
@@ -604,6 +623,7 @@ test("action.propose: a Human directly invoking the governed skill fails closed 
         }]),
       /stageMutation|invalid literal/i,
     );
+
   } finally {
     await wiring.close();
   }

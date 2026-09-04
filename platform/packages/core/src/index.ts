@@ -93,6 +93,8 @@ export * from "./task-agent-ledger-template.js";
 export * from "./skill-manifest.js";
 export * from "./child-agent-run.js";
 export * from "./research-run.js";
+export * from "./view-config.js";
+export * from "./share-grant.js";
 
 // Capability Trust Model (docs/wiki/vision.md "Capability Trust Model" +
 // "Promotion defaults") — additive to the pipeline; agent-floor/human-decide

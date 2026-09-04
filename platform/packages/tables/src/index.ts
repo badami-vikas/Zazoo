@@ -9,10 +9,13 @@ export type {
   GraphScope,
   ViewConfig,
   ColumnOverlay,
+  MetadataColumnKind,
 } from "./types.js";
 export {
   VIEW_KINDS,
+  METADATA_COLUMN_KINDS,
   defaultViewConfig,
+  isMetadataColumn,
   normalizeViewKind,
   applyColumnOverlay,
 } from "./types.js";

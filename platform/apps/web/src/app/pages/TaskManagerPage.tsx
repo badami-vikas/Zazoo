@@ -38,6 +38,13 @@ const TASK_SPEC: TableSpec = {
     { id: "outcomeMeasure", label: "Measure", kind: "text", editable: true },
     { id: "outcomeTarget", label: "Target", kind: "text", editable: true },
     { id: "exitTest", label: "Exit test", kind: "text", editable: true },
+    // TASK-063 — derived from the Event log, never stored on the Task row. They
+    // are hidden from the intake form because there is nothing to type into
+    // them: the values appear the moment the first governed write lands.
+    { id: "createdTime", label: "Created", kind: "createdTime", editable: false, hiddenInForm: true },
+    { id: "createdBy", label: "Created by", kind: "createdBy", editable: false, hiddenInForm: true },
+    { id: "lastEditedTime", label: "Last edited", kind: "lastEditedTime", editable: false, hiddenInForm: true },
+    { id: "lastEditedBy", label: "Last edited by", kind: "lastEditedBy", editable: false, hiddenInForm: true },
     {
       id: "parentTaskId",
       label: "Parent Task",
@@ -274,6 +281,7 @@ export function TaskManagerPage() {
               view={view}
               data={rows}
               onViewChange={changeView}
+              recordEntityType="task"
               {...(API_TRANSPORT_CONFIGURED
                 ? { onInsert: insertTask, onUpdate: updateTask }
                 : { insertDisabledReason: "The API transport is not configured in this build, so Tasks cannot be created here." })}

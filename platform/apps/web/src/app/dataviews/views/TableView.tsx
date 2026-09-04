@@ -30,7 +30,7 @@
  * 16px/10px cell padding, 13px body, 10px uppercase headers at 0.07em).
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { applyFilters, applySorts } from "@bridge/tables";
+import { applyFilters, applySorts, isMetadataColumn } from "@bridge/tables";
 import type { ColumnSpec, TableSpec } from "@bridge/tables";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Check, ChevronDown, Plus } from "lucide-react";
@@ -127,6 +127,7 @@ export function TableView({
   onViewChange,
   onInsert,
   insertDisabledReason,
+  onRequestCreate,
   onUpdate,
   onOpenRecord,
   onEditRecord,
@@ -157,21 +158,25 @@ export function TableView({
   /** Open cell right-click menu (§5f), or null. Position is the pointer. */
   const [cellMenu, setCellMenu] = useState<CellMenuState | null>(null);
   /**
-   * The in-place new-Element draft. Non-null means one blank row is appended to
-   * the body with an editor in every column.
-   *
-   * This used to be `onViewChange({ ...view, kind: "form" })` — clicking "add"
-   * swapped the whole surface for the Form View, so the table the user was
-   * reading vanished and their scroll position with it. Adding an Element is
-   * meant to happen where the Elements are; the Form View is still reachable as
-   * a View in its own right for anyone who wants the long form.
+   * NO DRAFT ROW ANY MORE (TASK-083, C-34 under AP-168/ADR-258). New used to
+   * append a blank row here and collect the Record cell by cell — C-33, now
+   * REVERSED: New opens the Database's Record page with every field on it, and
+   * nothing is written until Save. The table raises the intent; <DataViews>
+   * owns the page, so the Form view and the table cannot grow two different
+   * create surfaces again.
    */
-  const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
   const addRowReasonId = useId();
-  /** Honest default: the surface has no create path wired, and saying so beats
-   *  a control that vanishes. Pages that know the real reason pass it. */
-  const insertReason =
-    insertDisabledReason ?? "This Database has no create path wired yet, so Records cannot be added by hand here.";
+  /**
+   * Why New cannot act, or null when it can. Honest default: the surface has no
+   * create path wired, and saying so beats a control that vanishes. Pages that
+   * know the real reason pass it.
+   */
+  const createReason = !onInsert
+    ? (insertDisabledReason ??
+      "This Database has no create path wired yet, so Records cannot be added by hand here.")
+    : !onRequestCreate
+      ? "This table is rendered outside the shell that owns the Record page, so New has nowhere to open."
+      : null;
 
   /**
    * MULTI-SELECT (C-12). The state is a value, not a set of booleans scattered
@@ -255,25 +260,6 @@ export function TableView({
   // that lets it measure the real element.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
 
-  /**
-   * Hand the draft to the caller's governed insert path and clear it.
-   *
-   * An all-empty draft is a cancel, not an insert: the row is dismissed rather
-   * than sent, so a stray click on "+ Add record" cannot post a blank Record
-   * through the pipeline.
-   */
-  const commitDraft = useCallback(async () => {
-    if (!draft || !onInsert) return;
-    const filled = Object.entries(draft).filter(
-      ([, value]) => value !== undefined && value !== null && String(value).trim() !== "",
-    );
-    if (filled.length === 0) {
-      setDraft(null);
-      return;
-    }
-    await onInsert(Object.fromEntries(filled));
-    setDraft(null);
-  }, [draft, onInsert]);
   const windowed = sorted.length > VIRTUALIZE_ABOVE;
   const virtualizer = useVirtualizer({
     count: sorted.length,
@@ -385,7 +371,10 @@ export function TableView({
                       // leaves every one of them visible and disabled with the
                       // menu's own stated reason.
                       columnId={col.id}
-                      columnKind={col.kind}
+                      // A derived metadata column has no type to change TO
+                      // (TASK-063), so the menu is told nothing rather than a
+                      // kind its Change-type list does not contain.
+                      {...(isMetadataColumn(col.kind) ? {} : { columnKind: col.kind })}
                       locked={col.locked}
                       capability={columnSchema?.capability ?? null}
                       onRename={
@@ -735,65 +724,30 @@ export function TableView({
               </tr>
             ))}
 
-          {/* The draft Element, in place. It sits inside <tbody> so it inherits
-              the same colgroup widths and sticky-column behaviour as a real
-              row — a floating overlay would have to re-derive both. */}
-          {onInsert && draft && (
-            <tr
-              className="bridge-table-row"
-              style={{ height: ROW_HEIGHT, borderBottom: "1px solid var(--color-line-soft)" }}
-            >
-              {columns.map((col, index) => (
-                <td key={col.id} style={{ paddingLeft: CELL_PAD_X, paddingRight: CELL_PAD_X }}>
-                  <DraftCell
-                    column={col}
-                    autoFocus={index === 0}
-                    value={draft[col.id]}
-                    onChange={(next) => setDraft((current) => ({ ...current, [col.id]: next }))}
-                    onCommit={() => void commitDraft()}
-                    onCancel={() => setDraft(null)}
-                  />
-                </td>
-              ))}
-              <td className="bridge-sticky-cell sticky right-0 z-10 whitespace-nowrap px-2 text-right">
-                <button
-                  type="button"
-                  onClick={() => void commitDraft()}
-                  className="rounded-md px-2 py-1 text-[12px] font-medium hover:bg-black/5 dark:hover:bg-white/10"
-                  style={{ color: "var(--color-navy)" }}
-                >
-                  Save
-                </button>
-              </td>
-            </tr>
-          )}
-
           {/* The add-row is part of the table's SHAPE, not a per-page opt-in.
               Gating its existence on `onInsert` is what made JobPilot and
               Signals silently lose a control DealPilot and Relationship had —
               the user compared two Modules and correctly called it a bug
               (2026-08-10). §3a: a control that cannot act is disabled and says
               why; it never just disappears. */}
-          {!draft && (
-            <tr style={{ borderTop: "1px solid var(--color-line-soft)" }}>
-              <td colSpan={colSpan} className="px-2 py-1.5">
-                <button
-                  type="button"
-                  disabled={!onInsert}
-                  onClick={() => setDraft({})}
-                  title={onInsert ? undefined : insertReason}
-                  aria-describedby={onInsert ? undefined : addRowReasonId}
-                  className="bridge-add-row w-full rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-                  style={{ color: "var(--color-warm-gray)" }}
-                >
-                  + Add record
-                </button>
-                {!onInsert && (
-                  <span id={addRowReasonId} className="sr-only">{insertReason}</span>
-                )}
-              </td>
-            </tr>
-          )}
+          <tr style={{ borderTop: "1px solid var(--color-line-soft)" }}>
+            <td colSpan={colSpan} className="px-2 py-1.5">
+              <button
+                type="button"
+                disabled={createReason !== null}
+                onClick={() => onRequestCreate?.()}
+                title={createReason ?? undefined}
+                aria-describedby={createReason === null ? undefined : addRowReasonId}
+                className="bridge-add-row w-full rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                style={{ color: "var(--color-warm-gray)" }}
+              >
+                + Add record
+              </button>
+              {createReason !== null && (
+                <span id={addRowReasonId} className="sr-only">{createReason}</span>
+              )}
+            </td>
+          </tr>
         </tbody>
 
         {/* The aggregate footer renders at zero rows too — it is part of the
@@ -1146,75 +1100,3 @@ function InlineEditor({
   );
 }
 
-/**
- * One cell of the in-place new-Element draft row.
- *
- * Deliberately NOT `InlineEditor`: that component edits an existing value and
- * treats blur-without-change as a cancel, which would tear the draft row down
- * the moment the user tabbed between columns. A draft cell holds its value in
- * the parent's draft object and only Escape dismisses.
- */
-function DraftCell({
-  column,
-  value,
-  autoFocus,
-  onChange,
-  onCommit,
-  onCancel,
-}: {
-  column: ColumnSpec;
-  value: unknown;
-  autoFocus: boolean;
-  onChange: (next: unknown) => void;
-  onCommit: () => void;
-  onCancel: () => void;
-}) {
-  const style = {
-    borderColor: "var(--color-steel)",
-    background: "var(--color-background)",
-    color: "var(--color-navy)",
-  };
-  const onKeyDown = (event: { key: string }) => {
-    if (event.key === "Enter") onCommit();
-    if (event.key === "Escape") onCancel();
-  };
-  const text = value === undefined || value === null ? "" : String(value);
-
-  if (column.options && column.options.length > 0) {
-    return (
-      <select
-        autoFocus={autoFocus}
-        value={text}
-        onChange={(event) => onChange(event.target.value)}
-        onKeyDown={onKeyDown}
-        className="w-full rounded-md border px-2 py-1 text-[13px] outline-none"
-        style={style}
-      >
-        <option value="">—</option>
-        {column.options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    );
-  }
-
-  const numeric = isNumericColumn(column);
-  return (
-    <input
-      autoFocus={autoFocus}
-      value={text}
-      placeholder={column.label}
-      inputMode={numeric ? "decimal" : undefined}
-      onChange={(event) =>
-        onChange(numeric && event.target.value !== "" ? Number(event.target.value) : event.target.value)
-      }
-      onKeyDown={onKeyDown}
-      className={`w-full min-w-[80px] rounded-md border px-2 py-1 text-[13px] outline-none ${
-        numeric ? "text-right" : ""
-      }`}
-      style={style}
-    />
-  );
-}

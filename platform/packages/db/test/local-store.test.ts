@@ -543,6 +543,40 @@ test("persistent governance provisions the server-owned Outreach Agent Event gra
   }
 });
 
+test("persistent governance provisions DealPilot's Human Module permissions without widening Agent roles", async () => {
+  const organizationId = "b0000000-0000-4000-a000-000000000012";
+  const userId = "e0f0053b-fc44-476e-be27-1371e179e912";
+  const { db, close } = await createLocalDb();
+  try {
+    await db.insert(schema.users).values({ id: userId, email: "dealpilot-governance@test.invalid" });
+    await db.insert(schema.organizations).values({ id: organizationId, name: "DealPilot governance test" });
+
+    await Promise.all(
+      Array.from({ length: 5 }, () =>
+        ensureDealPilotPrincipalGovernance(db, { organizationId, userId })),
+    );
+    await ensureDealPilotPrincipalGovernance(db, { organizationId, userId });
+
+    const direct = await createDrizzlePorts(db).roles.directGrants(
+      organizationId,
+      { type: "user", id: userId },
+    );
+    assert.equal(
+      direct.filter(
+        (grant) =>
+          grant.resourceType === "module" &&
+          (grant.action === "read" || grant.action === "write") &&
+          grant.effect === "allow",
+      ).length,
+      2,
+    );
+    assert.equal((await db.select().from(schema.roles)).length, 0);
+    assert.equal((await db.select().from(schema.agents)).length, 0);
+  } finally {
+    await close();
+  }
+});
+
 test("persistent governance aligns Egress and Intake authority with their governed Skill manifests", async () => {
   const organizationId = "b0000000-0000-4000-a000-000000000011";
   const userId = "e0f0053b-fc44-476e-be27-1371e179e911";
@@ -560,39 +594,6 @@ test("persistent governance aligns Egress and Intake authority with their govern
       permissionId: "b0000000-0000-4000-a000-0000000000c7",
     });
 
-    test("persistent governance provisions DealPilot's Human Module permissions without widening Agent roles", async () => {
-      const organizationId = "b0000000-0000-4000-a000-000000000012";
-      const userId = "e0f0053b-fc44-476e-be27-1371e179e912";
-      const { db, close } = await createLocalDb();
-      try {
-        await db.insert(schema.users).values({ id: userId, email: "dealpilot-governance@test.invalid" });
-        await db.insert(schema.organizations).values({ id: organizationId, name: "DealPilot governance test" });
-
-        await Promise.all(
-          Array.from({ length: 5 }, () =>
-            ensureDealPilotPrincipalGovernance(db, { organizationId, userId })),
-        );
-        await ensureDealPilotPrincipalGovernance(db, { organizationId, userId });
-
-        const direct = await createDrizzlePorts(db).roles.directGrants(
-          organizationId,
-          { type: "user", id: userId },
-        );
-        assert.equal(
-          direct.filter(
-            (grant) =>
-              grant.resourceType === "module" &&
-              (grant.action === "read" || grant.action === "write") &&
-              grant.effect === "allow",
-          ).length,
-          2,
-        );
-        assert.equal((await db.select().from(schema.roles)).length, 0);
-        assert.equal((await db.select().from(schema.agents)).length, 0);
-      } finally {
-        await close();
-      }
-    });
     await ensureIntakeAgentGovernance(db, {
       organizationId,
       userId,

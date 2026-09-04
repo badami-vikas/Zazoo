@@ -112,7 +112,7 @@ import {
 } from "@bridge/core";
 import { eq, desc } from "drizzle-orm";
 import { schema as accountingSchema, validateExpression } from "@bridge/accounting";
-import { applyColumnOverlay } from "@bridge/tables";
+import { applyColumnOverlay, VIEW_KINDS } from "@bridge/tables";
 import type { ColumnKind, ColumnOverlay, TableSpec } from "@bridge/tables";
 import {
   TABLE_SCHEMA_NAMESPACE_PREFIX,
@@ -127,6 +127,28 @@ import {
   viewDependencies,
   type ColumnDependencyPreview,
 } from "./table-schema.js";
+import {
+  RECORD_NOTES_NAMESPACE_PREFIX,
+  RECORD_SECTIONS,
+  RECORD_SECTIONS_NAMESPACE_PREFIX,
+  applyRecordNote,
+  readRecordNotes,
+  readRecordSections,
+} from "./record-sections.js";
+import {
+  deriveRecordMetadata,
+  emptyRecordMetadata,
+} from "./record-metadata.js";
+export {
+  RECORD_NOTES_NAMESPACE_PREFIX,
+  RECORD_SECTIONS,
+  RECORD_SECTIONS_NAMESPACE_PREFIX,
+  applyRecordNote,
+  readRecordNotes,
+  readRecordSections,
+  deriveRecordMetadata,
+  emptyRecordMetadata,
+};
 import { d2cSchema } from "./d2c-store.js";
 import type {
   Action,
@@ -207,6 +229,14 @@ import {
   ResearchRunAlreadyTerminalError,
   ResearchRunNotFoundError,
   RESEARCH_STOP_REASONS,
+  atLeast,
+  isGrantUsable,
+  type ShareAccessLevel,
+  type SavedViewRecord,
+  type ResearchRunRecord,
+  type ResearchRunOutcomeUpdate,
+  type ResearchStepRecord,
+  type ResearchStepTool,
   labelFromLegacyTrustOrigin,
   declassifyTaintLabel,
   deriveDeclassifiedLabel,
@@ -268,6 +298,12 @@ import {
   type ChatTurnRef,
 } from "@bridge/core";
 import { WEB_RESEARCH_SKILL_ID } from "./web-research-skill.js";
+import {
+  createGuardedPageReader,
+  executeResearchRun,
+  type ResearchExecutorHooks,
+} from "./research-executor.js";
+export { createGuardedPageReader, executeResearchRun, type ResearchExecutorHooks };
 import type { ModelBinding } from "@bridge/capability-kit";
 import { createModelRouter, MANAGED_LLAMA_PROVIDER_ID } from "@bridge/models";
 import { authUrl, CALENDAR_SOURCE, GMAIL_SOURCE, type IntakeDirective } from "@bridge/integrations-google";
@@ -6794,4 +6830,425 @@ export function toEvidence(evidence: {
     violationCount: evidence.violationCount ?? 0,
     ageDays: evidence.ageDays ?? 0,
   };
+}
+
+/**
+ * TASK-062 — the stored shape of a saved View: `ViewConfig` from
+ * @bridge/tables, validated at this edge because the kinds own the shape and a
+ * column that encoded it would migrate on every field they add. `.strict()`
+ * is the point: an unknown key is a client sending something this server does
+ * not understand, and storing it would make the config a place to smuggle
+ * state past every validator that follows.
+ */
+export const savedViewConfigSchema = z
+  .object({
+    id: z.string().trim().min(1).max(200),
+    kind: z.enum(VIEW_KINDS as readonly [string, ...string[]]),
+    sorts: z
+      .array(
+        z
+          .object({ id: z.string().trim().min(1).max(200), dir: z.enum(["asc", "desc"]) })
+          .strict(),
+      )
+      .max(20),
+    rowFilters: z
+      .array(
+        z
+          .object({
+            field: z.string().trim().min(1).max(200),
+            op: z.enum([
+              "contains",
+              "is",
+              "is_not",
+              "is_empty",
+              "is_not_empty",
+              "starts_with",
+            ]),
+            value: z.string().max(1_000),
+          })
+          .strict(),
+      )
+      .max(50),
+    filterMatch: z.enum(["all", "any"]),
+    groupBy: z.string().trim().min(1).max(200).nullable(),
+    dateBy: z.string().trim().min(1).max(200).optional(),
+    locationBy: z.string().trim().min(1).max(200).optional(),
+    relationBy: z.string().trim().min(1).max(200).optional(),
+    parentBy: z.string().trim().min(1).max(200).optional(),
+    graphScope: z.enum(["single_database", "multi_database", "full"]).optional(),
+    graphDatabaseIds: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+    formDefaults: z.record(z.unknown()).optional(),
+  })
+  .strict();
+
+/**
+ * TASK-028 — the governed `web-research` Skill invocation itself, extracted so
+ * the `skill.webResearch` procedure and the server-side Research Run executor
+ * share ONE egress posture. Two copies of this would be two chances to drift
+ * apart on rights, quarantine, or persistence.
+ */
+export async function runWebResearchSkill(
+  ctx: Pick<ApiContext, "wiring" | "run" | "identity">,
+  organizationId: string,
+  input: {
+    objective: string;
+    scope: "public_web";
+    searchQueries: readonly string[];
+    budget: {
+      maxResults: number;
+      maxResponseBytes: number;
+      maxProviderAttempts: number;
+      timeoutMs: number;
+    };
+  },
+) {
+  await assertWebResearchModuleBinding(ctx.wiring, organizationId);
+  const goalTaskRef = await provisionWebResearchTask(ctx.wiring, organizationId);
+  try {
+    const proposal = await ctx.wiring.pipeline.propose(
+      {
+        organizationId,
+        actor: { type: "agent", id: LEARNING_AGENT, plane: "cloud" },
+        onBehalfOf: { type: "user", id: ctx.identity.id },
+        action: "read",
+        resourceType: "external:fetch",
+        inputs: {
+          objective: input.objective,
+          scope: input.scope,
+          searchQueries: [...input.searchQueries],
+          budget: input.budget,
+        },
+        taintLabel: labelAtSource("human_input", {
+          ref: `web-research:${ctx.identity.id}:${goalTaskRef.taskId}`,
+          valueHash: hashTaintValue({
+            objective: input.objective,
+            searchQueries: [...input.searchQueries],
+          }),
+          sensitivity: "public",
+          instructionRisk: "instruction_like",
+        }),
+        skill: WEB_RESEARCH_SKILL_ID,
+        dataScope: "public",
+        goalTaskRef,
+        context: { type: "record", id: goalTaskRef.taskId, runId: ctx.run.ids.next() },
+      },
+      ctx.run,
+    );
+    if (proposal.status === "rejected") {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: proposal.rejectionReason ?? "web research was rejected before persistence",
+      });
+    }
+    const resultEvidence = await persistWebResearchOutcome(
+      ctx.wiring,
+      ctx.run,
+      ctx.identity.id,
+      organizationId,
+      goalTaskRef,
+      proposal,
+    );
+    return { ...proposal, resultEvidence };
+  } catch (error) {
+    if (error instanceof SearchProvidersUnavailableError) {
+      const attempts = error.attempts
+        .map((attempt) => `${attempt.providerId}:${attempt.status}`)
+        .join(", ");
+      throw new TRPCError({
+        code: "BAD_GATEWAY",
+        message: `web research unavailable (${attempts})`,
+        cause: error,
+      });
+    }
+    throw error;
+  }
+}
+
+/**
+ * TASK-028 — record one executed engine step against a Research Run: a
+ * TERMINAL child Agent Run (so the timeline is inspectable through the same
+ * `childRun.*` surface every other delegation uses) plus the append-only step
+ * evidence BR4 resume replays. Shared by the `research.recordStep` procedure
+ * (the desktop overlay executor) and the server-side executor.
+ */
+export async function recordResearchStep(
+  ctx: Pick<ApiContext, "wiring" | "run" | "identity">,
+  organizationId: string,
+  run: ResearchRunRecord,
+  input: {
+    stepIndex: number;
+    tool: ResearchStepTool;
+    summary: string;
+    sourceUrl?: string | null | undefined;
+    quarantined?: { sourceUrl: string; text: string } | null | undefined;
+    failed?: boolean | undefined;
+  },
+): Promise<{ step: ResearchStepRecord; childRunId: string }> {
+  const onBehalfOf = {
+    type: (ctx.identity.type === "team" ? "team" : "user") as "user" | "team",
+    id: ctx.identity.id,
+  };
+  const [learningScope, learningDataScope] = await Promise.all([
+    ctx.wiring.agents.capabilityScope(LEARNING_AGENT),
+    ctx.wiring.agents.dataScope(LEARNING_AGENT),
+  ]);
+  // The step already executed under the engine's green-tier authority
+  // (AP-088): reading the public web is autonomous, so the child Run
+  // records at "notify", never a retroactive "approve" that would
+  // imply a Human decision existed. Steps run on the user's machine —
+  // the LOCAL plane; the quarantined text they carry is untrusted web.
+  const parentEnvelope: ParentRunEnvelope = {
+    runId: run.parentRunId,
+    agentId: LEARNING_AGENT,
+    organizationId,
+    authorityScope: learningScope,
+    eligibleSkills: [WEB_RESEARCH_SKILL_ID],
+    dataScope: learningDataScope,
+    plane: "local",
+    budgetRemaining: { calls: 1_000, cost: 1_000 },
+    reviewMode: "notify",
+    childRunPolicy: "allowed",
+    delegationDepth: 0,
+    onBehalfOf,
+    taintLabel: labelAtSource("human_input", {
+      ref: `research-run:${run.id}`,
+      valueHash: hashTaintValue({ objective: run.objective }),
+      sensitivity: "public",
+      instructionRisk: "instruction_like",
+    }),
+  };
+  const childRun = await createChildAgentRun(
+    { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
+    parentEnvelope,
+    {
+      goalId: run.goalId,
+      taskId: run.taskId,
+      delegatedScope: ["external:fetch:read"],
+      selectedSkills: [WEB_RESEARCH_SKILL_ID],
+      budget: { maxCalls: 1, maxCost: 1 },
+      deadline: new Date(Date.now() + 10 * 60_000).toISOString(),
+      stopCondition: `record one ${input.tool} step of Research Run ${run.id} and stop`,
+      requestedDataScope: "public",
+      ...(input.quarantined
+        ? {
+            requestedTaintLabel: labelAtSource("web_search", {
+              ref: input.quarantined.sourceUrl,
+              valueHash: hashTaintValue({ text: input.quarantined.text }),
+              sensitivity: "public",
+              instructionRisk: "instruction_like",
+            }),
+          }
+        : {}),
+    },
+    ctx.run,
+  );
+  const transition = input.failed ? failChildAgentRun : completeChildAgentRun;
+  await transition(
+    { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
+    organizationId,
+    childRun.id,
+    { type: "agent", id: LEARNING_AGENT },
+    ctx.run,
+  );
+
+  const step = await ctx.wiring.researchRuns.appendStep({
+    id: ctx.run.ids.next(),
+    runId: run.id,
+    organizationId,
+    ownerUserId: ctx.identity.id,
+    stepIndex: input.stepIndex,
+    tool: input.tool,
+    summary: input.summary,
+    sourceUrl: input.sourceUrl ?? null,
+    childRunId: childRun.id,
+    quarantinedText: input.quarantined?.text ?? null,
+    quarantinedSourceUrl: input.quarantined?.sourceUrl ?? null,
+    createdAt: ctx.run.clock.nowISO(),
+  });
+  return { step, childRunId: childRun.id };
+}
+
+/** TASK-028 — mint the durable Run record plus its Goal/Task and parent-Run
+ * envelope id. Shared by `research.start` (an executor lives elsewhere) and
+ * `research.execute` (the kernel drives the loop itself). */
+export async function startResearchRun(
+  ctx: Pick<ApiContext, "wiring" | "run" | "identity">,
+  organizationId: string,
+  objective: string,
+): Promise<ResearchRunRecord> {
+  const goalTaskRef = await provisionResearchRunTask(ctx.wiring, organizationId);
+  return ctx.wiring.researchRuns.create({
+    id: ctx.run.ids.next(),
+    organizationId,
+    ownerUserId: ctx.identity.id,
+    objective,
+    status: "running",
+    stopRequested: false,
+    parentRunId: ctx.run.ids.next(),
+    goalId: goalTaskRef.goalId,
+    taskId: goalTaskRef.taskId,
+    stopReason: null,
+    brief: null,
+    citations: [],
+    blockedActions: [],
+    injectionReports: [],
+    stepsTaken: 0,
+    startedAt: ctx.run.clock.nowISO(),
+    endedAt: null,
+  });
+}
+
+/**
+ * TASK-028 — freeze a Research Run's outcome, and land its brief as a governed
+ * RESULT rather than a column nobody else can see: a Memory owned by the human
+ * who started the Run and an Event on the Learning Agent's Task, both carrying
+ * `untrusted_external` taint because a brief synthesized from fetched pages is
+ * exactly as trustworthy as the pages it summarizes.
+ *
+ * The Run row is authoritative and is frozen FIRST — complete-once is enforced
+ * by the store (and the 0035 trigger), so a lost Result write can never leave
+ * two different terminal outcomes recorded for one Run.
+ */
+export async function completeResearchRun(
+  ctx: Pick<ApiContext, "wiring" | "run" | "identity">,
+  organizationId: string,
+  researchRunId: string,
+  outcome: ResearchRunOutcomeUpdate,
+): Promise<ResearchRunRecord & { resultEvidence: { resultId: string; memoryId: string; eventId: string } | null }> {
+  const frozen = await ctx.wiring.researchRuns.complete(
+    organizationId,
+    ctx.identity.id,
+    researchRunId,
+    outcome,
+    ctx.run.clock.nowISO(),
+  );
+  const brief = frozen.brief?.trim();
+  if (!brief) return { ...frozen, resultEvidence: null };
+
+  const memoryId = ctx.run.ids.next();
+  const eventId = ctx.run.ids.next();
+  const taintLabel = labelAtSource("web_search", {
+    ref: `research-run:${frozen.id}`,
+    valueHash: hashTaintValue({ brief, citations: [...frozen.citations] }),
+    sensitivity: "public",
+    instructionRisk: "data",
+  });
+  await ctx.wiring.memoryStore.write({
+    id: memoryId,
+    organizationId,
+    type: "semantic",
+    subjectRecordId: frozen.taskId,
+    scope: "private",
+    content: JSON.stringify({
+      kind: "research_run_brief_memory",
+      moduleName: "relationship",
+      researchRunId: frozen.id,
+      objective: frozen.objective,
+      brief,
+      citations: [...frozen.citations],
+      stopReason: frozen.stopReason,
+      stepsTaken: frozen.stepsTaken,
+      blockedActions: [...frozen.blockedActions],
+      injectionReports: [...frozen.injectionReports],
+    }),
+    sourceRefType: "ledger",
+    sourceRefId: frozen.parentRunId,
+    confidence: 1,
+    trustOrigin: "untrusted_external",
+    taintLabel,
+    plane: "local",
+    createdBy: LEARNING_AGENT,
+    ownerUserId: ctx.identity.id,
+    createdAt: ctx.run.clock.nowISO(),
+  });
+  await ctx.wiring.graphStore.recordWebResearchResultEvent({
+    organizationId,
+    userId: ctx.identity.id,
+    eventId,
+    resultId: frozen.id,
+    memoryId,
+    taskId: frozen.taskId,
+    moduleName: "relationship",
+    payload: {
+      researchRunId: frozen.id,
+      objective: frozen.objective,
+      stopReason: frozen.stopReason,
+      stepsTaken: frozen.stepsTaken,
+      citations: [...frozen.citations],
+      blockedActions: [...frozen.blockedActions],
+      injectionReports: [...frozen.injectionReports],
+    },
+    taintLabel,
+  });
+  return { ...frozen, resultEvidence: { resultId: frozen.id, memoryId, eventId } };
+}
+
+/**
+ * Share helpers (TASK-064). They live beside the router because both the Share
+ * panel's procedures and the recipient's `resolve` need exactly one answer to
+ * "what may this person do with this View", and two copies of that answer is
+ * how a share surface ends up disagreeing with the server.
+ */
+
+/** The View, as this caller may see it. Not-visible reads as not-found. */
+export type ShareCtx = Pick<ApiContext, "wiring" | "identity" | "run">;
+
+export async function findSharedView(
+  ctx: ShareCtx,
+  organizationId: string,
+  viewId: string,
+): Promise<SavedViewRecord> {
+  const view = await ctx.wiring.viewConfigs.get(organizationId, ctx.identity.id, viewId);
+  if (!view) {
+    throw new TRPCError({ code: "NOT_FOUND", message: `unknown saved View ${viewId}` });
+  }
+  return view;
+}
+
+/** What a non-owner holds on this View right now, or null. */
+export async function resolveShareLevel(
+  ctx: ShareCtx,
+  organizationId: string,
+  viewId: string,
+): Promise<ShareAccessLevel | null> {
+  const view = await ctx.wiring.viewConfigs.get(organizationId, ctx.identity.id, viewId);
+  if (!view) return null;
+  // Ownership is not a share: the owner holds everything without a grant row.
+  if (view.ownerUserId === ctx.identity.id) return "coowner";
+  const grants = await ctx.wiring.shareGrants.listForTarget(
+    organizationId,
+    ctx.identity.id,
+    "view",
+    viewId,
+  );
+  const now = ctx.run.clock.nowISO();
+  let best: ShareAccessLevel | null = null;
+  for (const grant of grants) {
+    if (grant.granteeUserId !== ctx.identity.id) continue;
+    if (!isGrantUsable(grant, now)) continue;
+    if (best === null || atLeast(grant.accessLevel, best)) best = grant.accessLevel;
+  }
+  // An `organization`-scoped View is readable by every member by its own scope,
+  // with no grant involved — the same answer the store's read predicate gives.
+  if (best === null && view.scope === "organization") return "view";
+  return best;
+}
+
+/** Refuse unless the caller reaches `required` on this View. */
+export async function assertSharableView(
+  ctx: ShareCtx,
+  organizationId: string,
+  viewId: string,
+  required: ShareAccessLevel,
+): Promise<void> {
+  const level = await resolveShareLevel(ctx, organizationId, viewId);
+  if (level === null) {
+    throw new TRPCError({ code: "NOT_FOUND", message: `unknown saved View ${viewId}` });
+  }
+  if (!atLeast(level, required)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `This View is shared with you at ${level} access; ${required} is required.`,
+    });
+  }
 }

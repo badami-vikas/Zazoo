@@ -6549,3 +6549,160 @@ for Actions too. The
 `provisionGoalTask` helpers in the routers are now optional attribution, not a precondition, and
 can be deleted where nothing reads the Task. The `.claude/settings.json` PostToolUse hook could
 not be removed by the agent (auto-mode refuses settings edits) and is left for the user.
+## ADR-277 — The create surface is the Record's own page, and its Sections are a property of the Database (2026-09-03; attach: TASK-083; AP-168/AP-171, executing ADR-258/ADR-259/ADR-261)
+
+**Decision.** New opens the Database's Record page — every column on it, defaults pre-filled, one
+request and it happens on Save. The in-place draft row is deleted, not disabled. Which Sections
+(Notes, Intelligence, Governance) a Record page shows is stored **per Database**, per Organization,
+on the Local Plane at `record:sections:<specId>`, and read by one shared component that every Record
+page renders.
+
+**Why the shell owns the page.** `TableView` raised a create surface of its own once and the Form
+view had another; two create paths for one Database is how they came to disagree. `<DataViews>` holds
+the page and the table only raises the intent (`onRequestCreate`), so there is exactly one place a
+new Record can be composed and exactly one place to change it.
+
+**Why per-Database and not per-Record.** Two Records of one Database showing different Sections is
+the single-page divergence the UI gate exists to catch, so the store is keyed by spec id alone and
+the hook takes no Record id — there is no Record-scoped variant for a caller to reach for later.
+
+**Why the Local-Plane state store rather than a table.** This is per-Organization presentation state
+about a Database that ships with the application, the same shape as TASK-084's column overlay next
+door. Unlike that overlay it must answer for EVERY Database, including the ones the API process holds
+no spec for, so there is nothing to register it against and a table keyed on a registry would refuse
+most of the app.
+
+**Notes live in their own namespace** (`record:notes:<specId>`), which is what makes switching the
+Notes Section off a hide rather than a delete. A toggle that destroyed content would make the control
+unusable for its actual purpose.
+
+**Vocabulary.** The approving directive says "elements". `element` is retired canon (glossary:
+Record) and `check:vocabulary` is the authority on copy, identifiers and APIs. A brand-new surface
+asking for an allowlist entry is grandfathering, not migration — so every identifier, procedure and
+label ships as Record, and the ⋮ entry reads **Records**. The approved behaviour is unchanged.
+
+**Alternatives rejected:**
+- *A modal over the table.* A modal is not the page the Record gets afterwards, and the whole point
+  of C-34 is that the create surface and the Record page are the same page.
+- *Keeping the draft row for "quick" adds.* That is C-33, which AP-168 reversed; keeping both would
+  reintroduce the divergence the reversal removed.
+- *Per-page Section props.* A page that decides for itself is how two Records of one Database end up
+  different — the same class of defect as the vanishing add-row.
+
+**Consequences / follow-ups:** the gated add-row test was rewritten and still guards its original
+defect. Only one per-Module Record Detail page exists (`TaskRecordDetailPage`), so the "every Record
+page of that Database" half of the prototype test is provable on Tasks alone today — every other
+surface opens a Record in a side panel. Those panels should render `RecordSections` as they become
+pages; until they do, the toggle is honest but under-demonstrated.
+
+## ADR-278 — The toolbar users see is the canonical one; the other is deleted (2026-09-03; attach: TASK-061; user directive 2026-08-10 APPLIED)
+
+**Decision.** `<DataViews>`'s toolbar row is the ONE toolbar. `StandardToolbar.tsx` and the
+`ListDropdown` wrapper it alone consumed are deleted, and Approvals — their only consumer — renders
+its review queue through `<ModuleSurfaceLayout>` + `<DataViews>` like every other Module Page. The
+`KNOWN_DIVERGENCES` ratchet is empty and gone.
+
+**Why this direction and not the one the task named.** TASK-061's scope said "converge `<DataViews>`'s
+inline toolbar into `StandardToolbar`". Converging the wrong way would have moved fifteen pages onto a
+component with one consumer and fewer capabilities — no overflow collapse, no View switcher, no saved
+Lists — to satisfy a sentence. The outcome the row actually states is ONE toolbar in §5's slot order,
+and the row that fifteen pages already render is the one that has to survive. The direction changed;
+the outcome did not.
+
+**Every ratchet entry was closed on its merits, not swept.** Two pages were genuinely Databases drawn
+by hand (Research Runs, Approvals) and were converted. One needed only the layout (Second Brain). Two
+own no single Database and are exempt with written reasons — a page that stacks several Databases down
+an auto-height flow cannot use a layout whose first screen holds exactly one table region, and a
+signpost page has no rows at all. The last two were already exempt from the shell, and the primitive
+scan now honours that: **a page excused from the shell with a reason cannot then be required to use the
+shell's slots**, which is what was failing them for a page-local search box on a surface that has no
+toolbar to put one in.
+
+**The gate replaces the backlog rather than keeping an empty one.** An empty list nobody may add to is
+a formality; the burn-down existed to reach zero. What replaces it is stricter — a new assertion fails
+if a second toolbar component reappears, or if §5's slot order in the surviving row is reordered.
+
+**Consequences / follow-ups:** Approvals lost its empty-state hero — §6b keeps a View's chrome and says
+nothing at zero rows, so the explanation moved below the table where it explains instead of replacing.
+Research Runs are now started through the standard New gesture (ADR-277's Record page). FormView's
+Build/Preview split is deleted and click-outside autosave is scoped to an EXISTING Record, because
+autosaving a half-typed new one is exactly what C-34 forbids. **Not done:** the live desktop pass over
+the seven surfaces — every check here is static or headless (TASK-041).
+
+## ADR-279 — A share is a grant with a level, an expiry and a revocation; and the database decides who may read (2026-09-03; attach: TASK-064; user directive 2026-08-10 APPLIED)
+
+**Decision.** `share_grants` (migration 0048) generalizes the one sharing primitive Bridge had —
+`helpdesk_tickets.access_token`, whose trust model is "knowing the token proves you are the
+submitter" — into a scoped grant over a saved View: a target, an access level (`view` ⊂ `edit` ⊂
+`coowner`), an optional expiry and a revocation. `view.share.*` is its surface, and the Share panel
+that shipped disabled with an honest reason now acts.
+
+**The RLS change is the load-bearing part.** Migration 0047's `view_configs_read` admitted a caller's
+own Views and the `organization`-scoped ones. A grant on a personal View would therefore have granted
+nothing — the row was invisible to the recipient. 0048 replaces that policy to also admit a row a LIVE
+grant names the caller on, with expiry and revocation **inside the predicate**, so access ends at the
+database rather than at whichever caller remembers to check both conditions. `isGrantUsable` exists in
+the kernel for the same reason: one place decides, and `usable` is returned to clients rather than
+recomputed by them.
+
+**Revocation is a write, not a delete.** A grant that vanished cannot be audited, and "who could see
+this last week" is precisely the question a share ledger answers. There is no DELETE policy on the
+table at all.
+
+**The token is minted server-side.** An unguessable token the caller chose is not unguessable. The
+panel shows the token and prints no URL: Bridge has no route that opens a shared View yet, and a
+plausible-looking link would be a capability that does not exist (ADR-247).
+
+**The in-memory double takes the grant store.** A double that answered "may this person see this View"
+differently from production would be worse than no double — the divergence would show up as tests
+passing on a path that fails for users.
+
+**Alternatives rejected:**
+- *A boolean `shared` column on `view_configs`.* No level, no expiry, no revocation, no audit — every
+  question this task exists to answer would still be unanswerable.
+- *Reusing the Helpdesk token table.* Its rows mean "this is the submitter of this ticket". Overloading
+  them would give one table two trust models.
+- *Client-side expiry.* The client would eventually disagree with the server about who has access, and
+  the client's answer is the one the user sees.
+
+**Consequences / follow-ups — the honest half.** Enforcement is on the VIEW, not yet on the DATA. A
+recipient's `resolve` carries the sharer's hidden-column list and the server's `canEdit`/`canReshare`,
+but Bridge's Module read procedures take an identity, not a grant, so a recipient's rows remain their
+own RLS-scoped rows. "Cannot read a hidden column or a filtered-out row" therefore holds for the View
+and not for the Module data behind it; closing that means every Module read accepting a grant and
+applying the View's filters server-side — a cross-surface Tier C change with its own row. There is
+also no route that opens a shared View, so the second-identity walkthrough cannot be performed end to
+end today.
+
+## ADR-280 — Record metadata is a projection of the Event log, and an actor nobody recorded stays unknown (2026-09-03; attach: TASK-063; user directive 2026-08-10 APPLIED)
+
+**Decision.** `createdTime`, `createdBy`, `lastEditedTime` and `lastEditedBy` are real `ColumnKind`s,
+derived from `events` on read. Nothing writes them: `isFormEditable` refuses them, the Record page
+lists them with what fills them, and Change-type is handed no kind at all, because there is no type a
+derived column could become.
+
+**Why derived and not stored.** A copy of "when was this last touched" on the Record row can disagree
+with the append-only log that produced it, and the log is the one that cannot be rewritten. One
+`isMetadataColumn` predicate in `@bridge/tables` is what every surface asks, so the four kinds cannot
+mean one thing in the table and another in the form.
+
+**The actor comes from declared keys.** `events.payload` is free-form jsonb. Sniffing an actor out of
+it would invent provenance, so the five keys Bridge's own writers actually use are listed in one
+reviewable constant, and anything else reads `null` — an empty cell, not a plausible id (ADR-247).
+A Record with no Events reads unknown in every field rather than borrowing the row's arrival time.
+
+**The shell fetches, the page declares.** `<DataViews>` merges metadata into the rows before search
+and sort — sorting by "last edited" on unmerged rows would order on empty cells — and asks only when
+the spec declares one of the kinds. A page joins by adding the columns and its own
+`recordEntityType`: one spec edit, no fetch code, the same reason saved Lists live in the shell.
+
+**Alternatives rejected:**
+- *Columns on every Record table.* Four columns × every table, plus a backfill, plus a second source
+  of truth that drifts from the ledger.
+- *Deriving the actor from the row's owner.* The owner is who holds the Record, not who last touched
+  it; they are the same value often enough that the wrong one would go unnoticed.
+
+**Consequences / follow-ups:** wired on Task Manager, whose Events carry `entityType: "task"`. The
+in-memory mode has no durable Event log, so `EmptyRecordMetadataSource` returns nothing and the
+columns render blank there — deliberate. Extending to a second Database is a spec edit plus its
+`recordEntityType`; nothing else.
