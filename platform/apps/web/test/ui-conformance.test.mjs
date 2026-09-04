@@ -64,7 +64,11 @@ const REINVENTIONS = [
   },
   {
     // A bespoke toolbar row: the standard one is <StandardToolbar>.
-    pattern: /placeholder=["'`]Search\s/i,
+    // The leading boundary matters: `searchPlaceholder="Search jobs…"` is a
+    // page handing <DataViews> ITS placeholder, which is the compliant call,
+    // and the un-anchored pattern flagged it as the violation it is the
+    // opposite of. Only a real page-local `placeholder="Search …"` matches now.
+    pattern: /(?:^|[^a-zA-Z])placeholder=["'`]Search\s/i,
     rule: "§5 — the search slot belongs to <StandardToolbar>/<DataViews>, not a page-local input",
   },
   {
@@ -90,7 +94,6 @@ const KNOWN_DIVERGENCES = [
   "RelationshipSubmodulePage.tsx: missing <ModuleSurfaceLayout> missing <DataViews>",
   "ResearchRunsPage.tsx: missing <ModuleSurfaceLayout> missing <DataViews>",
   "SecondBrainPage.tsx: missing <ModuleSurfaceLayout>",
-  "JobPilotPage.tsx: §5 — the search slot belongs to <StandardToolbar>/<DataViews>, not a page-local input",
   "RelationshipHelpdeskPage.tsx: §5 — the search slot belongs to <StandardToolbar>/<DataViews>, not a page-local input",
   "SettingsPage.tsx: §5 — tabular data renders through <DataViews>, never a raw <table>",
 ];

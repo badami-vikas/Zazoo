@@ -11,6 +11,11 @@ import { D2CResearchPage } from "./pages/D2CResearchPage";
 import { D2CNotesPage } from "./pages/D2CNotesPage";
 import { PublicHelpdesk } from "./pages/PublicHelpdesk";
 import { OrganizationPage } from "./pages/OrganizationPage";
+// TASK-089: the Organization's own admin surface — its installed Modules,
+// their mount state/scopes/versions, and its membership. Reached from the
+// Organization control at the top of the rail (ADR-180's one granted slot),
+// never as a per-Module page (ADR-224/261).
+import { OrganizationAdminPage } from "./pages/OrganizationAdminPage";
 import { ChiefOfStaffPage } from "./pages/ChiefOfStaffPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TaskManagerPage } from "./pages/TaskManagerPage";
@@ -225,6 +230,7 @@ export const router = createBrowserRouter([
       { path: childPath(d2cNotesModule.route), element: <D2CNotesPage /> },
 
       { path: "organization", Component: OrganizationPage },
+      { path: "organization/admin", Component: OrganizationAdminPage },
 
       { path: "chief-of-staff", Component: ChiefOfStaffPage },
 
