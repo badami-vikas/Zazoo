@@ -199,7 +199,7 @@ test("REFRESH POLICY: corpus drift mints the next dataset version; dead cases ar
 test("learning.retrieval surface: status always answers; evals are flight-gated and honestly labeled", async () => {
   const { TRPCError } = await import("@trpc/server");
   // Flight OFF: status reports disabled, evals fail closed.
-  const offWiring = await buildWiring();
+  const offWiring = await buildWiring({ retrievalFusionEnabled: false });
   try {
     const clock = new SystemClock();
     const rng = new SeededRng(59);

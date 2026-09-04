@@ -1,0 +1,27 @@
+{
+  "name": "@bridge/devpilot",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "DevPilot Module package. Pure domain types, normalization, and Table specs for a freelance software engineer's tracked repos, pull requests, and issues, plus the Module manifest source-of-record. Holds no network and no credentials — sync is driven by @bridge/integrations-github through the API's governed Skill.",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit false",
+    "test": "node --test-reporter=dot --test dist/test/*.test.js",
+    "test:coverage": "node --experimental-test-coverage --test-coverage-include='dist/src/**' --test-coverage-exclude='**/test/**' --test dist/test/*.test.js"
+  },
+  "dependencies": {
+    "@bridge/core": "workspace:*",
+    "@bridge/tables": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3"
+  }
+}

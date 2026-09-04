@@ -21,6 +21,7 @@
  * are configured; otherwise a fail-closed factory (no fake/dummy data — the platform
  * sources only real data).
  */
+import { PILOT_ORGANIZATION } from "@bridge/core";
 import {
   InMemoryAgentStore,
   InMemoryEphemeralStore,
@@ -59,11 +60,15 @@ import {
   InMemorySkillManifestRegistry,
   InMemoryChildAgentRunStore,
   InMemoryResearchRunStore,
+  InMemoryViewConfigStore,
+  InMemoryShareGrantStore,
   InMemoryChatStore,
   InMemoryTaintAuditStore,
   PlaneRoutingTaintAuditStore,
   EchoModelProvider,
   type ModelProvider,
+  type ViewConfigStore,
+  type ShareGrantStore,
   type AgentQuery,
   type EphemeralQuery,
   type LedgerStore,
@@ -92,6 +97,9 @@ import {
   type SkillManifestRegistry,
   type ChildAgentRunStore,
   type ResearchRunStore,
+  createChatBackendRegistry,
+  type ChatBackend,
+  type ChatBackendRegistry,
   type ChatStore,
   type SkillManifest,
   type TaintAuditStore,
@@ -211,6 +219,11 @@ import {
   DrizzleSkillManifestRegistry,
   DrizzleChildAgentRunStore,
   DrizzleResearchRunStore,
+  DrizzleViewConfigStore,
+  DrizzleShareGrantStore,
+  DrizzleRecordMetadataStore,
+  EmptyRecordMetadataSource,
+  type RecordMetadataSource,
   DrizzleChatStore,
   DrizzleIntegrationStore,
   seedSkillManifests,
@@ -256,6 +269,8 @@ import {
 } from "@bridge/models";
 import { ManagedModelService } from "./chat/model-manager.js";
 import { ResidencyRoutingChatStore } from "./chat/residency-chat-store.js";
+import { ClaudeOAuthStore } from "./chat/claude-oauth.js";
+import { createClaudeCodeBackend } from "./chat/claude-code-backend.js";
 import {
   EgressExecutor,
   GoogleApiGatewayFactory,
@@ -315,6 +330,9 @@ import {
 import type { ModelBinding, QuarantinedCapture } from "@bridge/capability-kit";
 import {
   BUILT_IN_MODULES,
+  bridgeProfileFromEnv,
+  builtInModulesForProfile,
+  type BridgeProfile,
   CITED_ROLE_MODEL_PRACTICE_VERSION,
   DEALPILOT_SOURCING_AGENT_ID,
   GOVERNANCE_AGENT_RUNTIME_ID,
@@ -326,7 +344,7 @@ import {
   DEVPILOT_REVIEWER_AGENT_ID,
   resolveModuleAgentRuntimeId,
   resolveModuleAutomationRuntimeId,
-} from "./built-in-modules.js";
+} from "@bridge/module-manifests";
 import { deterministicUuid } from "./deterministic-uuid.js";
 import {
   InMemoryCaptureLedger,
@@ -350,7 +368,7 @@ import { getD2CDb, closeD2CConnection, type D2CDb } from "./d2c-store.js";
 // Exported: router.ts's `assertPilotOrganization` uses it to explicitly REJECT any
 // other organizationId (interim single-tenant safety fix, All fixes.md Phase 3 item 11a
 // — full multi-tenancy is out of scope for this pass).
-export const PILOT_ORGANIZATION = "b0000000-0000-4000-a000-000000000001";
+export { PILOT_ORGANIZATION };
 export const OUTREACH_AGENT = "b0000000-0000-4000-a000-0000000000d1";
 export const OUTREACH_ROLE = "b0000000-0000-4000-a000-0000000000f1";
 const OUTREACH_EVENT_PERMISSION = "b0000000-0000-4000-a000-0000000000c1";
@@ -504,7 +522,7 @@ export interface Wiring {
   /** Email paired with the approved Supabase Auth pilot subject. */
   pilotUserEmail: string;
   /** Feature flight for the TASK-032 learning observation loop (`learning.*`
-   * router). OFF by default; enabled via `BRIDGE_LEARNING_OBSERVATION=1` (or a
+   * router). ON by default (AP-182); `BRIDGE_LEARNING_OBSERVATION=0` turns it off (or a
    * test override). Disabled means every `learning.*` procedure fails closed
    * with a typed error and `learning.status` reports `{ enabled: false }` so
    * clients can honestly hide the surface instead of showing dead controls. */
@@ -520,7 +538,7 @@ export interface Wiring {
   /** JobPilot's persistence (Phase 4 — @bridge/jobpilot is pure logic, no store). */
   jobpilotStore: DrizzleJobPilotStore;
   /** Feature flight for the DevPilot Module (D0/D1, TASK-067/TASK-068). OFF by
-   * default; enabled via `BRIDGE_DEVPILOT=1` (or a test override). Disabled
+   * default (AP-182); `BRIDGE_DEVPILOT=0` turns it off (or a test override). Disabled
    * means every `devpilot.*` procedure except `status` fails closed. */
   devpilotEnabled: boolean;
   /** DevPilot's GitHub tracker surface — the store + gateway factory the
@@ -599,6 +617,15 @@ export interface Wiring {
    * Runs live in `childAgentRuns`). In-memory default; `buildPersistentPorts`
    * and the local-durable path bind `DrizzleResearchRunStore`. */
   researchRuns: ResearchRunStore;
+  /** TASK-062 — saved Views: the durable form of what was React-only
+   * `ViewConfig` state. Owner-scoped, with an `organization` scope that is
+   * readable org-wide and writable only by its owner. */
+  viewConfigs: ViewConfigStore;
+  /** TASK-064 — scoped share grants over a saved View: who may reach it, at
+   * what level, until when, and whether it has been revoked. */
+  shareGrants: ShareGrantStore;
+  /** TASK-063 — the Event-log read behind the derived metadata columns. */
+  recordMetadata: RecordMetadataSource;
   /** Plane-bound durable Chat threads, turns, and lifecycle references. */
   chatStore: ChatStore;
   /** Human-triggered managed local-model install/start lifecycle. */
@@ -637,7 +664,7 @@ export interface Wiring {
    * and the Second Brain projection read it, and only the governed
    * claim-acceptance path writes it. */
   claimStore: DrizzleClaimStore;
-  /** K3 flight. OFF by default; enabled via `BRIDGE_CLAIM_SUBSTRATE=1`
+  /** K3 flight. ON by default (AP-182); `BRIDGE_CLAIM_SUBSTRATE=0` turns it off
    * (or a test override). Disabled means every `learning.claims.*`
    * procedure fails closed and the Second Brain omits the knowledge region. */
   claimSubstrateEnabled: boolean;
@@ -655,16 +682,19 @@ export interface Wiring {
   skillRegistry: SkillRegistry;
   /** Feature flight for LA5 retrieval fusion (chat memory slot filled by
    * structured+vector+graph RRF fusion; scheduled embedding indexer). OFF by
-   * default; enabled via `BRIDGE_RETRIEVAL_FUSION=1` (or a test override).
+   * default (AP-182); `BRIDGE_RETRIEVAL_FUSION=0` turns it off (or a test override).
    * Disabled means chat keeps the pre-fusion recency slice and no indexer
    * runs — nothing new is stored or read. */
   retrievalFusionEnabled: boolean;
   /** Feature flight for Commons capability archetypes (roadmap-v2 Phase 4:
    * generalize accepted preferences → contribute; seed suggestions from
-   * Commons archetypes). OFF by default; `BRIDGE_COMMONS_ARCHETYPES=1` (or a
+   * Commons archetypes). ON by default (AP-182); `BRIDGE_COMMONS_ARCHETYPES=0` (or a
    * test override). Every `learning.archetypes.*` procedure fails closed
    * while off — nothing is generalized, published, or seeded. */
   commonsArchetypesEnabled: boolean;
+  /** `BRIDGE_PROFILE`: "egg" boots the bare Egg (kernel router, EGG_MODULES only);
+   * "full" (default) is everything. Read once at boot; see packages/module-manifests. */
+  profile: BridgeProfile;
   /** ModelProvider registry/router (@bridge/models): resolves capability manifest modelBindings to
    * providers, honoring planeDefault (capture/sensor plane = local models, never cloud
    * fallback). In-memory mode registers the network-free echo double; persistent mode
@@ -676,6 +706,14 @@ export interface Wiring {
    * report existence only; the raw key is read exactly once, at boot, to
    * register the provider above. */
   modelProviderKeys: ModelProviderKeyStore;
+  /** Claude sign-in for the agentic chat backend — PKCE tokens in the same
+   * Local Plane vault the model-provider keys use (see claude-oauth.ts). */
+  claudeOAuth: ClaudeOAuthStore;
+  /** Swappable conversation backends (chat-backend.ts). "bridge" is always
+   * registered; agentic backends appear only when this deployment can run
+   * them, so an unavailable backend is absent rather than offered-and-failing. */
+  chatBackends: ChatBackendRegistry;
+
   /** TASK-023 public-web SearchProvider router. Phase 1 accepts only
    * rights-verified Tier-1 free-direct providers and has no paid escalation path. */
   searchProviders: SearchProviderRouter;
@@ -720,19 +758,21 @@ export interface Wiring {
 
 export interface BuildWiringOptions {
   /** Test/deployment override for the learning observation flight. Omitted
-   * means the environment decides (`BRIDGE_LEARNING_OBSERVATION`), default OFF. */
+   * means the environment decides (`BRIDGE_LEARNING_OBSERVATION=0` turns it off), default ON. */
   learningObservationEnabled?: boolean;
   /** Test/deployment override for the LA5 retrieval-fusion flight. Omitted
-   * means the environment decides (`BRIDGE_RETRIEVAL_FUSION`), default OFF. */
+   * means the environment decides (`BRIDGE_RETRIEVAL_FUSION=0` turns it off), default ON. */
   retrievalFusionEnabled?: boolean;
   /** Test/deployment override for the Commons-archetypes flight. Omitted
-   * means the environment decides (`BRIDGE_COMMONS_ARCHETYPES`), default OFF. */
+   * means the environment decides (`BRIDGE_COMMONS_ARCHETYPES=0` turns it off), default ON. */
   commonsArchetypesEnabled?: boolean;
+  /** Test/deployment override for the Egg profile; omitted means BRIDGE_PROFILE decides. */
+  profile?: BridgeProfile;
   /** Test/deployment override for the K3 knowledge-substrate flight. Omitted
-   * means the environment decides (`BRIDGE_CLAIM_SUBSTRATE`), default OFF. */
+   * means the environment decides (`BRIDGE_CLAIM_SUBSTRATE=0` turns it off), default ON. */
   claimSubstrateEnabled?: boolean;
   /** Test/deployment override for the DevPilot Module flight. Omitted means
-   * the environment decides (`BRIDGE_DEVPILOT`), default OFF. */
+   * the environment decides (`BRIDGE_DEVPILOT=0` turns it off), default ON. */
   devpilotEnabled?: boolean;
   /** Explicit semantic embedder for the LA5 vector lane (tests/deployments).
    * Omitted means the wiring resolves one from the registered local
@@ -741,6 +781,10 @@ export interface BuildWiringOptions {
   /** Explicit provider set for composition tests or alternate deployments.
    * Omitted means the normal environment-bound providers for the selected mode. */
   modelProviders?: readonly ModelProvider[];
+  /** Explicit agentic chat backends. Omitted means the environment-bound set
+   * (Claude Code on a Local Plane deployment, none in public cloud). Supplying
+   * an empty array is meaningful: it registers no backend at all. */
+  chatBackends?: readonly ChatBackend[];
   /** Explicit SearchProvider router for composition tests or deployments. */
   searchProviders?: SearchProviderRouter;
   /** Explicit local ContentGuard for composition tests or alternate deployments. */
@@ -4548,6 +4592,14 @@ export interface ModePorts {
   /** TASK-028 — Research Run records/steps. In-memory default;
    * `buildPersistentPorts` binds `DrizzleResearchRunStore`. */
   researchRuns: ResearchRunStore;
+  /** TASK-062 — saved Views. In-memory default; the persistent and
+   * local-durable paths bind `DrizzleViewConfigStore`. */
+  viewConfigs: ViewConfigStore;
+  /** TASK-064 — share grants. Same three bindings as the Views they point at. */
+  shareGrants: ShareGrantStore;
+  /** TASK-063 — derived Record metadata. Empty in-memory: no durable Event log
+   * there, and an invented creation time is worse than an honest blank. */
+  recordMetadata: RecordMetadataSource;
   chatStore: ChatStore;
   /** ModelProviders this mode registers (echo double in-memory; Ollama/Anthropic persistent). */
   modelProviders: ModelProvider[];
@@ -4634,6 +4686,7 @@ export function buildPersistentPorts(env: {
   );
   const childAgentRunStore = new DrizzleChildAgentRunStore(db);
   const researchRunStore = new DrizzleResearchRunStore(db);
+  const viewConfigStore = new DrizzleViewConfigStore(db);
 
   return {
     roles: ports.roles,
@@ -4677,6 +4730,9 @@ export function buildPersistentPorts(env: {
     skillManifests: skillManifestRegistry,
     childAgentRuns: childAgentRunStore,
     researchRuns: researchRunStore,
+    viewConfigs: viewConfigStore,
+    shareGrants: new DrizzleShareGrantStore(db),
+    recordMetadata: new DrizzleRecordMetadataStore(db),
     chatStore: new DrizzleChatStore(db),
     // Real providers in persistent mode: Ollama is always registered (local plane,
     // dev-default per CLAUDE.md); Anthropic/Groq only when their keys are configured —
@@ -4935,6 +4991,24 @@ export async function buildInMemoryPorts(env: {
     })(),
     childAgentRuns: localDirDurable ? new DrizzleChildAgentRunStore(localDb) : new InMemoryChildAgentRunStore(),
     researchRuns: localDirDurable ? new DrizzleResearchRunStore(localDb) : new InMemoryResearchRunStore(),
+    // The in-memory pair is built together on purpose: the View store answers
+    // "may this person see this View" from the grants, exactly as the database's
+    // `view_configs_read` policy does (TASK-064, migration 0048). Constructing
+    // them apart would give the double a different answer from production.
+    ...(() => {
+      const grants = localDirDurable
+        ? new DrizzleShareGrantStore(localDb)
+        : new InMemoryShareGrantStore();
+      return {
+        viewConfigs: localDirDurable
+          ? new DrizzleViewConfigStore(localDb)
+          : new InMemoryViewConfigStore(grants),
+        shareGrants: grants,
+        recordMetadata: localDirDurable
+          ? new DrizzleRecordMetadataStore(localDb)
+          : new EmptyRecordMetadataSource(),
+      };
+    })(),
     chatStore: localDirDurable
       ? new DrizzleChatStore(localDb)
       : new InMemoryChatStore(),
@@ -5160,8 +5234,22 @@ function publicCloudCredentialVault(): SourceCredentialVault {
 export async function seedBuiltInModules(
   moduleStore: ModuleStore,
   organizationId: string,
+  profile: BridgeProfile = "full",
 ): Promise<void> {
-  for (const builtIn of BUILT_IN_MODULES) {
+  const seeded = builtInModulesForProfile(profile);
+  // Egg profile: a built-in that is Commons content must not stay "installed"
+  // from an earlier full-profile boot — its router and Pages are not mounted,
+  // so an installed row would be a nav entry leading nowhere. Legacy, never
+  // deleted: the rows are evidence, and a full-profile boot re-seeds them.
+  if (profile === "egg") {
+    for (const builtIn of BUILT_IN_MODULES) {
+      if (seeded.includes(builtIn)) continue;
+      for (const row of await moduleStore.listVersions(organizationId, builtIn.manifest.name)) {
+        if (row.state === "available") await moduleStore.setState(row.id, "legacy");
+      }
+    }
+  }
+  for (const builtIn of seeded) {
     const manifest = parseModuleManifest({ module: builtIn.manifest });
     const versions = await moduleStore.listVersions(organizationId, manifest.name);
     const current = versions.find((row) => row.moduleVersion === manifest.version);
@@ -5531,27 +5619,29 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       "BRIDGE_LOCAL_DIR is required: DealPilot Records, captures, and continuation state cannot use process-local runtime storage",
     );
   }
-  // TASK-032 flight — options override wins (tests/deployments); otherwise
-  // the environment decides; absent both, the loop is OFF.
+  // Flights (AP-182): options override wins (tests/deployments); otherwise the
+  // environment decides; absent both, every flight is ON. The env var is the
+  // emergency off switch, not the on switch.
   const learningObservationEnabled =
     options.learningObservationEnabled ??
-    ["1", "true"].includes((process.env.BRIDGE_LEARNING_OBSERVATION ?? "").trim().toLowerCase());
-  // LA5 flight — same override-then-environment resolution, default OFF.
+    !["0", "false"].includes((process.env.BRIDGE_LEARNING_OBSERVATION ?? "").trim().toLowerCase());
+  // LA5 flight — same resolution, default ON.
   const retrievalFusionEnabled =
     options.retrievalFusionEnabled ??
-    ["1", "true"].includes((process.env.BRIDGE_RETRIEVAL_FUSION ?? "").trim().toLowerCase());
-  // Commons-archetypes flight (roadmap-v2 Phase 4) — same resolution, default OFF.
+    !["0", "false"].includes((process.env.BRIDGE_RETRIEVAL_FUSION ?? "").trim().toLowerCase());
+  // Commons-archetypes flight (roadmap-v2 Phase 4) — same resolution, default ON.
+  const profile: BridgeProfile = options.profile ?? bridgeProfileFromEnv(process.env);
   const commonsArchetypesEnabled =
     options.commonsArchetypesEnabled ??
-    ["1", "true"].includes((process.env.BRIDGE_COMMONS_ARCHETYPES ?? "").trim().toLowerCase());
-  // K3 knowledge-substrate flight (TASK-047) — same resolution, default OFF.
+    !["0", "false"].includes((process.env.BRIDGE_COMMONS_ARCHETYPES ?? "").trim().toLowerCase());
+  // K3 knowledge-substrate flight (TASK-047) — same resolution, default ON.
   const claimSubstrateEnabled =
     options.claimSubstrateEnabled ??
-    ["1", "true"].includes((process.env.BRIDGE_CLAIM_SUBSTRATE ?? "").trim().toLowerCase());
-  // DevPilot flight (D0, TASK-067) — same resolution, default OFF.
+    !["0", "false"].includes((process.env.BRIDGE_CLAIM_SUBSTRATE ?? "").trim().toLowerCase());
+  // DevPilot flight (D0, TASK-067) — same resolution, default ON.
   const devpilotEnabled =
     options.devpilotEnabled ??
-    ["1", "true"].includes((process.env.BRIDGE_DEVPILOT ?? "").trim().toLowerCase());
+    !["0", "false"].includes((process.env.BRIDGE_DEVPILOT ?? "").trim().toLowerCase());
   // LA5 semantic embedder — explicit override wins; otherwise the ONLY
   // provider trusted for real semantics today is Ollama (its embed hits a
   // genuine embedding model). The Echo double's pseudo-embed is a test
@@ -5760,6 +5850,9 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     skillManifests,
     childAgentRuns,
     researchRuns,
+    viewConfigs,
+    shareGrants,
+    recordMetadata,
     chatStore: modeChatStore,
     modelProviders: modeModelProviders,
     memory,
@@ -5845,6 +5938,18 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     state: localPlane.state,
     vault: dealPilotCredentialVault,
   });
+  const claudeOAuth = new ClaudeOAuthStore({
+    state: localPlane.state,
+    vault: dealPilotCredentialVault,
+  });
+  // The agentic backend is Local-Plane-only machinery: it spawns a subprocess
+  // that reads the user's files. A public-cloud deployment has neither those
+  // files nor the right to touch them, so it simply never registers — the
+  // model menu then shows no such option rather than an option that fails.
+  const chatBackends = createChatBackendRegistry(
+    options.chatBackends ??
+      (publicCloudOnly ? [] : [createClaudeCodeBackend({ oauth: claudeOAuth })]),
+  );
 
   // A model-provider key saved in Settings becomes a live provider exactly
   // once, HERE, at boot — which is why the Settings UI says "restart to
@@ -6582,7 +6687,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
 
   // Built-in manifest content is immutable per version. New versions replace
   // the available installation while retaining prior rows as legacy evidence.
-  await seedBuiltInModules(moduleStore, PILOT_ORGANIZATION);
+  await seedBuiltInModules(moduleStore, PILOT_ORGANIZATION, profile);
 
   // AP-083 — populate the pilot Organization's Cloud-Plane demo data so the web
   // app's modules are not empty. Runs ONLY on the deployed public cloud (which
@@ -6600,7 +6705,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
 
   // Signed Module manifests opt individual Automations into the executable
   // runtime with a stable Automation id. Inventory-only rows remain non-clickable.
-  for (const pkg of BUILT_IN_MODULES) {
+  for (const pkg of builtInModulesForProfile(profile)) {
     const moduleAgents = new Map((pkg.manifest.module?.agents ?? []).map((agent) => [agent.id, agent]));
     for (const automation of pkg.manifest.module?.automations ?? []) {
       if (!automation.automationId) continue;
@@ -6983,10 +7088,13 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     vectorIndex,
     retrievalFusionEnabled,
     commonsArchetypesEnabled,
+    profile,
     claimSubstrateEnabled,
     devpilotEnabled,
     devpilot: { store: devpilotStore, gateways: githubGatewayFactory },
     modelProviderKeys,
+    claudeOAuth,
+    chatBackends,
     ...(semanticEmbedder ? { semanticEmbedder } : {}),
     skillRegistry,
     accountingDb,
@@ -7026,6 +7134,9 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     skillManifests,
     childAgentRuns,
     researchRuns,
+    viewConfigs,
+    shareGrants,
+    recordMetadata,
     chatStore,
     managedModel,
     cultureFetchStore,

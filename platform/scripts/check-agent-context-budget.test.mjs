@@ -41,7 +41,7 @@ test('compact canonical guidance stays within every context budget', () => {
   );
 });
 
-test('oversized canonical and path guidance fail with actionable violations', () => {
+test('oversized canonical and path guidance WARN with actionable messages but do not block (AP-182)', () => {
   const files = baseFiles();
   files[0].content = `${'word '.repeat(1_001)}\n`;
   files.push({
@@ -53,12 +53,13 @@ test('oversized canonical and path guidance fail with actionable violations', ()
   });
 
   const result = analyzeAgentContext(files);
-  assert.ok(result.violations.some((violation) => violation.startsWith('CLAUDE.md words')));
-  assert.ok(result.violations.some((violation) => violation.includes('per-file budget')));
-  assert.ok(result.violations.some((violation) => violation.includes('pointer-only')));
+  assert.deepEqual(result.violations, []);
+  assert.ok(result.warnings.some((warning) => warning.startsWith('CLAUDE.md words')));
+  assert.ok(result.warnings.some((warning) => warning.includes('per-file budget')));
+  assert.ok(result.warnings.some((warning) => warning.includes('pointer-only')));
 });
 
-test('project skill growth beyond the approved bundle fails even when each skill is small', () => {
+test('project skill growth beyond the approved bundle warns even when each skill is small', () => {
   const files = baseFiles();
   for (let index = 0; index < 46; index += 1) {
     files.push({
@@ -68,7 +69,18 @@ test('project skill growth beyond the approved bundle fails even when each skill
   }
 
   const result = analyzeAgentContext(files);
-  assert.ok(result.violations.includes('project skill count is 46, budget is 45'));
+  assert.deepEqual(result.violations, []);
+  assert.ok(result.warnings.includes('project skill count is 46, budget is 45'));
+});
+
+test('a changed count of disabled overrides is not a violation (AP-182 removed the equality checks)', () => {
+  const files = baseFiles();
+  files.find((file) => file.path === '.claude/settings.json').content = JSON.stringify({
+    enableWorkflows: false,
+    enabledPlugins: { one: false },
+    skillOverrides: { one: 'off' },
+  });
+  assert.deepEqual(analyzeAgentContext(files).violations, []);
 });
 
 test('missing skill scoping and enabled plugins fail closed', () => {
@@ -80,8 +92,6 @@ test('missing skill scoping and enabled plugins fail closed', () => {
   });
 
   const result = analyzeAgentContext(files);
-  assert.ok(result.violations.includes('disabled skill overrides are 0, expected 111'));
-  assert.ok(result.violations.includes('disabled plugins are 0, expected 5'));
   assert.ok(result.violations.includes('every project skill override must be off'));
   assert.ok(result.violations.includes('every project plugin entry must be disabled'));
   assert.ok(result.violations.includes('Claude workflows must remain disabled for this project'));

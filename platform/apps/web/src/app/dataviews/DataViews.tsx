@@ -44,6 +44,7 @@
  * table bottoms out is the WANTED behaviour, and `contain` would break it.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { defaultViewConfig } from "@bridge/tables";
 import type { RowFilter, TableSpec, ViewConfig, ViewKind } from "@bridge/tables";
 import { StandardDropdown } from "../components/shared/StandardDropdown.js";
 import { Button } from "../components/ui/button.js";
@@ -68,7 +69,12 @@ import {
 } from "./registry.js";
 import { computeEligibleKinds, migrateViewConfig, viewConfigForKind } from "./eligibility.js";
 import { filterRowsByQuery } from "./rowSearch.js";
-import { ArrowUpDown, ChevronDown, ChevronUp, Eye, Filter, List as ListIcon, MoreVertical, Plus, Search } from "lucide-react";
+import { useSavedViews } from "./useSavedViews.js";
+import { RECORD_SECTION_IDS, RECORD_SECTION_LABELS, useRecordSections } from "./useRecordSections.js";
+import { RecordPage } from "./RecordPage.js";
+import { useShareGrants, type ShareAccessLevel } from "./useShareGrants.js";
+import { useRecordMetadata } from "./useRecordMetadata.js";
+import { ArrowUpDown, ChevronDown, ChevronUp, Eye, Filter, LayoutList, List as ListIcon, MoreVertical, Plus, Search } from "lucide-react";
 import type { DataRow, DataViewProps } from "./types.js";
 
 /**
@@ -160,6 +166,20 @@ export interface DataViewsProps
    * in the 3-dots menu.
    */
   actions?: ReactNode;
+  /**
+   * The Module this Database belongs to, for an Record page's Sections.
+   * Defaults to the spec id's own prefix (`deal-pilot.deals` → `deal-pilot`),
+   * which is how nearly every spec in the repository is named; the handful
+   * whose Database is not named after its Module pass it.
+   */
+  moduleName?: string;
+  /**
+   * What the Event log calls these Records (TASK-063). Supplying it fills the
+   * derived `createdTime`/`createdBy`/`lastEditedTime`/`lastEditedBy` columns
+   * for the rows on screen; without it they render honestly empty rather than
+   * showing a time nothing recorded.
+   */
+  recordEntityType?: string;
 }
 
 export function DataViews({
@@ -174,9 +194,27 @@ export function DataViews({
   onAddView,
   insights,
   actions,
+  moduleName,
+  recordEntityType,
   ...viewProps
 }: DataViewsProps) {
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+  // TASK-062 — saved Lists. Keyed by the Database (the TableSpec id), so a
+  // second Database shows its own Views and never this one's.
+  const savedViews = useSavedViews(spec.id);
+  const [listNameDraft, setListNameDraft] = useState("");
+  const [listSaveError, setListSaveError] = useState<string | null>(null);
+  const [listPopoverOpen, setListPopoverOpen] = useState(false);
+  // TASK-064 — the Share panel's data. Keyed by the SELECTED saved List,
+  // because a share points at a saved View and "All" is not one.
+  const shareGrants = useShareGrants(savedViews.selectedId);
+  const [shareLevel, setShareLevel] = useState<ShareAccessLevel>("view");
+  const [shareLink, setShareLink] = useState<string | null>(null);
+  // TASK-083 — which Sections every Record page of this Database shows.
+  const recordSections = useRecordSections(spec.id);
+  /** New is open. The Record page replaces the view; nothing is written until
+   *  Save, so backing out is just this flag going false. */
+  const [creating, setCreating] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(true);
   const [filterDraft, setFilterDraft] = useState("");
   const [filterColumn, setFilterColumn] = useState(spec.columns[0]?.id ?? "");
@@ -185,9 +223,15 @@ export function DataViews({
   const rowRef = useRef<HTMLDivElement>(null);
   const hidden = useToolbarOverflow(rowRef);
 
+  // Derived metadata first, so a search or a sort on "last edited" sees the
+  // real value rather than an empty cell (TASK-063).
+  const withMetadata = useRecordMetadata(spec, data, recordEntityType);
   // Free-text search across all columns, applied before the view's own column
   // filters/sorts. Shared by every Module table (empty query = no filtering).
-  const searchedData = useMemo(() => filterRowsByQuery(data, search), [data, search]);
+  const searchedData = useMemo(
+    () => filterRowsByQuery(withMetadata, search),
+    [withMetadata, search],
+  );
 
   const switcherKinds = useMemo(() => {
     const eligible = computeEligibleKinds(spec);
@@ -256,6 +300,31 @@ export function DataViews({
     search !== "" ||
     filterDraft !== "";
 
+  /** Save what is on screen — the view config AND the shell's own column
+   * visibility — as a named List on this Database. */
+  async function saveCurrentList() {
+    const name = listNameDraft.trim();
+    if (name === "") return;
+    setListSaveError(null);
+    try {
+      await savedViews.save(name, activeView!, [...hiddenColumns]);
+      setListNameDraft("");
+      setListPopoverOpen(false);
+    } catch (cause) {
+      setListSaveError(cause instanceof Error ? cause.message : "Could not save this list");
+    }
+  }
+
+  async function updateCurrentList() {
+    setListSaveError(null);
+    try {
+      await savedViews.update(activeView!, [...hiddenColumns]);
+      setListPopoverOpen(false);
+    } catch (cause) {
+      setListSaveError(cause instanceof Error ? cause.message : "Could not update this list");
+    }
+  }
+
   function resetView() {
     setHiddenColumns(new Set());
     setSearch("");
@@ -271,7 +340,7 @@ export function DataViews({
           child that can shrink. As the row runs out of width the response is
           staged, not a wrap: the search box narrows first (`ToolbarSearch`),
           then button labels drop to icon-only, and only once that's
-          exhausted does an element move into the 3-dots overflow menu — see
+          exhausted does a Record move into the 3-dots overflow menu — see
           `useToolbarOverflow` below. This was specified in
           ui-architecture-rules-2026-07.md long before this fix; the row had
           drifted back to `flex-wrap` and a two-group split, which is exactly
@@ -279,23 +348,158 @@ export function DataViews({
       <div ref={rowRef} className="flex flex-none flex-nowrap items-center gap-2 overflow-hidden">
         {/* §5: List dropdown ALWAYS renders first, View dropdown second — this is
             the enforcement point, not StandardToolbar (which almost nothing
-            mounts). "All" is the one real List every Database has today; saved
-            Lists are TASK-062 (ViewConfig persistence isn't built yet), so Add
-            List is shown — never hidden — disabled with that reason (§3a/AP-021:
-            explain, don't omit) but reachable by keyboard/screen reader too
-            (aria-disabled, not disabled — see StandardDropdown). */}
+            mounts). "All" is every Database's own default; the entries beside
+            it are saved Views (TASK-062), durable per Database and per owner.
+            Add List opens a name field rather than saving an unnamed View: a
+            List a user cannot recognise in this dropdown is not a saved List.
+            When the surface cannot reach the store at all, the row stays
+            visible and says why (§3a/AP-021: explain, don't omit). */}
         <div className="flex shrink-0 items-center gap-2">
           <StandardDropdown
             ariaLabel="Select list"
-            options={[{ id: "all", label: "All" }]}
-            activeId="all"
-            onSelect={() => {}}
+            options={[
+              { id: "all", label: "All" },
+              ...savedViews.views.map((saved) => ({ id: saved.id, label: saved.name })),
+            ]}
+            activeId={savedViews.selectedId ?? "all"}
+            onSelect={(id) => {
+              const chosen = savedViews.select(id === "all" ? null : id);
+              if (!chosen) {
+                // "All" is the Database's own default view, not a saved one.
+                setHiddenColumns(new Set());
+                onViewChange(defaultViewConfig(activeView!.id, activeView!.kind));
+                return;
+              }
+              // A saved View restores BOTH halves of what was on screen: the
+              // view config and the column visibility the shell owns.
+              setHiddenColumns(new Set(chosen.hiddenColumns));
+              onViewChange(chosen.config as unknown as ViewConfig);
+            }}
+            {...(savedViews.unavailableReason === null
+              ? { onAdd: () => setListPopoverOpen(true) }
+              : {})}
             addLabel="Add list"
-            addDisabledReason="Saved Lists need persisted View configuration, which is not built yet (TASK-062)."
+            {...(savedViews.unavailableReason !== null
+              ? { addDisabledReason: `Saved Lists are unavailable: ${savedViews.unavailableReason}` }
+              : {})}
             emptyLabel="No lists yet"
             triggerIcon={<ListIcon className="size-4 shrink-0" style={{ color: "var(--color-steel)" }} />}
             showLabel={!hidden.has("list-label")}
           />
+          {/* Naming a List. Anchored beside the dropdown that opened it rather
+              than inside it, because StandardDropdown closes on select and a
+              field that vanishes mid-typing is not a field. */}
+          <Popover open={listPopoverOpen} onOpenChange={setListPopoverOpen}>
+            <PopoverTrigger asChild>
+              <span className="sr-only" aria-hidden />
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-64 space-y-2">
+              <div className="text-xs font-medium text-muted-foreground">
+                Save this list
+              </div>
+              <Input
+                autoFocus
+                placeholder="Name this list…"
+                aria-label="List name"
+                value={listNameDraft}
+                onChange={(event) => setListNameDraft(event.target.value)}
+                onKeyDown={(event) => event.key === "Enter" && void saveCurrentList()}
+                className="h-8 w-full rounded-lg border"
+                style={{ borderColor: "var(--color-border)" }}
+              />
+              {listSaveError && (
+                <p className="text-xs text-destructive" role="alert">
+                  {listSaveError}
+                </p>
+              )}
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  className="flex-1"
+                  disabled={listNameDraft.trim() === ""}
+                  onClick={() => void saveCurrentList()}
+                >
+                  Save list
+                </Button>
+                {savedViews.selectedId && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void updateCurrentList()}
+                    title="Overwrite the selected list with what is on screen"
+                  >
+                    Update
+                  </Button>
+                )}
+              </div>
+
+              {/* SHARE (TASK-064). The affordance shipped disabled with an
+                  honest reason — Bridge's only sharing primitive was welded to
+                  Helpdesk. It is generalized now, so the control acts. */}
+              <div className="border-t pt-2" style={{ borderColor: "var(--color-border)" }}>
+                <div className="text-xs font-medium text-muted-foreground">Share this list</div>
+                {shareGrants.unavailableReason ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {shareGrants.unavailableReason}
+                  </p>
+                ) : (
+                  <>
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <select
+                        aria-label="Share access level"
+                        value={shareLevel}
+                        onChange={(event) => setShareLevel(event.target.value as ShareAccessLevel)}
+                        className="h-8 flex-1 rounded-lg border px-2 text-xs"
+                        style={{ borderColor: "var(--color-border)" }}
+                      >
+                        <option value="view">Can view</option>
+                        <option value="edit">Can edit</option>
+                        <option value="coowner">Co-owner</option>
+                      </select>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          const grant = await shareGrants.createLink(shareLevel);
+                          setShareLink(grant?.accessToken ?? null);
+                        }}
+                      >
+                        Create link
+                      </Button>
+                    </div>
+                    {shareLink && (
+                      // The token itself, not a fabricated URL: Bridge has no
+                      // route that opens a shared View yet, and printing one
+                      // would be a capability that does not exist (ADR-247).
+                      <p className="mt-1.5 break-all text-xs text-muted-foreground">
+                        Share token: <span className="font-mono">{shareLink}</span>
+                      </p>
+                    )}
+                    <ul className="mt-2 space-y-1">
+                      {shareGrants.grants.map((grant) => (
+                        <li key={grant.id} className="flex items-center gap-2 text-xs">
+                          <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                            {grant.granteeUserId ? "Member" : "Link"} · {grant.accessLevel}
+                            {grant.usable ? "" : " · revoked"}
+                          </span>
+                          {grant.usable && (
+                            <button
+                              type="button"
+                              className="rounded border px-1.5 py-0.5"
+                              style={{ borderColor: "var(--color-border)" }}
+                              onClick={() => void shareGrants.revoke(grant.id)}
+                            >
+                              Revoke
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
           {/* §5e: the View dropdown is a StandardDropdown like every other dropdown —
               selected first, searchable, pinned Add slot. Not a bespoke Select. */}
           <StandardDropdown
@@ -422,7 +626,7 @@ export function DataViews({
             <DropdownMenuContent align="end" className="w-60">
               {/* When the row has no space left, Filter drops out of the row
                   and lives here instead — same input, same handler, just a
-                  different address (user directive 2026-08-10: "the elements
+                  different address (user directive 2026-08-10: "the Records
                   should move inside 3 dots one by one"). Key/click events are
                   stopped so Radix's menu type-ahead doesn't eat keystrokes. */}
               {hidden.has("filter") && (
@@ -494,6 +698,43 @@ export function DataViews({
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
 
+              {/* Records (TASK-083, ADR-261 under AP-171). PER-DATABASE:
+                  switching one on or off applies to every Record of this
+                  Database. Per-Record toggling was rejected — two Records of
+                  one Database with different Sections is exactly the
+                  single-page divergence the UI gate exists to catch. */}
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="justify-between">
+                  <span className="flex items-center gap-2">
+                    <LayoutList className="size-4" /> Records
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {RECORD_SECTION_IDS.filter((id) => recordSections.sections[id]).length} on
+                  </span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {RECORD_SECTION_IDS.map((section) => (
+                    <DropdownMenuCheckboxItem
+                      key={section}
+                      checked={recordSections.sections[section]}
+                      disabled={!recordSections.ready || recordSections.unavailableReason !== null}
+                      title={recordSections.unavailableReason ?? undefined}
+                      onSelect={(event) => event.preventDefault()}
+                      onCheckedChange={(checked) =>
+                        void recordSections.toggle(section, checked === true)
+                      }
+                    >
+                      {RECORD_SECTION_LABELS[section]}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                  {recordSections.unavailableReason && (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                      {recordSections.unavailableReason}
+                    </div>
+                  )}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger className="justify-between">
                   <span className="flex items-center gap-2">
@@ -552,6 +793,17 @@ export function DataViews({
       {/* THE DEFINITE-HEIGHT BOX. Nothing below this line may fall back to
           content sizing — see the header block. */}
       <div className={fill ? "min-h-0 flex-1 overflow-auto" : "h-[28rem] overflow-auto"}>
+        {creating ? (
+          <RecordPage
+            spec={spec}
+            moduleName={moduleName ?? spec.id.split(".")[0]!}
+            {...(viewProps.onInsert ? { onSave: viewProps.onInsert } : {})}
+            {...(viewProps.insertDisabledReason
+              ? { saveDisabledReason: viewProps.insertDisabledReason }
+              : {})}
+            onCancel={() => setCreating(false)}
+          />
+        ) : (
         <ViewComponent
           spec={visibleSpec}
           view={activeView}
@@ -567,7 +819,9 @@ export function DataViews({
             setHiddenColumns((current) => new Set(current).add(columnId));
             viewProps.onHideColumn?.(columnId);
           }}
+          onRequestCreate={() => setCreating(true)}
         />
+        )}
       </div>
     </div>
   );

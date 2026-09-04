@@ -1,16 +1,14 @@
-import { createBrowserRouter, Navigate, useParams } from "react-router";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { createBrowserRouter, Navigate, useParams, type RouteObject } from "react-router";
 import { moduleNavTarget, requireBuiltInModule } from "@bridge/module-manifests";
 import Layout from "./Layout";
-import { DealPilotPage } from "./pages/DealPilotPage";
-import { GoogleIntegrationPanel } from "./pages/GoogleIntegrationPanel";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
-import { JobPilotPage } from "./pages/JobPilotPage";
-import { AccountingPage } from "./pages/AccountingPage";
-import { D2COrdersPage, D2CInventoryPage } from "./pages/D2CPage";
-import { D2CResearchPage } from "./pages/D2CResearchPage";
-import { D2CNotesPage } from "./pages/D2CNotesPage";
-import { PublicHelpdesk } from "./pages/PublicHelpdesk";
 import { OrganizationPage } from "./pages/OrganizationPage";
+// TASK-089: the Organization's own admin surface — its installed Modules,
+// their mount state/scopes/versions, and its membership. Reached from the
+// Organization control at the top of the rail (ADR-180's one granted slot),
+// never as a per-Module page (ADR-224/261).
+import { OrganizationAdminPage } from "./pages/OrganizationAdminPage";
 import { ChiefOfStaffPage } from "./pages/ChiefOfStaffPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TaskManagerPage } from "./pages/TaskManagerPage";
@@ -22,28 +20,22 @@ import { IntelligencePage } from "./pages/IntelligencePage";
 import { AgentDetailPage } from "./pages/AgentDetailPage";
 // TASK-028: background Research Run timeline/interrupt Page (plan §5).
 import { ResearchRunsPage } from "./pages/ResearchRunsPage";
-// WhatsApp Module: the live session surface plus its Tool list.
-import { WhatsAppPage } from "./pages/WhatsAppPage";
-import { AcademicsPage } from "./pages/AcademicsPage";
-import { EventsPage } from "./pages/EventsPage";
-// DevPilot Module (D0/D1): Pull Requests/Issues/Repos Pages plus the GitHub
-// Personal Access Token connection panel.
-import { DevPilotPage } from "./pages/DevPilotPage";
-import { GithubIntegrationPanel } from "./pages/GithubIntegrationPanel";
+// ADR 2026-09-04: the standard Module Page — every manifest-declared Page of
+// an installed Module renders here, Builder-built Modules included.
+import { ModulePage, modulePageRoute } from "./pages/ModulePage";
 import { InstalledModuleBoundary } from "./components/InstalledModuleBoundary";
-import {
-  RelationshipPage,
-  RelationshipRecordDetailPage,
-  SignalDetailPage,
-  SignalSourceEventPage,
-} from "./pages/RelationshipPage";
-import {
-  RelationshipHelpdeskPage,
-  RelationshipHelpdeskThreadPage,
-} from "./pages/RelationshipHelpdeskPage";
-import { RelationshipSubmodulePage } from "./pages/RelationshipSubmodulePage";
+import { PILOT_ORGANIZATION, trpc } from "./lib/trpc";
 import { AuthGate } from "./auth/AuthSession";
 import { AuthPage } from "./auth/AuthPage";
+
+/**
+ * Egg profile (ADR 2026-09-04 "The Egg ships the kernel; Modules live in
+ * Commons"). `VITE_BRIDGE_PROFILE=egg` at BUILD time drops every Commons
+ * Module Page from the bundle: the routes below are behind this constant, so
+ * the bundler never reaches their dynamic imports and emits no chunk for them.
+ * In the full profile the same Pages load as lazy chunks on first visit.
+ */
+const EGG = import.meta.env.VITE_BRIDGE_PROFILE === "egg";
 
 function ProtectedLayout() {
   return (
@@ -51,22 +43,6 @@ function ProtectedLayout() {
       <Layout />
     </AuthGate>
   );
-}
-
-function RelationshipRelationsPage() {
-  return <RelationshipSubmodulePage submodule="relations" />;
-}
-
-function RelationshipInteractionsPage() {
-  return <RelationshipSubmodulePage submodule="interactions" />;
-}
-
-function RelationshipIntroductionsPage() {
-  return <RelationshipSubmodulePage submodule="introductions" />;
-}
-
-function RelationshipSourcesPage() {
-  return <RelationshipSubmodulePage submodule="sources" />;
 }
 
 function childPath(route: string): string {
@@ -86,37 +62,215 @@ function parentRoute(route: string): string {
  */
 function ModuleRootRedirect() {
   const { moduleId } = useParams();
-  const target = moduleId ? moduleNavTarget(moduleId)?.landing : undefined;
-  return <Navigate to={target ?? "/home"} replace />;
+  const builtIn = moduleId ? moduleNavTarget(moduleId)?.landing : undefined;
+  // A Module the Builder made is in no built-in catalog: its landing Page is
+  // the first Page its INSTALLED manifest declares (ADR 2026-09-04).
+  const [installed, setInstalled] = useState<string | null | undefined>(
+    builtIn === undefined ? undefined : null,
+  );
+  useEffect(() => {
+    if (builtIn !== undefined || !moduleId) return;
+    let cancelled = false;
+    trpc.modules.list
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
+      .then((result) => {
+        if (cancelled) return;
+        const page = result.items.find((item) => item.moduleName === moduleId)?.manifest?.module
+          ?.pages[0];
+        setInstalled(page ? modulePageRoute(moduleId, page.id) : null);
+      })
+      .catch(() => {
+        if (!cancelled) setInstalled(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [builtIn, moduleId]);
+  if (builtIn !== undefined) return <Navigate to={builtIn} replace />;
+  if (installed === undefined) return null;
+  return <Navigate to={installed ?? "/home"} replace />;
 }
 
-const dealPilotModule = requireBuiltInModule("deal-pilot").manifest.module!;
-const jobPilotModule = requireBuiltInModule("job-pilot").manifest.module!;
-const relationshipModule = requireBuiltInModule("relationship").manifest.module!;
-const academicsModule = requireBuiltInModule("academics").manifest.module!;
-const eventsModule = requireBuiltInModule("events").manifest.module!;
-const accountingModule = requireBuiltInModule("accounting").manifest.module!;
-const d2cModule = requireBuiltInModule("d2c").manifest.module!;
-const d2cResearchModule = requireBuiltInModule("d2c-research").manifest.module!;
-const d2cNotesModule = requireBuiltInModule("d2c-notes").manifest.module!;
-const dealPilotRoot = parentRoute(dealPilotModule.route);
-const relationshipSignalsRoute = relationshipModule.pages.find((page) => page.id === "signals")!.route;
+/**
+ * The Commons Modules' Pages. Everything in here is a lazy chunk, and the
+ * whole function is unreachable in the Egg build — see `EGG` above.
+ */
+function commonsModulePublicRoutes(): RouteObject[] {
+  const PublicHelpdesk = lazy(() =>
+    import("./pages/PublicHelpdesk").then((m) => ({ default: m.PublicHelpdesk })),
+  );
+  const helpdesk = (
+    <Suspense fallback={null}>
+      <PublicHelpdesk />
+    </Suspense>
+  );
+  return [
+    // Public/unauthenticated — outside Layout's authenticated nav shell entirely
+    // (frontend-migration-scoping.md gap #5: a genuinely different auth model).
+    { path: "/help", element: helpdesk },
+    // Prototype's shareable public helpdesk URL shape (slug-addressed).
+    { path: "/help/:slug", element: helpdesk },
+  ];
+}
 
-const dealPilotRoutes = dealPilotModule.pages.map((page) => ({
-  path: childPath(page.route),
-  element: (
-    <InstalledModuleBoundary moduleName="deal-pilot">
-      <DealPilotPage />
-    </InstalledModuleBoundary>
-  ),
-}));
+function commonsModuleRoutes(): RouteObject[] {
+  const DealPilotPage = lazy(() =>
+    import("./pages/DealPilotPage").then((m) => ({ default: m.DealPilotPage })),
+  );
+  const JobPilotPage = lazy(() =>
+    import("./pages/JobPilotPage").then((m) => ({ default: m.JobPilotPage })),
+  );
+  const AccountingPage = lazy(() =>
+    import("./pages/AccountingPage").then((m) => ({ default: m.AccountingPage })),
+  );
+  const D2COrdersPage = lazy(() =>
+    import("./pages/D2CPage").then((m) => ({ default: m.D2COrdersPage })),
+  );
+  const D2CInventoryPage = lazy(() =>
+    import("./pages/D2CPage").then((m) => ({ default: m.D2CInventoryPage })),
+  );
+  const D2CResearchPage = lazy(() =>
+    import("./pages/D2CResearchPage").then((m) => ({ default: m.D2CResearchPage })),
+  );
+  const D2CNotesPage = lazy(() =>
+    import("./pages/D2CNotesPage").then((m) => ({ default: m.D2CNotesPage })),
+  );
+  // WhatsApp Module: the live session surface plus its Tool list.
+  const WhatsAppPage = lazy(() =>
+    import("./pages/WhatsAppPage").then((m) => ({ default: m.WhatsAppPage })),
+  );
+  const AcademicsPage = lazy(() =>
+    import("./pages/AcademicsPage").then((m) => ({ default: m.AcademicsPage })),
+  );
+  const EventsPage = lazy(() =>
+    import("./pages/EventsPage").then((m) => ({ default: m.EventsPage })),
+  );
+  // DevPilot Module (D0/D1): Pull Requests/Issues/Repos Pages plus the GitHub
+  // Personal Access Token connection panel.
+  const DevPilotPage = lazy(() =>
+    import("./pages/DevPilotPage").then((m) => ({ default: m.DevPilotPage })),
+  );
+  const GithubIntegrationPanel = lazy(() =>
+    import("./pages/GithubIntegrationPanel").then((m) => ({ default: m.GithubIntegrationPanel })),
+  );
+  const GoogleIntegrationPanel = lazy(() =>
+    import("./pages/GoogleIntegrationPanel").then((m) => ({ default: m.GoogleIntegrationPanel })),
+  );
+  const RelationshipPage = lazy(() =>
+    import("./pages/RelationshipPage").then((m) => ({ default: m.RelationshipPage })),
+  );
+  const RelationshipRecordDetailPage = lazy(() =>
+    import("./pages/RelationshipPage").then((m) => ({ default: m.RelationshipRecordDetailPage })),
+  );
+  const SignalDetailPage = lazy(() =>
+    import("./pages/RelationshipPage").then((m) => ({ default: m.SignalDetailPage })),
+  );
+  const SignalSourceEventPage = lazy(() =>
+    import("./pages/RelationshipPage").then((m) => ({ default: m.SignalSourceEventPage })),
+  );
+  const RelationshipHelpdeskPage = lazy(() =>
+    import("./pages/RelationshipHelpdeskPage").then((m) => ({ default: m.RelationshipHelpdeskPage })),
+  );
+  const RelationshipHelpdeskThreadPage = lazy(() =>
+    import("./pages/RelationshipHelpdeskPage").then((m) => ({ default: m.RelationshipHelpdeskThreadPage })),
+  );
+  const RelationshipSubmodulePage = lazy(() =>
+    import("./pages/RelationshipSubmodulePage").then((m) => ({ default: m.RelationshipSubmodulePage })),
+  );
+
+  const dealPilotModule = requireBuiltInModule("deal-pilot").manifest.module!;
+  const jobPilotModule = requireBuiltInModule("job-pilot").manifest.module!;
+  const relationshipModule = requireBuiltInModule("relationship").manifest.module!;
+  const academicsModule = requireBuiltInModule("academics").manifest.module!;
+  const eventsModule = requireBuiltInModule("events").manifest.module!;
+  const accountingModule = requireBuiltInModule("accounting").manifest.module!;
+  const d2cModule = requireBuiltInModule("d2c").manifest.module!;
+  const d2cResearchModule = requireBuiltInModule("d2c-research").manifest.module!;
+  const d2cNotesModule = requireBuiltInModule("d2c-notes").manifest.module!;
+  const dealPilotRoot = parentRoute(dealPilotModule.route);
+  const relationshipSignalsRoute = relationshipModule.pages.find((page) => page.id === "signals")!.route;
+
+  const dealPilotRoutes: RouteObject[] = dealPilotModule.pages.map((page) => ({
+    path: childPath(page.route),
+    element: (
+      <InstalledModuleBoundary moduleName="deal-pilot">
+        <DealPilotPage />
+      </InstalledModuleBoundary>
+    ),
+  }));
+
+  return [
+    // DealPilot keeps /dealpilot.
+    ...dealPilotRoutes,
+    {
+      path: `${childPath(dealPilotRoot)}/:page/:recordId`,
+      element: (
+        <InstalledModuleBoundary moduleName="deal-pilot">
+          <DealPilotPage />
+        </InstalledModuleBoundary>
+      ),
+    },
+
+    // WhatsApp Module Pages. The Module lands on Chats; /module/whatsapp
+    // alone redirects there rather than showing the capability inventory.
+    { path: "module/whatsapp", element: <Navigate to="/module/whatsapp/chats" replace /> },
+    { path: "module/whatsapp/chats", element: <WhatsAppPage page="chats" /> },
+    { path: "module/whatsapp/tools", element: <WhatsAppPage page="tools" /> },
+
+    // Academics: three sibling toggles (Subjects/Sessions/Assignments),
+    // TASK-069. `:page` matches the manifest's page ids.
+    { path: `${childPath(academicsModule.route)}/:page`, Component: AcademicsPage },
+    // Events sub-module of NetworkManager (TASK-070, ADR-236) — one Page.
+    { path: childPath(eventsModule.route), Component: EventsPage },
+
+    // DevPilot Module Pages (D0/D1). Lands on Pull Requests; /module/devpilot
+    // alone redirects there rather than showing the capability inventory.
+    { path: "module/devpilot", element: <Navigate to="/module/devpilot/pulls" replace /> },
+    { path: "module/devpilot/pulls", element: <DevPilotPage page="pulls" /> },
+    { path: "module/devpilot/issues", element: <DevPilotPage page="issues" /> },
+    { path: "module/devpilot/repos", element: <DevPilotPage page="repos" /> },
+
+    { path: `${childPath(relationshipSignalsRoute)}/:signalId/event`, Component: SignalSourceEventPage },
+    { path: `${childPath(relationshipSignalsRoute)}/:signalId`, Component: SignalDetailPage },
+    { path: `${childPath(relationshipModule.route)}/people/:recordId`, element: <RelationshipRecordDetailPage kind="person" /> },
+    { path: `${childPath(relationshipModule.route)}/communities/:recordId`, element: <RelationshipRecordDetailPage kind="community" /> },
+    { path: `${childPath(relationshipModule.route)}/helpdesk/:ticketId`, Component: RelationshipHelpdeskThreadPage },
+    { path: `${childPath(relationshipModule.route)}/helpdesk`, Component: RelationshipHelpdeskPage },
+    { path: `${childPath(relationshipModule.route)}/relations`, element: <RelationshipSubmodulePage submodule="relations" /> },
+    { path: `${childPath(relationshipModule.route)}/interactions`, element: <RelationshipSubmodulePage submodule="interactions" /> },
+    { path: `${childPath(relationshipModule.route)}/introductions`, element: <RelationshipSubmodulePage submodule="introductions" /> },
+    { path: `${childPath(relationshipModule.route)}/sources`, element: <RelationshipSubmodulePage submodule="sources" /> },
+    { path: `${childPath(relationshipModule.route)}/:page`, Component: RelationshipPage },
+
+    { path: "integrations/google", Component: GoogleIntegrationPanel },
+    { path: "integrations/github", Component: GithubIntegrationPanel },
+
+    {
+      path: childPath(jobPilotModule.route),
+      element: (
+        <InstalledModuleBoundary moduleName="job-pilot">
+          <JobPilotPage />
+        </InstalledModuleBoundary>
+      ),
+    },
+
+    // Accounting Module (TASK-074, ADR-246) — Clients and Reports Pages,
+    // both real sqlite-backed (accounting-store.ts). `/module/accounting`
+    // alone resolves via the generic ModuleRootRedirect.
+    { path: childPath(accountingModule.pages.find((p) => p.id === "clients")!.route), element: <AccountingPage page="clients" /> },
+    { path: childPath(accountingModule.pages.find((p) => p.id === "reports")!.route), element: <AccountingPage page="reports" /> },
+
+    // D2C Module (TASK-074, ADR-246) — Orders/Inventory toggle Pages plus
+    // the Research/Notes sub-modules, all real sqlite-backed (d2c-store.ts).
+    { path: childPath(d2cModule.pages.find((p) => p.id === "orders")!.route), element: <D2COrdersPage /> },
+    { path: childPath(d2cModule.pages.find((p) => p.id === "inventory")!.route), element: <D2CInventoryPage /> },
+    { path: childPath(d2cResearchModule.route), element: <D2CResearchPage /> },
+    { path: childPath(d2cNotesModule.route), element: <D2CNotesPage /> },
+  ];
+}
 
 export const router = createBrowserRouter([
-  // Public/unauthenticated — outside Layout's authenticated nav shell entirely
-  // (frontend-migration-scoping.md gap #5: a genuinely different auth model).
-  { path: "/help", Component: PublicHelpdesk },
-  // Prototype's shareable public helpdesk URL shape (slug-addressed).
-  { path: "/help/:slug", Component: PublicHelpdesk },
+  ...(EGG ? [] : commonsModulePublicRoutes()),
   { path: "/auth/sign-in", element: <AuthPage mode="sign-in" /> },
   { path: "/auth/sign-up", element: <AuthPage mode="sign-up" /> },
   {
@@ -132,37 +286,11 @@ export const router = createBrowserRouter([
     path: "/",
     Component: ProtectedLayout,
     children: [
-      // HomePage is the index (prototype parity); DealPilot keeps /dealpilot.
+      // HomePage is the index (prototype parity).
       { index: true, Component: HomePage },
       { path: "home", Component: HomePage },
-      ...dealPilotRoutes,
-      {
-        path: `${childPath(dealPilotRoot)}/:page/:recordId`,
-        element: (
-          <InstalledModuleBoundary moduleName="deal-pilot">
-            <DealPilotPage />
-          </InstalledModuleBoundary>
-        ),
-      },
 
-      // WhatsApp Module Pages. The Module lands on Chats; /module/whatsapp
-      // alone redirects there rather than showing the capability inventory.
-      { path: "module/whatsapp", element: <Navigate to="/module/whatsapp/chats" replace /> },
-      { path: "module/whatsapp/chats", element: <WhatsAppPage page="chats" /> },
-      { path: "module/whatsapp/tools", element: <WhatsAppPage page="tools" /> },
-
-      // Academics: three sibling toggles (Subjects/Sessions/Assignments),
-      // TASK-069. `:page` matches the manifest's page ids.
-      { path: `${childPath(academicsModule.route)}/:page`, Component: AcademicsPage },
-      // Events sub-module of NetworkManager (TASK-070, ADR-236) — one Page.
-      { path: childPath(eventsModule.route), Component: EventsPage },
-
-      // DevPilot Module Pages (D0/D1). Lands on Pull Requests; /module/devpilot
-      // alone redirects there rather than showing the capability inventory.
-      { path: "module/devpilot", element: <Navigate to="/module/devpilot/pulls" replace /> },
-      { path: "module/devpilot/pulls", element: <DevPilotPage page="pulls" /> },
-      { path: "module/devpilot/issues", element: <DevPilotPage page="issues" /> },
-      { path: "module/devpilot/repos", element: <DevPilotPage page="repos" /> },
+      ...(EGG ? [] : commonsModuleRoutes()),
 
       // Module Detail was removed 2026-08-10 (user directive: "There is no
       // module detail page. Delete it. Ensure no trace of it remains."). The
@@ -173,17 +301,10 @@ export const router = createBrowserRouter([
       // back-link — on a blank router miss. A redirect keeps those links
       // working without reintroducing a detail surface.
       { path: "module/:moduleId", Component: ModuleRootRedirect },
-      { path: `${childPath(relationshipSignalsRoute)}/:signalId/event`, Component: SignalSourceEventPage },
-      { path: `${childPath(relationshipSignalsRoute)}/:signalId`, Component: SignalDetailPage },
-      { path: `${childPath(relationshipModule.route)}/people/:recordId`, element: <RelationshipRecordDetailPage kind="person" /> },
-      { path: `${childPath(relationshipModule.route)}/communities/:recordId`, element: <RelationshipRecordDetailPage kind="community" /> },
-      { path: `${childPath(relationshipModule.route)}/helpdesk/:ticketId`, Component: RelationshipHelpdeskThreadPage },
-      { path: `${childPath(relationshipModule.route)}/helpdesk`, Component: RelationshipHelpdeskPage },
-      { path: `${childPath(relationshipModule.route)}/relations`, Component: RelationshipRelationsPage },
-      { path: `${childPath(relationshipModule.route)}/interactions`, Component: RelationshipInteractionsPage },
-      { path: `${childPath(relationshipModule.route)}/introductions`, Component: RelationshipIntroductionsPage },
-      { path: `${childPath(relationshipModule.route)}/sources`, Component: RelationshipSourcesPage },
-      { path: `${childPath(relationshipModule.route)}/:page`, Component: RelationshipPage },
+      // The standard Module Page (ADR 2026-09-04). Declared AFTER the Commons
+      // Module routes so a built-in's hand-written Page at the same shape
+      // (e.g. /module/whatsapp/chats) keeps winning in the full profile.
+      { path: "module/:moduleName/:pageId", Component: ModulePage },
 
       // Second Brain is Intelligence's first tab, not a surface of its own
       // (ADR-224). The path stays so existing links keep working, but it
@@ -199,32 +320,8 @@ export const router = createBrowserRouter([
 
       { path: "approvals", Component: ApprovalsPage },
 
-      { path: "integrations/google", Component: GoogleIntegrationPanel },
-      { path: "integrations/github", Component: GithubIntegrationPanel },
-
-      {
-        path: childPath(jobPilotModule.route),
-        element: (
-          <InstalledModuleBoundary moduleName="job-pilot">
-            <JobPilotPage />
-          </InstalledModuleBoundary>
-        ),
-      },
-
-      // Accounting Module (TASK-074, ADR-246) — Clients and Reports Pages,
-      // both real sqlite-backed (accounting-store.ts). `/module/accounting`
-      // alone resolves via the generic ModuleRootRedirect below.
-      { path: childPath(accountingModule.pages.find((p) => p.id === "clients")!.route), element: <AccountingPage page="clients" /> },
-      { path: childPath(accountingModule.pages.find((p) => p.id === "reports")!.route), element: <AccountingPage page="reports" /> },
-
-      // D2C Module (TASK-074, ADR-246) — Orders/Inventory toggle Pages plus
-      // the Research/Notes sub-modules, all real sqlite-backed (d2c-store.ts).
-      { path: childPath(d2cModule.pages.find((p) => p.id === "orders")!.route), element: <D2COrdersPage /> },
-      { path: childPath(d2cModule.pages.find((p) => p.id === "inventory")!.route), element: <D2CInventoryPage /> },
-      { path: childPath(d2cResearchModule.route), element: <D2CResearchPage /> },
-      { path: childPath(d2cNotesModule.route), element: <D2CNotesPage /> },
-
       { path: "organization", Component: OrganizationPage },
+      { path: "organization/admin", Component: OrganizationAdminPage },
 
       { path: "chief-of-staff", Component: ChiefOfStaffPage },
 

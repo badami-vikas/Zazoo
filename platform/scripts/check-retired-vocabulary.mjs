@@ -213,7 +213,13 @@ function isAllowedTechnicalUse(family, relativePath, value, kind) {
   if (
     family === "workspace" &&
     kind === "identifier" &&
-    relativePath === "apps/desktop/src-tauri/src/providers/apps.rs" &&
+    // AppKit's own class name, not Bridge's retired "workspace" noun —
+    // apps.rs reads the frontmost app through it, companion.rs opens a URL
+    // through it (TASK-095, `open_external_url`'s NSWorkspace.openURL).
+    [
+      "apps/desktop/src-tauri/src/providers/apps.rs",
+      "apps/desktop/src-tauri/src/companion.rs",
+    ].includes(relativePath) &&
     ["NSWorkspace", "sharedWorkspace"].includes(value)
   ) {
     return true;
@@ -245,16 +251,16 @@ function isAllowedTechnicalUse(family, relativePath, value, kind) {
     return (
       ["Project", "ProjectSchema", "projects"].includes(value) &&
       [
-        "modules/jobpilot/src/index.ts",
-        "modules/jobpilot/src/master-profile.ts",
-        "modules/jobpilot/src/resume-schema.ts",
-        "modules/jobpilot/test/resume-schema.test.ts",
+        "commons/jobpilot/src/index.ts",
+        "commons/jobpilot/src/master-profile.ts",
+        "commons/jobpilot/src/resume-schema.ts",
+        "commons/jobpilot/test/resume-schema.test.ts",
       ].includes(relativePath)
     );
   }
   if (family === "project" && kind === "string") {
     if (
-      relativePath === "modules/dealpilot/test/projections.test.ts" &&
+      relativePath === "commons/dealpilot/test/projections.test.ts" &&
       /^project(?:Summary|Profile|Documents|Activity):/.test(value)
     ) {
       return true;
@@ -270,7 +276,7 @@ function isAllowedTechnicalUse(family, relativePath, value, kind) {
       return true;
     }
     return (
-      relativePath === "modules/jobpilot/test/resume-schema.test.ts" &&
+      relativePath === "commons/jobpilot/test/resume-schema.test.ts" &&
       value === "Project X"
     );
   }
@@ -308,6 +314,15 @@ function isAllowedTechnicalUse(family, relativePath, value, kind) {
       relativePath === "packages/core/src/capability/mcp-adapter.ts" &&
       kind === "identifier" &&
       value === "tools"
+    ) {
+      return true;
+    }
+    // The Claude Agent SDK's own message wire format. Bridge reads the block
+    // type it emits; renaming a value we do not own would simply stop matching.
+    if (
+      relativePath === "apps/api/src/chat/claude-code-backend.ts" &&
+      kind === "string" &&
+      value === "tool_use"
     ) {
       return true;
     }

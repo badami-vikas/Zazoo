@@ -30,25 +30,10 @@ import { TRPCError } from "@trpc/server";
 import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
+import { makeCaller } from "./caller.js";
 
 const ORG = PILOT_ORGANIZATION;
 const AT = "2026-08-16T14:30:00.000Z";
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(1101);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(wiring: Wiring, identity?: { type: "user" | "agent"; id: string }) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity: identity ?? { type: "user", id: PILOT_USER },
-    authenticated: true,
-    verifying: false,
-  });
-}
 
 interface StoredSignal {
   anchor?: { kind?: string; moduleId?: string };

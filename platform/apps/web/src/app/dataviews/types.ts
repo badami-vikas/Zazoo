@@ -8,6 +8,11 @@
  * pass them straight through without a cast.
  */
 import type { GraphScope, RowFilter, SortSpec, TableSpec, ViewConfig } from "@bridge/tables";
+import type {
+  ColumnDependencyPreview,
+  ColumnSchemaCapability,
+  ColumnTypeName,
+} from "../components/shared/StandardColumnMenu.js";
 
 /** A single data row — deliberately loose (Record<string, unknown>), same shape
  * @bridge/tables' engine.ts (applyFilters/applySorts/groupBy) already assumes. */
@@ -76,8 +81,29 @@ export interface DataViewProps {
    * `onInsert` the row renders disabled and states this reason.
    */
   insertDisabledReason?: string;
+  /**
+   * Open the new-Record page (TASK-083). Supplied by <DataViews>, which owns
+   * the page — a view raises the intent, it does not build a create surface of
+   * its own, which is how the table came to have one shape and the Form view
+   * another.
+   */
+  onRequestCreate?: () => void;
   onUpdate?: (rowId: string, patch: Partial<DataRow>) => void | Promise<void>;
   canUpdateRow?: (row: DataRow) => boolean;
+  /**
+   * The ONE delete path, single and bulk alike.
+   *
+   * It takes a LIST on purpose. C-12's constraint is that a bulk action obeys
+   * the same governance as its single-Record form, and the cheapest way to
+   * guarantee that is to have no single-Record form to diverge from: the row
+   * caret's Delete calls this with one id. The caller routes it through the
+   * governed pipeline once per id, so N Records produce N decisions in the
+   * ledger — never one thinner batch write.
+   */
+  onDeleteRows?: (rowIds: string[]) => void | Promise<void>;
+  /** Why this surface cannot delete (§3a/AP-021) — the control states it rather
+   *  than vanishing. */
+  deleteDisabledReason?: string;
   onDuplicate?: (row: DataRow) => void | Promise<void>;
   onPin?: (rowId: string) => void | Promise<void>;
   onOpenRecord?: (row: DataRow | GraphNode) => void;
@@ -93,6 +119,23 @@ export interface DataViewProps {
   formRecord?: DataRow | null;
   onRequestFilter?: (columnId: string) => void;
   onHideColumn?: (columnId: string) => void;
+  /**
+   * The governed schema-mutation capability (TASK-084), as the SERVER reported
+   * it plus the handlers that route each command back to it. Absent means the
+   * surface never asked, and `StandardColumnMenu` says exactly that on the
+   * disabled item rather than inventing a reason.
+   */
+  columnSchema?: ColumnSchemaActions;
+}
+
+export interface ColumnSchemaActions {
+  capability: ColumnSchemaCapability | null;
+  rename?: (columnId: string, label: string) => Promise<void>;
+  changeType?: (columnId: string, kind: ColumnTypeName) => Promise<void>;
+  setLocked?: (columnId: string, locked: boolean) => Promise<void>;
+  remove?: (columnId: string) => Promise<void>;
+  preview?: (columnId: string) => Promise<ColumnDependencyPreview>;
+  undo?: () => Promise<void>;
 }
 
 export type { GraphScope, RowFilter, SortSpec, TableSpec, ViewConfig };

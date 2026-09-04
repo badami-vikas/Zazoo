@@ -25,7 +25,12 @@ import {
   ShieldAlert,
   Radar,
 } from "lucide-react";
+import type { TableSpec, ViewConfig } from "@bridge/tables";
+import { defaultViewConfig } from "@bridge/tables";
 import { Header } from "../components/shared/Header";
+import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
+import { DataViews } from "../dataviews/DataViews";
+import type { DataRow } from "../dataviews/types";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 
 interface RunRow {
@@ -87,12 +92,34 @@ function StatusBadge({ run }: { run: RunRow }) {
   );
 }
 
+/**
+ * Research Runs are Records, so they render through <DataViews> like every
+ * other Database (TASK-061) — the bespoke sidebar list this Page used to draw
+ * was the reason a user moving here saw a different surface from every other
+ * Module. `objective` is the only column a human fills; the rest are the
+ * kernel's own answers, so they are listed and not editable.
+ */
+const RUNS_SPEC: TableSpec = {
+  id: "research.runs",
+  columns: [
+    { id: "objective", label: "Objective", kind: "text", editable: true, required: true },
+    { id: "status", label: "Status", kind: "text", editable: false },
+    { id: "stepsTaken", label: "Steps", kind: "number", editable: false },
+    { id: "startedAt", label: "Started", kind: "date", editable: false },
+    { id: "endedAt", label: "Ended", kind: "date", editable: false },
+    { id: "stopReason", label: "Stopped", kind: "text", editable: false },
+  ],
+};
+
 export function ResearchRunsPage() {
   const [runs, setRuns] = useState<RunRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [stepsById, setStepsById] = useState<Record<string, StepRow[]>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionNote, setActionNote] = useState<string | null>(null);
+  const [view, setView] = useState<ViewConfig>(() =>
+    defaultViewConfig("research-runs:table", "table"),
+  );
 
   const refresh = useCallback(async () => {
     try {
@@ -136,6 +163,30 @@ export function ResearchRunsPage() {
     const timer = setInterval(() => void refreshSteps(selectedId), 3_000);
     return () => clearInterval(timer);
   }, [selectedId, selected?.status, refreshSteps]);
+
+  /** The kernel executor (TASK-028): the Run keeps going in the API process
+   * whether or not this Page — or the desktop companion — stays open. */
+  async function startBackgroundRun(draft: Partial<DataRow>) {
+    const trimmed = String(draft["objective"] ?? "").trim();
+    if (!trimmed) throw new Error("An objective is required to start a Research Run.");
+    setActionNote(null);
+    try {
+      const started = (await trpc.agentOrchestration.research.execute.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        objective: trimmed.slice(0, 500),
+      })) as RunRow;
+      setSelectedId(started.id);
+      setActionNote("Running in the background — the timeline fills in as steps land.");
+      await refresh();
+    } catch (caught) {
+      const message =
+        caught instanceof Error ? caught.message : "Could not start a background Run";
+      setActionNote(message);
+      // Re-thrown so the Record page keeps the objective on screen rather than
+      // closing over a Run that never started.
+      throw new Error(message);
+    }
+  }
 
   async function requestStop(run: RunRow) {
     setActionNote(null);
@@ -198,45 +249,33 @@ export function ResearchRunsPage() {
           {actionNote}
         </div>
       )}
-      <div className="flex min-h-0 flex-1">
-        <aside className="w-72 shrink-0 overflow-y-auto border-r" style={{ borderColor: "var(--color-border)" }}>
-          {loadError && (
-            <p className="p-3 text-xs" style={{ color: "#b3261e" }}>
-              {loadError}
-            </p>
-          )}
-          {!loadError && runs.length === 0 && (
-            <p className="p-3 text-xs" style={{ color: "var(--color-navy-mid)" }}>
-              No Research Runs yet. Start one from the companion panel's Research tab.
-            </p>
-          )}
-          <ul>
-            {runs.map((run) => (
-              <li key={run.id}>
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(run.id)}
-                  className="block w-full px-3 py-2 text-left text-sm"
-                  style={{
-                    backgroundColor: run.id === selectedId ? "var(--color-surface)" : "transparent",
-                  }}
-                >
-                  <span className="line-clamp-2">{run.objective}</span>
-                  <span className="mt-1 flex items-center gap-2 text-xs" style={{ color: "var(--color-navy-mid)" }}>
-                    <StatusBadge run={run} />
-                    {new Date(run.startedAt).toLocaleString()}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </aside>
-        <main className="min-w-0 flex-1 overflow-y-auto p-4">
-          {!selected && (
-            <p className="text-sm" style={{ color: "var(--color-navy-mid)" }}>
-              Select a Run to inspect its step timeline.
-            </p>
-          )}
+      <ModuleSurfaceLayout
+        above={loadError ? (
+          <p role="alert" className="border-b px-4 py-2 text-xs" style={{ color: "#b3261e" }}>
+            {loadError}
+          </p>
+        ) : undefined}
+        table={
+          <DataViews
+            spec={RUNS_SPEC}
+            view={view}
+            onViewChange={setView}
+            data={runs as unknown as DataRow[]}
+            moduleName="research"
+            searchPlaceholder="Search Research Runs…"
+            availableKinds={["table", "board", "gallery", "form"]}
+            onInsert={startBackgroundRun}
+            onOpenRecord={(row) => setSelectedId(String((row as DataRow)["id"] ?? ""))}
+            deleteDisabledReason="A Research Run is an append-only record of what the Agent did; it is closed, never deleted."
+          />
+        }
+        below={
+          <div className="min-w-0">
+            {!selected && (
+              <p className="text-sm" style={{ color: "var(--color-navy-mid)" }}>
+                Open a Run to inspect its step timeline.
+              </p>
+            )}
           {selected && (
             <div className="flex flex-col gap-4">
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -378,8 +417,9 @@ export function ResearchRunsPage() {
               )}
             </div>
           )}
-        </main>
-      </div>
+          </div>
+        }
+      />
     </div>
   );
 }

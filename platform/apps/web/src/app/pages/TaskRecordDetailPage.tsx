@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, CheckCircle2, GitBranch, Link2, ShieldCheck, UserCog } from "lucide-react";
 import { Link, useParams } from "react-router";
+import { RecordSections } from "../components/shared/RecordSections";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { PlanningProposalReview } from "../components/shared/PlanningProposalReview";
 import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
@@ -437,6 +438,9 @@ export function TaskRecordDetailPage() {
           </dl>
         </section>
         <ModuleFilesSection moduleName="task-manager" />
+        {/* The Sections this Database's Record pages show, chosen once for the
+            whole Database from the Tasks toolbar's ⋮ → Records (TASK-083). */}
+        <RecordSections specId="task-manager.tasks" moduleName="task-manager" recordId={taskId} />
       </div>
     </div>
   );

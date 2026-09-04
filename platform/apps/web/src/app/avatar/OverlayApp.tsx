@@ -824,7 +824,7 @@ export function OverlayApp() {
           aria-label={`${name} — screen and voice`}
           style={{
             width: "100vw",
-            height: "100vh",
+            height: "100dvh",
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
@@ -868,7 +868,7 @@ export function OverlayApp() {
           aria-label={`Chat with ${name}`}
           style={{
             width: "100vw",
-            height: "100vh",
+            height: "100dvh",
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
@@ -945,7 +945,7 @@ export function OverlayApp() {
     <div
       style={{
         width: "100vw",
-        height: "100vh",
+        height: "100dvh",
         display: "flex",
         flexDirection: "column",
         justifyContent: "flex-end",

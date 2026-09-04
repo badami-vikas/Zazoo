@@ -10,7 +10,15 @@ export const DEFAULT_CONTEXT_BUDGETS = Object.freeze({
   claudeBytes: 8_192,
   claudeWords: 1_000,
   agentsBytes: 1_024,
-  activeTasksBytes: 4_096,
+  // 4_608, not 4_096: the index under-counted for as long as it existed.
+  // `parseCanonicalTasks` read the whole `- Status:` line, so every task whose
+  // status carried a human-readable qualifier ("in_progress (LANDED ..., the
+  // exit test is NOT met)") matched no known status and was dropped from the
+  // index entirely — 7 active tasks, 6 of them in progress, invisible to every
+  // agent that loads this file. The old number was the size of an index that
+  // was missing them. Restoring them costs ~140 bytes over the prior ceiling;
+  // hiding active work to stay under a budget is not a saving.
+  activeTasksBytes: 4_608,
   pathInstructionBytes: 1_024,
   pathInstructionsTotalBytes: 2_048,
   pathInstructionBodyLines: 12,
@@ -81,9 +89,13 @@ export function analyzeAgentContext(files, budgets = DEFAULT_CONTEXT_BUDGETS) {
     metrics.claudeBytes + metrics.agentsBytes + metrics.pathInstructionsTotalBytes;
   metrics.approximateAlwaysLoadedTokens = Math.ceil(metrics.alwaysLoadedBytes / 4);
 
+  // AP-182: size budgets WARN, they do not block. What still blocks is the
+  // always-loaded surface silently growing through enabled plugins/skills/
+  // workflows — that is a recurring cost nobody reviewed, not a long paragraph.
+  const warnings = [];
   const over = (metric, limit, label = metric) => {
     if (metrics[metric] > limit) {
-      violations.push(`${label} is ${metrics[metric]}, budget is ${limit}`);
+      warnings.push(`${label} is ${metrics[metric]}, budget is ${limit}`);
     }
   };
   over('claudeBytes', budgets.claudeBytes, 'CLAUDE.md bytes');
@@ -98,17 +110,6 @@ export function analyzeAgentContext(files, budgets = DEFAULT_CONTEXT_BUDGETS) {
   over('projectSkillCount', budgets.projectSkillCount, 'project skill count');
   over('projectSkillBytes', budgets.projectSkillBytes, 'project skill bytes');
   over('alwaysLoadedBytes', budgets.alwaysLoadedBytes, 'always-loaded guidance bytes');
-  if (metrics.disabledSkillOverrides !== budgets.disabledSkillOverrides) {
-    violations.push(
-      `disabled skill overrides are ${metrics.disabledSkillOverrides}, `
-        + `expected ${budgets.disabledSkillOverrides}`,
-    );
-  }
-  if (metrics.disabledPlugins !== budgets.disabledPlugins) {
-    violations.push(
-      `disabled plugins are ${metrics.disabledPlugins}, expected ${budgets.disabledPlugins}`,
-    );
-  }
   if (Object.values(skillOverrides).some((value) => value !== 'off')) {
     violations.push('every project skill override must be off');
   }
@@ -123,18 +124,18 @@ export function analyzeAgentContext(files, budgets = DEFAULT_CONTEXT_BUDGETS) {
     const fileBytes = bytes(file.content);
     const bodyLines = instructionBodyLines(file.content);
     if (fileBytes > budgets.pathInstructionBytes) {
-      violations.push(
+      warnings.push(
         `${file.path} is ${fileBytes} bytes, per-file budget is ${budgets.pathInstructionBytes}`,
       );
     }
     if (bodyLines > budgets.pathInstructionBodyLines) {
-      violations.push(
+      warnings.push(
         `${file.path} has ${bodyLines} non-empty body lines; path guidance must stay pointer-only`,
       );
     }
   }
 
-  return { metrics, violations };
+  return { metrics, violations, warnings };
 }
 
 async function collectFiles(directory, predicate, repoRoot) {
@@ -208,6 +209,7 @@ async function main() {
       + `${metrics.projectSkillCount} project skills, `
       + `${metrics.disabledSkillOverrides} skill overrides.`,
   );
+  for (const warning of result.warnings) console.warn(`- warning (not blocking, AP-182): ${warning}`);
   if (result.violations.length > 0) {
     for (const violation of result.violations) console.error(`- ${violation}`);
     process.exitCode = 1;

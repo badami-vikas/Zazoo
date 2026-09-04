@@ -238,7 +238,7 @@ export interface LedgerEntry {
   action: Action;
   /** The Skill that produced this row's output — `ActionRequest.skill`, persisted.
    * This is the capability-attribution key: for a Skill capability the Skill id and
-   * the manifest id are the same string (see modules/manifests), so grouping ledger
+   * the manifest id are the same string (see packages/module-manifests), so grouping ledger
    * rows by `skill` is what lets the Agent Quality Vector score a capability from
    * real production episodes instead of from a synthetic dataset. Optional only for
    * rows appended before migration 0037; never omitted by the pipeline. */

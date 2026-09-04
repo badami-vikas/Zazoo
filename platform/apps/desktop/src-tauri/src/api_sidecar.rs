@@ -226,6 +226,9 @@ fn api_command(
         .arg(entry)
         .env_remove("NODE_ENV")
         .env("BRIDGE_ENV", "production")
+        // Egg profile (ADR 2026-09-04): baked at build time so an installed Egg
+        // cannot be switched into the full profile by an environment variable.
+        .env("BRIDGE_PROFILE", option_env!("BRIDGE_PROFILE").unwrap_or("full"))
         .env("PORT", "0")
         // Bind loopback only — never expose the kernel API on the LAN.
         .env("API_HOST", "127.0.0.1")

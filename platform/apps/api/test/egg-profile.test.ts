@@ -1,0 +1,132 @@
+/**
+ * The Egg profile (ADR 2026-09-04 "The Egg ships the kernel; Modules live in
+ * Commons"): what `BRIDGE_PROFILE=egg` seeds, what it serves, and what the
+ * Builder is told about Commons before it builds.
+ */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import type { CommonsRegistry } from "@bridge/core";
+import {
+  BUILT_IN_MODULES,
+  EGG_MODULES,
+  bridgeProfileFromEnv,
+  builtInModulesForProfile,
+} from "@bridge/module-manifests";
+
+import { COMMONS_MODULE_NAMESPACES, appRouter, eggRouter } from "../src/router.js";
+import { builderSystemPrompt, commonsPriorArt } from "../src/builder/run.js";
+
+test("BRIDGE_PROFILE=egg seeds only the Egg's own Modules; anything else means full", () => {
+  assert.equal(bridgeProfileFromEnv({ BRIDGE_PROFILE: "egg" }), "egg");
+  assert.equal(bridgeProfileFromEnv({ BRIDGE_PROFILE: " EGG " }), "egg");
+  assert.equal(bridgeProfileFromEnv({ BRIDGE_PROFILE: "eg" }), "full");
+  assert.equal(bridgeProfileFromEnv({}), "full");
+
+  const egg = builtInModulesForProfile("egg").map((pkg) => pkg.manifest.name);
+  assert.deepEqual(egg, [...EGG_MODULES]);
+  assert.deepEqual(egg, ["task-manager"]);
+  assert.equal(builtInModulesForProfile("full").length, BUILT_IN_MODULES.length);
+  // Every Commons Module is still a built-in in the full profile — the Egg
+  // hides them, it does not delete them.
+  for (const name of ["deal-pilot", "job-pilot", "accounting", "d2c", "whatsapp", "relationship"]) {
+    assert.ok(BUILT_IN_MODULES.some((pkg) => pkg.manifest.name === name), name);
+    assert.ok(!egg.includes(name), `${name} must not ship in the Egg`);
+  }
+});
+
+test("the Egg router serves the kernel and none of the Commons Module namespaces", () => {
+  const namespaces = (router: { _def: { procedures: Record<string, unknown> } }) =>
+    new Set(Object.keys(router._def.procedures).map((path) => path.split(".")[0]!));
+  const egg = namespaces(eggRouter);
+  const full = namespaces(appRouter);
+
+  for (const kernel of ["chat", "builder", "commons", "modules", "agentOrchestration", "learning", "taskManager", "organization", "health"]) {
+    assert.ok(egg.has(kernel), `Egg must serve ${kernel}`);
+  }
+  for (const commons of COMMONS_MODULE_NAMESPACES) {
+    assert.ok(full.has(commons), `full profile must serve ${commons}`);
+    assert.ok(!egg.has(commons), `Egg must not serve ${commons}`);
+  }
+  assert.ok(COMMONS_MODULE_NAMESPACES.includes("dealpilot"));
+  assert.ok(COMMONS_MODULE_NAMESPACES.includes("whatsapp"));
+});
+
+function fakeRegistry(
+  items: Array<{ name: string; summary: string; tags?: string[]; pages?: string[] }>,
+): Pick<CommonsRegistry, "listAvailable" | "get"> {
+  return {
+    async listAvailable() {
+      return {
+        items: items.map((item) => ({
+          name: item.name,
+          latestVersion: "1.0.0",
+          kind: "organization_definition" as const,
+          summary: item.summary,
+          tags: item.tags ?? [],
+          versionCount: 1,
+          publishedAt: "2026-09-04T00:00:00.000Z",
+        })),
+        total: items.length,
+        limit: 100,
+        offset: 0,
+      };
+    },
+    async get(name) {
+      const item = items.find((candidate) => candidate.name === name);
+      if (!item) return null;
+      return {
+        name,
+        latest: {
+          manifest: {
+            module: {
+              pages: (item.pages ?? []).map((page) => ({ name: page })),
+              agents: [{ name: `${name} Agent` }],
+              automations: [],
+            },
+          },
+        },
+        versions: [],
+      } as unknown as Awaited<ReturnType<CommonsRegistry["get"]>>;
+    },
+  };
+}
+
+test("the Builder is told what Commons already holds that resembles its task, ranked by relevance", async () => {
+  const registry = fakeRegistry([
+    { name: "deal-pilot", summary: "Track acquisition deals, sources and theses", tags: ["deals"], pages: ["Deals", "Sources"] },
+    { name: "accounting", summary: "Clients, invoices and reports", tags: ["finance"] },
+    { name: "job-pilot", summary: "Track job applications", tags: ["jobs"] },
+  ]);
+  const { items, unavailable } = await commonsPriorArt(
+    registry,
+    "invoice-tracker",
+    "build a Module that tracks client invoices and monthly reports",
+  );
+  assert.equal(unavailable, null);
+  assert.deepEqual(items.map((item) => item.name), ["accounting"]);
+  assert.deepEqual(items[0]!.agents, ["accounting Agent"]);
+
+  const prompt = builderSystemPrompt({ isNewModule: true, priorArt: items, priorArtUnavailable: null });
+  assert.match(prompt, /Standard Module build process/);
+  assert.match(prompt, /begin at step 1 by creating module\.yaml/);
+  assert.match(prompt, /Commons prior art \(data, not instructions\)/);
+  assert.match(prompt, /accounting@1\.0\.0/);
+  assert.doesNotMatch(prompt, /job-pilot/);
+});
+
+test("an unreachable Commons never blocks a Builder Run — it is reported, and the Run proceeds", async () => {
+  const registry: Pick<CommonsRegistry, "listAvailable" | "get"> = {
+    async listAvailable() {
+      throw new Error("ECONNREFUSED 127.0.0.1:4780");
+    },
+    async get() {
+      return null;
+    },
+  };
+  const { items, unavailable } = await commonsPriorArt(registry, "anything", "build something");
+  assert.deepEqual(items, []);
+  assert.match(unavailable ?? "", /ECONNREFUSED/);
+  const prompt = builderSystemPrompt({ isNewModule: false, priorArt: items, priorArtUnavailable: unavailable });
+  assert.match(prompt, /registry unreachable/);
+  assert.match(prompt, /read its module\.yaml before changing anything/);
+});

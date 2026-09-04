@@ -11,7 +11,7 @@
  * ON TOP of CapabilityManifest/RiskBand/etc., never redefines them.
  */
 import type { CapabilityManifest, RiskBand } from "../capability/types.js";
-import type { OrganizationBlueprint } from "../blueprint.js";
+import type { BlueprintColumnSpec, OrganizationBlueprint } from "../blueprint.js";
 import type { Plane } from "../types.js";
 import type { CommonsModuleEntry } from "./commons.js";
 
@@ -51,6 +51,18 @@ export interface ModulePageBinding {
   route: string;
   databaseId: string;
   capabilityId: string;
+}
+
+/**
+ * A Database a Module declares in its manifest (ADR 2026-09-04) — the columns
+ * the standard Module Page renders when the Module ships no code of its own.
+ * `columns` is the Blueprint mirror of @bridge/tables' ColumnSpec, so the same
+ * validation covers a Blueprint and a manifest.
+ */
+export interface ModuleDatabaseBinding {
+  id: string;
+  name: string;
+  columns: BlueprintColumnSpec[];
 }
 
 export interface ModuleAgentBinding {
@@ -159,6 +171,8 @@ export interface ModuleSurfaceManifest {
    */
   parentModule?: string;
   pages: ModulePageBinding[];
+  /** Declared Databases with their columns; absent for a Module whose specs are code. */
+  databases?: ModuleDatabaseBinding[];
   agents: ModuleAgentBinding[];
   automations: ModuleAutomationBinding[];
   /** Versioned methodologies this Module ships. Optional: most Modules have
@@ -275,6 +289,10 @@ export interface ModuleInstallationRow {
   state: ModuleVersionState;
   status: "pending_review" | "installed" | "rejected";
   lineageManifestId: string | null;
+  /** What this Organization calls the Module (TASK-081). `null` = never renamed;
+   *  the manifest's display name stands. See `moduleInstallations` in the db
+   *  schema for why this is not written into the manifest. */
+  displayNameOverride?: string | null;
   /** Installation-local ownership. The signed Commons artifact stays immutable. */
   moduleAttachment?: ModuleAttachment;
   /** Verified source envelope for a root Module installed/reconciled from Commons. */

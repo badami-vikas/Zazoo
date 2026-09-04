@@ -413,6 +413,37 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
     changeView(viewConfigForKind(spec, "table", view));
   }
 
+  /**
+   * The ONE delete path for this surface — single and bulk alike (C-12).
+   *
+   * The row caret's Delete calls this with one id and the selection bar calls it
+   * with N; the server loops the SAME governed archive either way, so N Records
+   * produce N decisions in the ledger. Nothing here batches.
+   */
+  async function deleteRecords(ids: string[]) {
+    const { results } = await trpc.relationship.archiveRecords.mutate({
+      organizationId: PILOT_ORGANIZATION,
+      recordType: kind,
+      ids,
+    });
+    const failed = results.filter(
+      (result) => result.error !== null || result.materialization?.status !== "applied",
+    );
+    // Optimistically drop only what actually applied — a partial bulk must not
+    // look complete.
+    const removed = new Set(
+      results.filter((result) => result.materialization?.status === "applied").map((r) => r.id),
+    );
+    setRows((current) => current?.filter((row) => !removed.has(String(row["id"]))) ?? current);
+    if (failed.length > 0) {
+      throw new Error(
+        `${failed.length} of ${results.length} could not be deleted: ` +
+          failed.map((result) => result.error ?? result.materialization?.status).join(", ") +
+          ". Anything pending approval is in Approvals.",
+      );
+    }
+  }
+
   async function updateRecord(id: string, draft: Partial<DataRow>) {
     const optionalText = (value: unknown) =>
       typeof value === "string" && value.trim() ? value.trim() : null;
@@ -503,6 +534,7 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
             onViewChange={changeView}
             onInsert={insertRecord}
             onUpdate={updateRecord}
+            onDeleteRows={deleteRecords}
             canUpdateRow={(row) => row["isOwner"] === true}
             formRecord={formRecord}
             onOpenRecord={openRecord}

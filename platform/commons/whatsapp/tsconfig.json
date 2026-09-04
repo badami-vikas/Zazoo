@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "types": ["node"],
+    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+  },
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/module-manifests" }
+  ],
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

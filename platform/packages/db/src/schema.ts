@@ -447,6 +447,24 @@ export const chatThreads = pgTable(
     dataScope: text("data_scope").notNull(),
     status: text("status").notNull().default("active"),
     title: text("title"),
+    /** Which ChatBackend answers this thread's turns. "bridge" is the built-in
+     * ModelProvider path every pre-existing row carries by default; an agentic
+     * backend (Claude Code) runs its own tool loop instead. */
+    backend: text("backend").notNull().default("bridge"),
+    /** The backend's OWN resume handle, opaque to Bridge. Null for "bridge",
+     * null on an agentic thread until its first turn completes, and cleared
+     * whenever the thread's backend changes (the new engine has no session of
+     * the old one's to resume). */
+    backendSessionId: text("backend_session_id"),
+    /** The Module this conversation belongs to. A Module reopens its own live
+     * thread rather than a blank one, the way a coding agent resumes the
+     * session bound to a project. Null for a thread started outside any
+     * Module (the standalone Chat page). */
+    moduleName: text("module_name"),
+    /** Additional Modules pulled into this same conversation. `moduleName` is
+     * where the thread lives; these are the others it may also reason over —
+     * one session, several Modules, like attaching a second project. */
+    attachedModules: jsonb("attached_modules").$type<string[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
       .notNull()
       .defaultNow(),
@@ -458,6 +476,23 @@ export const chatThreads = pgTable(
     check("chat_threads_plane_check", sql`${t.plane} IN ('local', 'cloud')`),
     check("chat_threads_data_scope_check", sql`${t.dataScope} IN ('private', 'public')`),
     check("chat_threads_status_check", sql`${t.status} IN ('active', 'archived')`),
+    check("chat_threads_backend_check", sql`${t.backend} IN ('bridge', 'claude_code')`),
+    check(
+      "chat_threads_module_name_check",
+      sql`${t.moduleName} IS NULL OR length(btrim(${t.moduleName})) > 0`,
+    ),
+    check("chat_threads_attached_modules_check", sql`jsonb_typeof(${t.attachedModules}) = 'array'`),
+    index("chat_threads_module_live_idx").on(
+      t.organizationId,
+      t.ownerUserId,
+      t.moduleName,
+      t.status,
+      t.updatedAt,
+    ),
+    check(
+      "chat_threads_backend_session_check",
+      sql`${t.backendSessionId} IS NULL OR (${t.backend} <> 'bridge' AND length(btrim(${t.backendSessionId})) > 0)`,
+    ),
     check(
       "chat_threads_plane_scope_check",
       sql`(${t.plane} = 'local' AND ${t.dataScope} = 'private')
@@ -815,14 +850,28 @@ export const automationRuns = pgTable(
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     output: jsonb("output"),
     ledgerId: uuid("ledger_id"),
+    /** The Task this Run advanced — projected from the Automation step's
+     * `goalTaskRef` at Run start, so "which Task did this Automation move"
+     * is answerable from the Run row instead of only from the step
+     * definition (which is mutable and shared across every Run of it).
+     * Nullable: Automations predating the anchor, and steps whose Skill is
+     * agent-floor-exempt, have no Task to name — an honest NULL beats a
+     * fabricated anchor. */
+    taskId: uuid("task_id"),
     taintLabel: jsonb("taint_label").notNull().default(UNKNOWN_LABEL),
   },
   (t) => [
+    index("automation_runs_task_idx").on(t.organizationId, t.taskId),
     foreignKey({
       columns: [t.organizationId, t.automationId, t.agentId],
       foreignColumns: [automations.organizationId, automations.id, automations.agentId],
       name: "automation_runs_organization_automation_owner_fk",
     }),
+    // The composite FK to `tasks` (organization_id, task_id) is declared in
+    // the migration, not here: `tasks` is defined further down this file
+    // (LAYER 8) and drizzle evaluates this extras callback at module init, so
+    // naming it from LAYER 4 is a temporal-dead-zone crash. Same
+    // "beyond what drizzle-kit generates" split as task_dependencies (0039).
   ],
 );
 
@@ -1603,6 +1652,15 @@ export const moduleInstallations = pgTable(
      * separate flag from capability_states.state). */
     status: text("status").notNull().default("pending_review"),
     lineageManifestId: uuid("lineage_manifest_id"),
+    /** What THIS Organization calls the Module, when its people renamed it in
+     * the rail (TASK-081). It lives here rather than in `manifest` because
+     * `seedBuiltInModules` rewrites a built-in Module's stored manifest on every
+     * boot whenever it differs from the shipped one — a rename written there is
+     * reverted at next start. NULL means "nobody renamed it", which is not the
+     * same as the empty string, and the manifest display name stands.
+     * The local Files folder is derived from this (`moduleFolderLabel`), so
+     * changing it MOVES a directory of the owner's own documents. */
+    displayNameOverride: text("display_name_override"),
     /** Installation-local ownership for a signed Commons capability. */
     moduleAttachment: jsonb("module_attachment"),
     /** Exact verified generalized Commons envelope for a root Module install. */
@@ -1655,6 +1713,11 @@ export const tasks = pgTable(
     ownerType: text("owner_type").notNull().default("human"),
     ownerId: uuid("owner_id"),
     requiredSkillId: text("required_skill_id"),
+    /** Coarse effort estimate as written in the ledger ("2d", "0.5d").
+     * TEXT, not a number: the unit is part of the judgement, and a NULL says
+     * "nobody has estimated this" rather than "zero" (AP-247 — unknown is
+     * first-class, and a fabricated 0 is worse than an absent value). */
+    estimate: text("estimate"),
     scheduledFor: date("scheduled_for"),
     evidenceRefs: jsonb("evidence_refs").notNull().default([]),
     verification: jsonb("verification"),
@@ -2309,5 +2372,105 @@ export const claimRows = pgTable(
       foreignColumns: [t.id],
       name: "claims_superseded_by_fk",
     }),
+  ],
+);
+
+/**
+ * A saved View (TASK-062) — the durable form of what was React state.
+ *
+ * `config` is the `ViewConfig` from @bridge/tables, stored as JSON: the shape
+ * belongs to the view kinds, and the router validates it at the edge, so this
+ * table does not encode a vocabulary it would then have to migrate. Column
+ * visibility sits beside it because it is the shell's state, not the kind's.
+ *
+ * Ownership is the chat_threads rule with one widening: `personal` is
+ * owner-only, `organization` is readable by every member and writable only by
+ * its owner. That second scope is the seam scoped share grants (TASK-064) grow
+ * into — a policy that exists from the first migration rather than a retrofit.
+ */
+export const viewConfigs = pgTable(
+  "view_configs",
+  {
+    id: uuidPkV7(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    ownerUserId: uuid("owner_user_id").notNull().references(() => users.id),
+    /** TableSpec id. A View never crosses Databases. */
+    databaseId: text("database_id").notNull(),
+    name: text("name").notNull(),
+    scope: text("scope").notNull().default("personal"),
+    config: jsonb("config").$type<Record<string, unknown>>().notNull(),
+    hiddenColumns: jsonb("hidden_columns").$type<string[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check("view_configs_name_check", sql`length(btrim(${t.name})) > 0`),
+    check("view_configs_scope_check", sql`${t.scope} IN ('personal', 'organization')`),
+    check("view_configs_database_check", sql`length(btrim(${t.databaseId})) > 0`),
+    check("view_configs_config_check", sql`jsonb_typeof(${t.config}) = 'object'`),
+    check(
+      "view_configs_hidden_columns_check",
+      sql`jsonb_typeof(${t.hiddenColumns}) = 'array'`,
+    ),
+    index("view_configs_database_idx").on(t.organizationId, t.databaseId, t.name),
+    // One name per Database per owner: two identically named entries in one
+    // List dropdown is an unusable UI, so the database refuses it too.
+    unique("view_configs_owner_name_uq").on(
+      t.organizationId,
+      t.ownerUserId,
+      t.databaseId,
+      t.name,
+    ),
+  ],
+);
+
+/**
+ * Scoped share grants (TASK-064) — the generalization of the one sharing
+ * primitive Bridge had (`helpdesk_tickets.access_token`).
+ *
+ * A grant points at a saved View (or the Form over it) and names an access
+ * level. It is aimed EITHER at a member (`grantee_user_id`) or at whoever holds
+ * an opaque token (`access_token`) — never both, because a grant that is two
+ * things at once has two revocation stories.
+ *
+ * REVOCATION IS A WRITE, NOT A DELETE: a grant that vanished cannot be audited,
+ * and "who could see this last week" is exactly the question a share ledger
+ * exists to answer.
+ */
+export const shareGrants = pgTable(
+  "share_grants",
+  {
+    id: uuidPkV7(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    targetKind: text("target_kind").notNull().default("view"),
+    /** The saved View this grant points at. */
+    targetId: uuid("target_id").notNull().references(() => viewConfigs.id),
+    granteeUserId: uuid("grantee_user_id").references(() => users.id),
+    accessToken: text("access_token").unique(),
+    accessLevel: text("access_level").notNull().default("view"),
+    expiresAt: timestamp("expires_at", { withTimezone: true, precision: 3 }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true, precision: 3 }),
+    createdByUserId: uuid("created_by_user_id").notNull().references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check("share_grants_target_kind_check", sql`${t.targetKind} IN ('view', 'form')`),
+    check(
+      "share_grants_access_level_check",
+      sql`${t.accessLevel} IN ('view', 'edit', 'coowner')`,
+    ),
+    // A member grant or a link grant, never both and never neither.
+    check(
+      "share_grants_holder_check",
+      sql`(${t.granteeUserId} IS NULL) <> (${t.accessToken} IS NULL)`,
+    ),
+    index("share_grants_target_idx").on(t.organizationId, t.targetKind, t.targetId),
+    index("share_grants_grantee_idx").on(t.organizationId, t.granteeUserId),
   ],
 );

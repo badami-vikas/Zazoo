@@ -11,11 +11,11 @@ packages/db           drizzle-orm, postgres, @electric-sql/pglite
 packages/local        @electric-sql/pglite  (local plane, private data, never reaches Supabase)
 packages/integrations-google  googleapis  (zero retry/backoff lib — no p-retry, no got-with-retry)
 packages/capability-kit  zod
-modules/manifests     no external runtime dependencies; imports @bridge/core
+packages/module-manifests  no external runtime dependencies; imports @bridge/core
 packages/core         (none — pure TS, in-memory + port interfaces only)
 packages/dedupe       (none — trigram similarity is hand-rolled, no fuzzball/string-similarity)
 packages/facts, sourcing, tables  (none)
-modules/dealpilot, jobpilot              compose @bridge/* packages; DealPilot also uses keyring
+commons/dealpilot, jobpilot              compose @bridge/* packages; DealPilot also uses keyring
 tools/people-sourcing, company-sourcing, recorder  internal Engine packages
 ```
 

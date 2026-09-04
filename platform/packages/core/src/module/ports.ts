@@ -81,6 +81,17 @@ export interface ModuleStore {
   setStatus(id: string, status: ModuleInstallationRow["status"]): Promise<ModuleInstallationRow>;
   setCommonsSource(id: string, source: CommonsInstallationSource): Promise<ModuleInstallationRow>;
   setNormalizedManifest(id: string, manifest: ModuleInstallationRow["manifest"]): Promise<ModuleInstallationRow>;
+  /** Rename a Module for one Organization, across EVERY version row it has.
+   * Not keyed by installation id like the setters above, deliberately: the name
+   * belongs to the Module in this Organization, not to the version that happens
+   * to be `available` today, so promote/rollback must not lose it. `null`
+   * clears the override and restores the manifest's display name. Returns the
+   * rows it changed. */
+  setDisplayNameOverride(
+    organizationId: string,
+    moduleName: string,
+    displayNameOverride: string | null,
+  ): Promise<ModuleInstallationRow[]>;
 }
 
 /** In-memory `ModuleStore` — dev/test default, mirrors InMemoryCapabilityStore's shape. */
@@ -182,6 +193,21 @@ export class InMemoryModuleStore implements ModuleStore {
     }
     const updated: ModuleInstallationRow = { ...existing, commonsSource: source };
     this.rows.set(id, updated);
+    return updated;
+  }
+
+  async setDisplayNameOverride(
+    organizationId: string,
+    moduleName: string,
+    displayNameOverride: string | null,
+  ): Promise<ModuleInstallationRow[]> {
+    const updated: ModuleInstallationRow[] = [];
+    for (const [id, row] of this.rows) {
+      if (row.organizationId !== organizationId || row.moduleName !== moduleName) continue;
+      const next: ModuleInstallationRow = { ...row, displayNameOverride };
+      this.rows.set(id, next);
+      updated.push(next);
+    }
     return updated;
   }
 

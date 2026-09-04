@@ -34,7 +34,7 @@ import {
   INTERNAL_STRATEGIST_AGENT_RUNTIME_ID,
   TASK_MANAGER_DEPENDENCY_AUTOMATION_ID,
   TASK_MANAGER_ROUTING_AUTOMATION_ID,
-} from "../src/built-in-modules.js";
+} from "@bridge/module-manifests";
 
 /** Proposals expire, so every call supplies a bound inside the allowed 24h. */
 function expiry(): string {

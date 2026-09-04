@@ -10,22 +10,7 @@ import test from "node:test";
 import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_USER, PILOT_ORGANIZATION, type Wiring } from "../src/wiring.js";
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(1);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-async function makeCaller(wiring: Wiring) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity: { type: "user", id: PILOT_USER },
-    authenticated: true,
-    verifying: false,
-  });
-}
+import { makeCaller } from "./caller.js";
 
 /** A module whose single capability is EXECUTABLE (carries an execution spec),
  * so it is subject to the PKG-1 sandbox floor. */

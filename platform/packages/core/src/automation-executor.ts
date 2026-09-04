@@ -121,7 +121,23 @@ export class InProcessAutomationExecutor implements AutomationExecutor {
     proposalId: string | undefined,
     ctx: RunCtx,
   ): Promise<AutomationRunResult> {
-    await this.#recorder?.start({ runId, automationId, organizationId, agentId: agent.id }, ctx);
+    // The Task this Run advances. Taken from the FIRST step that names one:
+    // `pipeline.propose` requires a `goalTaskRef` on every governed step, and
+    // a multi-step Automation whose steps disagree has no single anchor to
+    // record — the first is the one the Run started against. No step names a
+    // Task (agent-floor-exempt Skills) -> the Run records no anchor rather
+    // than inventing one.
+    const anchorTaskId = steps.find((step) => step.goalTaskRef)?.goalTaskRef?.taskId;
+    await this.#recorder?.start(
+      {
+        runId,
+        automationId,
+        organizationId,
+        agentId: agent.id,
+        ...(anchorTaskId ? { taskId: anchorTaskId } : {}),
+      },
+      ctx,
+    );
     const proposals: Proposal[] = [];
     let runTaint =
       ctx.taintLabel ??

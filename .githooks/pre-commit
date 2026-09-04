@@ -1,0 +1,20 @@
+#!/bin/sh
+# Bridge pre-commit gate.
+#
+# TRACKED DELIBERATELY. core.hooksPath already pointed at .githooks, but the
+# directory was never committed — so every fresh clone and every worktree had NO
+# hook, and commits there needed --no-verify, which trains people to pass that
+# flag by reflex. A hook that only exists on one machine is not a gate.
+#
+# One check only (AP-182): secrets / PII. Everything else runs once, in CI,
+# through `pnpm verify`. A pre-commit hook that repeats CI trains people to
+# pass --no-verify by reflex, and then the one check that matters is skipped too.
+set -e
+ROOT=$(git rev-parse --show-toplevel)
+
+if [ -x "$ROOT/scripts/check-no-pii.sh" ]; then
+  sh "$ROOT/scripts/check-no-pii.sh" || {
+    echo "pre-commit: PII/secret check failed." >&2
+    exit 1
+  }
+fi

@@ -20,7 +20,30 @@ export type ColumnKind =
   // MapView.tsx — see docs/BUGS.md "@bridge/tables ColumnKind missing
   // location" row, 2026-07-06). Mirrors `@bridge/core`'s
   // `BlueprintColumnKind`, which added this member first.
-  | "location";
+  | "location"
+  // Record metadata (TASK-063). DERIVED, never stored twice: the values come
+  // from the Event log, so a Form or an inline edit has nothing to write to
+  // them. Notion and Airtable both ship these as built-ins, and staleness
+  // Automations, activity feeds and "recently edited" Views all need them.
+  | "createdTime"
+  | "createdBy"
+  | "lastEditedTime"
+  | "lastEditedBy";
+
+/** The derived-metadata kinds, in one place so no surface re-lists them. */
+export const METADATA_COLUMN_KINDS = [
+  "createdTime",
+  "createdBy",
+  "lastEditedTime",
+  "lastEditedBy",
+] as const satisfies readonly ColumnKind[];
+
+export type MetadataColumnKind = (typeof METADATA_COLUMN_KINDS)[number];
+
+/** Is this column filled by the Event log rather than by anyone typing? */
+export function isMetadataColumn(kind: ColumnKind): kind is MetadataColumnKind {
+  return (METADATA_COLUMN_KINDS as readonly ColumnKind[]).includes(kind);
+}
 
 export type ViewKind =
   | "table"
@@ -54,6 +77,13 @@ export interface ColumnSpec {
   width?: number;
   options?: string[]; // select/multiselect
   skillId?: string; // kind: "skill" — computed by a governed Skill
+  /**
+   * `kind: "formula"` — the row field holding the EXPRESSION, when the cell's
+   * own field holds the computed VALUE. The fx affordance in the cell editor
+   * toggles between the two (TASK-084); without this the editor has only a
+   * value to edit and no expression, so fx is not offered.
+   */
+  expressionField?: string;
   required?: boolean;
   defaultValue?: unknown;
   relationTarget?: string;
@@ -121,6 +151,58 @@ export function normalizeViewKind(kind: unknown): ViewKind | null {
   if (kind === "kanban") return "board";
   if (kind === "network") return "graph";
   return VIEW_KINDS.includes(kind as ViewKind) ? (kind as ViewKind) : null;
+}
+
+/**
+ * A per-Organization patch over a shipped `TableSpec` (TASK-084).
+ *
+ * The Databases these specs describe ship WITH the application, so a column
+ * rename is not a migration and must not pretend to be one: the base spec stays
+ * the Module author's, and the user's edit is a separable, undoable overlay
+ * resolved over it. Only mutations this seam can actually honour are
+ * expressible — there is deliberately no `added`, because a column the
+ * underlying Database does not have would have nowhere to put its values, and a
+ * control that cannot act stays visible and disabled with a reason rather than
+ * lying (ADR-001/ADR-247).
+ */
+export interface ColumnOverlay {
+  /** columnId -> the label the user renamed it to. */
+  labels?: Record<string, string>;
+  /** columnId -> the kind the user changed it to. */
+  kinds?: Record<string, ColumnKind>;
+  /** Columns the user locked. This list is the whole truth: an id absent from a
+   * PRESENT list is unlocked, so unlocking is expressible rather than sticky. */
+  locked?: string[];
+  /** Columns the user deleted. */
+  removed?: string[];
+  updatedAt?: string;
+}
+
+/**
+ * Resolve an overlay over a base spec. Pure: the base is never mutated, and an
+ * overlay entry naming a column the spec does not have is inert — it can never
+ * invent a column, only describe one that already exists.
+ */
+export function applyColumnOverlay(
+  spec: TableSpec,
+  overlay: ColumnOverlay | null | undefined,
+): TableSpec {
+  if (!overlay) return spec;
+  const removed = new Set(overlay.removed ?? []);
+  const locked = overlay.locked ? new Set(overlay.locked) : null;
+  return {
+    ...spec,
+    columns: spec.columns
+      // Removal is applied FIRST: otherwise a deleted column comes back wearing
+      // the label a rename in the same overlay gave it.
+      .filter((column) => !removed.has(column.id))
+      .map((column) => ({
+        ...column,
+        label: overlay.labels?.[column.id] ?? column.label,
+        kind: overlay.kinds?.[column.id] ?? column.kind,
+        ...(locked ? { locked: locked.has(column.id) } : {}),
+      })),
+  };
 }
 
 export const defaultViewConfig = (id: string, kind: ViewKind = "table"): ViewConfig => ({

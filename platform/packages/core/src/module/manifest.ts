@@ -14,6 +14,7 @@ import type {
   ModulePlaybookBinding,
   ModuleCapabilityNeed,
   ModulePageBinding,
+  ModuleDatabaseBinding,
   ModuleSurfaceManifest,
   ModuleDependency,
   ModuleKind,
@@ -23,7 +24,12 @@ import type {
   ModuleGovernanceRule,
 } from "./types.js";
 import type { CapabilityExecutionSpec, CapabilityManifest, SandboxIsolationLevel } from "../capability/types.js";
-import { parseOrganizationBlueprint } from "../blueprint.js";
+import {
+  BLUEPRINT_FIELD_KINDS,
+  parseOrganizationBlueprint,
+  type BlueprintColumnKind,
+  type BlueprintColumnSpec,
+} from "../blueprint.js";
 import { parseAutomationTrigger } from "../automation-trigger.js";
 
 const MODULE_KINDS: readonly ModuleKind[] = [
@@ -253,6 +259,59 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
     return binding;
   });
 
+  // Declared Databases (ADR 2026-09-04). A Builder-built Module has no code
+  // to hand the shell a TableSpec, so the manifest carries the columns and the
+  // standard Module Page renders from them. Optional: a built-in whose spec is
+  // code declares none. When present, every Page's database_id must resolve
+  // here — a Page pointing at a Database nobody declared has nothing to show.
+  const databasesRaw = raw.databases ?? [];
+  if (!Array.isArray(databasesRaw)) fail("module.module.databases must be an array");
+  const databases: ModuleDatabaseBinding[] = databasesRaw.map((database, index) => {
+    if (!isPlainObject(database)) fail(`module.module.databases[${index}] must be an object`);
+    const id = requiredString(database.id, `module.module.databases[${index}].id`);
+    if (!/^[a-z0-9]+([-_][a-z0-9]+)*$/.test(id)) {
+      fail(`module.module.databases[${index}].id must be kebab-case`);
+    }
+    const columnsRaw = database.columns;
+    if (!Array.isArray(columnsRaw) || columnsRaw.length === 0) {
+      fail(`module.module.databases[${index}].columns must be a non-empty array`);
+    }
+    const seen = new Set<string>();
+    const columns: BlueprintColumnSpec[] = columnsRaw.map((column, columnIndex) => {
+      const where = `module.module.databases[${index}].columns[${columnIndex}]`;
+      if (!isPlainObject(column)) fail(`${where} must be an object`);
+      const columnId = requiredString(column.id, `${where}.id`);
+      if (seen.has(columnId)) fail(`${where}.id duplicates ${columnId}`);
+      seen.add(columnId);
+      const kind = requiredString(column.kind, `${where}.kind`);
+      if (!(BLUEPRINT_FIELD_KINDS as readonly string[]).includes(kind)) {
+        fail(`${where}.kind must be one of ${BLUEPRINT_FIELD_KINDS.join(", ")}`);
+      }
+      const options = column.options;
+      if (options !== undefined && (!Array.isArray(options) || options.some((o) => typeof o !== "string"))) {
+        fail(`${where}.options must be an array of strings`);
+      }
+      return {
+        id: columnId,
+        label: requiredString(column.label, `${where}.label`),
+        kind: kind as BlueprintColumnKind,
+        ...(options !== undefined ? { options: options as string[] } : {}),
+        ...(column.required === true ? { required: true } : {}),
+        ...(typeof column.relationTarget === "string" ? { relationTarget: column.relationTarget } : {}),
+        ...(typeof column.relation_target === "string" ? { relationTarget: column.relation_target } : {}),
+      };
+    });
+    return { id, name: requiredString(database.name, `module.module.databases[${index}].name`), columns };
+  });
+  if (databases.length > 0) {
+    const declared = new Set(databases.map((database) => database.id));
+    for (const [index, page] of pages.entries()) {
+      if (!declared.has(page.databaseId)) {
+        fail(`module.module.pages[${index}].database_id ${page.databaseId} is not a declared database`);
+      }
+    }
+  }
+
   const agentsRaw = raw.agents ?? [];
   if (!Array.isArray(agentsRaw)) fail("module.module.agents must be an array");
   const agents: ModuleAgentBinding[] = agentsRaw.map((agent, index) => {
@@ -388,6 +447,7 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
     route,
     ...(parentModule !== undefined ? { parentModule } : {}),
     pages,
+    ...(databases.length > 0 ? { databases } : {}),
     agents,
     automations,
     ...(playbooks.length > 0 ? { playbooks } : {}),

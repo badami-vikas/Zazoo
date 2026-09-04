@@ -15,28 +15,13 @@ import test from "node:test";
 import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_USER, PILOT_ORGANIZATION, type Wiring } from "../src/wiring.js";
+import { makeCaller } from "./caller.js";
 
 // `integration.list` now rejects any organizationId that isn't PILOT_ORGANIZATION (interim
 // single-tenant safety fix, All fixes.md Phase 3 item 11a — see router.ts's
 // `assertPilotOrganization`), so these fixtures must be seeded under PILOT_ORGANIZATION
 // itself rather than an arbitrary test_fixture_ organization id.
 const FIXTURE_COUNT = 75; // > default limit (50), so an unbounded default would leak the whole set
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(1);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-async function makeCaller(wiring: Wiring) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity: { type: "user", id: PILOT_USER },
-    authenticated: true, // SEC-1: in-process test caller is a trusted, authenticated actor
-    verifying: false,
-  });
-}
 
 async function seedDealPilotCandidates(wiring: Wiring, count: number): Promise<void> {
   for (let i = 0; i < count; i += 1) {

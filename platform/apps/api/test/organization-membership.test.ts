@@ -34,22 +34,7 @@ import {
   PILOT_ORGANIZATION,
   type Wiring,
 } from "../src/wiring.js";
-
-function makeRun(seed = 1): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(seed);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(wiring: Wiring, identity: Actor) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity,
-    authenticated: true,
-    verifying: false,
-  });
-}
+import { makeCaller } from "./caller.js";
 
 // A well-formed but unseeded user UUID: real auth identities are always UUIDs, so
 // isMember() finds no membership row and returns false (rather than a malformed-id error).

@@ -2,9 +2,11 @@
   "name": "bridge-platform",
   "private": true,
   "version": "0.0.0",
-  "description": "Bridge AI platform monorepo — substrate, governance spine, capability runtime.",
+  "description": "Bridge AI platform monorepo \u2014 substrate, governance spine, capability runtime.",
   "packageManager": "pnpm@10.33.3",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "scripts": {
     "build": "turbo run build",
@@ -13,18 +15,27 @@
     "test:coverage": "turbo run test:coverage",
     "test:affected": "turbo run test --affected",
     "verify:affected": "turbo run typecheck test build --affected",
-    "verify": "pnpm check:agent-context && pnpm check:vocabulary && turbo run typecheck test:coverage build",
+    "verify": "pnpm check:agent-context && pnpm check:ui-rules && turbo run typecheck test:coverage build",
     "dev": "turbo run dev",
     "lint": "eslint .",
     "check:vocabulary": "node --test scripts/check-retired-vocabulary.test.mjs && node scripts/check-retired-vocabulary.mjs",
     "check:deploy-drift": "node scripts/check-deploy-drift.mjs",
     "check:agent-context": "node --test scripts/check-agent-context-budget.test.mjs scripts/task-doc-parser.test.mjs && node scripts/check-agent-context-budget.mjs",
-    "check:no-dummy-runtime": "sh -c 'set -e; MATCHES=$(grep -RIn \"dummy_\" --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\" --include=\"*.jsx\" --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.turbo --exclude-dir=test --exclude-dir=fixtures --exclude-dir=seed --exclude=\"*.test.ts\" --exclude=\"*.spec.ts\" --exclude=\"dummy-prefix.js\" --exclude=\"eslint.config.js\" . || true); if [ -n \"$MATCHES\" ]; then echo \"$MATCHES\"; echo; echo \"check:no-dummy-runtime: found dummy_ in runtime code (see above). Runtime product code must carry zero dummy/demo data — see CLAUDE.md real-data-only policy. Any unavoidable runtime or test fixture must be tracked in docs/dummy.md.\"; exit 1; else echo \"check:no-dummy-runtime: OK — no dummy_ found outside test/fixture dirs.\"; fi'"
+    "check:ui-rules": "node --test scripts/check-ui-rules.test.mjs && node scripts/check-ui-rules.mjs"
   },
   "devDependencies": {
     "turbo": "^2.5.0",
     "typescript": "^5.7.3",
     "eslint": "^9.18.0",
     "typescript-eslint": "^8.62.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "shell-quote@1": "^1.9.0",
+      "fast-uri@3": "^3.1.6",
+      "find-my-way@9": "^9.7.0",
+      "brace-expansion@4": "^5.0.9",
+      "brace-expansion@5": "^5.0.9"
+    }
   }
 }

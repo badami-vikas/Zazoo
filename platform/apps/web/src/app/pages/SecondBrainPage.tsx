@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 import type { TableSpec, ViewConfig, ViewKind } from "@bridge/tables";
 import { Header } from "../components/shared/Header";
 import { DataViews } from "../dataviews/DataViews";
+import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { viewConfigForKind } from "../dataviews/eligibility";
 import type { DataRow, GraphEdge, GraphNode } from "../dataviews/types";
 import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
@@ -34,6 +35,7 @@ type ClaimSuggestionsResult = Awaited<ReturnType<typeof trpc.learning.claims.sug
 type ClaimsResult = Awaited<ReturnType<typeof trpc.learning.claims.claims.query>>;
 type ClaimEntitiesResult = Awaited<ReturnType<typeof trpc.learning.claims.entities.query>>;
 type ClaimHistoryResult = Awaited<ReturnType<typeof trpc.learning.claims.claimHistory.query>>;
+type StructureResult = Awaited<ReturnType<typeof trpc.learning.claims.proposeStructure.query>>;
 
 const CLAIM_ENTITY_KINDS = ["person", "community", "task", "topic"] as const;
 
@@ -51,6 +53,9 @@ function ClaimsPanel({ onClaimsChanged }: { onClaimsChanged: () => void }) {
   const [entities, setEntities] = useState<ClaimEntitiesResult["entities"]>([]);
   const [history, setHistory] = useState<{ key: string; rows: ClaimHistoryResult["history"] } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  /** K9 rung 4: null until asked. A structure proposal is derived on demand,
+   *  never rendered as if Bridge had decided something on its own. */
+  const [structure, setStructure] = useState<StructureResult | null>(null);
   const [form, setForm] = useState({ kind: "person" as (typeof CLAIM_ENTITY_KINDS)[number], name: "", field: "", value: "" });
 
   const refresh = useCallback(() => {
@@ -204,6 +209,73 @@ function ClaimsPanel({ onClaimsChanged }: { onClaimsChanged: () => void }) {
           </ul>
         )
       )}
+
+      {/* K9 rung 4 (TASK-053) — the Capability Builder reading the substrate
+          back as a SHAPE. Nothing is created here: it names the Databases the
+          person's own claims already describe, with the counts it derived
+          them from, and renders a refusal verbatim when the evidence does not
+          support one. Materializing a proposed Database is a schema change
+          and belongs to the governed pipeline, not to this button. */}
+      <div className="mb-3 border-t pt-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="rounded border px-2 py-0.5 text-xs"
+            onClick={() =>
+              void trpc.learning.claims.proposeStructure
+                .query({ organizationId: PILOT_ORGANIZATION })
+                .then(setStructure)
+                .catch((cause) => setMessage(String(cause)))
+            }
+          >
+            Show the shape of what Bridge has observed
+          </button>
+          {structure && (
+            <button
+              type="button"
+              className="rounded border px-2 py-0.5 text-xs"
+              onClick={() => setStructure(null)}
+            >
+              Hide
+            </button>
+          )}
+        </div>
+        {structure && !structure.proposed && (
+          <p className="mt-2 text-xs" style={{ color: "var(--color-navy-mid)" }}>
+            No structure proposed: {structure.detail} (Capability Builder Run {structure.runId}.)
+          </p>
+        )}
+        {structure?.proposed && (
+          <div className="mt-2 text-xs">
+            <p style={{ color: "var(--color-navy-mid)" }}>
+              Capability Builder Run {structure.runId} · derived from{" "}
+              {structure.evidence.entityCount} things and{" "}
+              {structure.evidence.claimCount} claims
+              {structure.evidence.basis === "field_signature"
+                ? " — grouped by the fields they share, so nothing in your data names these yet"
+                : ""}
+              {structure.evidence.redTierClaimsExcluded > 0
+                ? ` · ${structure.evidence.redTierClaimsExcluded} sensitive claim${structure.evidence.redTierClaimsExcluded === 1 ? "" : "s"} excluded, as they always are`
+                : ""}
+              .
+            </p>
+            <ul className="mt-1 space-y-1">
+              {structure.databases.map((database, index) => (
+                <li key={database.name ?? `unnamed-${index}`}>
+                  <span className="font-medium">{database.name ?? "Unnamed — you name it"}</span>
+                  <span style={{ color: "var(--color-navy-mid)" }}>
+                    {" "}· {database.entityIds.length} records ·{" "}
+                    {database.columns.map((column) => `${column.field} (${column.support})`).join(", ")}
+                    {database.sparseFields.length > 0
+                      ? ` · left out, seen once: ${database.sparseFields.join(", ")}`
+                      : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
 
       <form
         className="flex flex-wrap items-center gap-2 text-xs"
@@ -363,11 +435,12 @@ export function SecondBrainPage({ embedded = false }: { embedded?: boolean } = {
       {claimsEnabled && (
         <ClaimsPanel onClaimsChanged={() => setGraphRefresh((tick) => tick + 1)} />
       )}
-      {/* One surface, one view, nothing below the fold: the view region takes
-          the whole remaining height so the table/graph covers the screen, and
-          each renderer scrolls its own body. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-4">
-        {error ? (
+      {/* One surface, one view, nothing below the fold — through the same
+          <ModuleSurfaceLayout> every other Module Page uses (TASK-061), so the
+          view region's definite height comes from one place rather than from a
+          hand-rolled flex column here. */}
+      <ModuleSurfaceLayout
+        table={error ? (
           <p role="alert" className="rounded-md border border-red-200 p-4 text-sm text-red-600">
             Full graph could not load: {error}
           </p>
@@ -390,7 +463,7 @@ export function SecondBrainPage({ embedded = false }: { embedded?: boolean } = {
               : undefined}
           />
         )}
-      </div>
+      />
     </div>
   );
 }

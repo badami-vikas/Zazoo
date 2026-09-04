@@ -31,6 +31,89 @@ export type GovernanceVerdict =
   | { allowed: false; matched: ModuleGovernanceRule; reason: string };
 
 /**
+ * The user's own governance policy for one Module, held by the engine.
+ *
+ * WHY AN OVERLAY AND NOT AN EDITED MANIFEST. Manifests are immutable (ADR-178)
+ * — a Module version resolves to exactly one manifest for everyone who installs
+ * it, which is the whole reason a promotion means anything. So a user editing
+ * their policy cannot edit the manifest, and `module.governance.userEdited` has
+ * been parsed by `manifest.ts` and rendered by the Governance Section since
+ * ADR-248 with nothing in the repo able to set it: the flag was written for the
+ * overlay that had not been built. This is it.
+ *
+ * KEYED BY ORGANIZATION + MODULE, held on the Local Plane. Governance is who is
+ * allowed to do what in one Organization's copy of a Module; it is not a
+ * property of the Module and it does not travel with it.
+ *
+ * THE OVERLAY REPLACES, IT DOES NOT MERGE. A merge would leave the user staring
+ * at a rule they cannot delete, because the manifest's deny would keep coming
+ * back after they removed it. The editor seeds itself from the declared policy,
+ * the user edits the whole list, and `resolveModuleGovernance` returns what they
+ * saved. `reset` (no overlay) is how the declared default comes back.
+ */
+export interface ModuleGovernanceOverlay {
+  allow: ModuleGovernanceRule[];
+  deny: ModuleGovernanceRule[];
+  updatedAt: string;
+}
+
+function readRules(raw: unknown): ModuleGovernanceRule[] | null {
+  // A MISSING list is not an empty one. `set` always writes both, so a row with
+  // a key absent is a corrupt row — and treating it as `[]` would silently drop
+  // the manifest's deny rules, which is the one failure mode this parser exists
+  // to prevent.
+  if (!Array.isArray(raw)) return null;
+  const rules: ModuleGovernanceRule[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null) return null;
+    const { action, reason } = entry as { action?: unknown; reason?: unknown };
+    // Same contract the manifest parser enforces: a rule that cannot explain
+    // itself is a rule the user cannot audit, and the refusal quotes it back.
+    if (typeof action !== "string" || action.length === 0) return null;
+    if (typeof reason !== "string" || reason.length === 0) return null;
+    rules.push({ action, reason });
+  }
+  return rules;
+}
+
+/**
+ * Parse a stored overlay row, or `null` if there isn't a usable one.
+ *
+ * FAILS CLOSED IN THE ONLY DIRECTION THAT MATTERS. "Empty" is the PERMISSIVE
+ * state here (`governanceVerdict` above), so a corrupt row must never degrade
+ * to an empty overlay — that would silently delete every deny rule the manifest
+ * declared. `null` instead means "no overlay", and the declared policy stands.
+ */
+export function readModuleGovernanceOverlay(raw: unknown): ModuleGovernanceOverlay | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const { allow, deny, updatedAt } = raw as Record<string, unknown>;
+  const allowRules = readRules(allow);
+  const denyRules = readRules(deny);
+  if (!allowRules || !denyRules) return null;
+  return {
+    allow: allowRules,
+    deny: denyRules,
+    updatedAt: typeof updatedAt === "string" ? updatedAt : "",
+  };
+}
+
+/**
+ * The policy the engine actually enforces: the overlay if the user wrote one,
+ * otherwise the manifest's declared default.
+ *
+ * `userEdited: true` is set here and only here — it is derived from the overlay
+ * existing, never stored as an independent claim that could drift out of step
+ * with it.
+ */
+export function resolveModuleGovernance(
+  declared: ModuleGovernancePolicy | undefined,
+  overlay: ModuleGovernanceOverlay | null,
+): ModuleGovernancePolicy | undefined {
+  if (!overlay) return declared;
+  return { allow: overlay.allow, deny: overlay.deny, userEdited: true };
+}
+
+/**
  * Does `rule.action` cover `action`?
  *
  * `*` covers everything. Otherwise the rule must match the action exactly or be

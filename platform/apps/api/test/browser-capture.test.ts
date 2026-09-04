@@ -20,25 +20,10 @@ import { TRPCError } from "@trpc/server";
 import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
+import { makeCaller } from "./caller.js";
 
 const ORG = PILOT_ORGANIZATION;
 const AT = "2026-08-11T09:30:00.000Z";
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(88);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(wiring: Wiring, identity?: { type: "user" | "agent"; id: string }) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity: identity ?? { type: "user", id: PILOT_USER },
-    authenticated: true,
-    verifying: false,
-  });
-}
 
 async function browserSignals(wiring: Wiring) {
   const rows = await wiring.memoryStore.retrieve(
@@ -246,7 +231,7 @@ test("setPolicy refuses typos loudly, refuses non-Human identities, and normaliz
 });
 
 test("flight OFF: the visit path fails closed with PRECONDITION_FAILED", async () => {
-  const wiring = await buildWiring({});
+  const wiring = await buildWiring({ learningObservationEnabled: false });
   try {
     const caller = makeCaller(wiring);
     await assert.rejects(
