@@ -81,6 +81,14 @@ const AGENT_ROLE_TEMPLATE_SEEDS: readonly AgentRoleTemplateSeed[] = [
     egressTier: "none",
   },
   {
+    id: "academics-steward",
+    roleId: "role-academics-steward",
+    organizationId: PILOT_ORGANIZATION,
+    allowedSkills: ["academics.syncCanvas", "academics.summarizeCanvasContent"],
+    dataScope: "public",
+    egressTier: "none",
+  },
+  {
     id: "devpilot-reviewer",
     roleId: "role-devpilot-reviewer",
     organizationId: PILOT_ORGANIZATION,

@@ -33,6 +33,7 @@
     "@bridge/dedupe": "workspace:*",
     "@bridge/devpilot": "workspace:*",
     "@bridge/facts": "workspace:*",
+    "@bridge/integrations-canvas": "workspace:*",
     "@bridge/integrations-github": "workspace:*",
     "@bridge/integrations-google": "workspace:*",
     "@bridge/jobpilot": "workspace:*",

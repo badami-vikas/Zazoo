@@ -5,9 +5,9 @@
  * no external effect requiring approval.
  */
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, count } from "drizzle-orm";
+import { and, desc, eq, count, isNull } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { academicsSubjects, academicsLectureSessions, academicsAssignments } from "./schema.js";
+import { academicsSubjects, academicsLectureSessions, academicsAssignments, academicsDocuments } from "./schema.js";
 import { withOrganizationOnly } from "./organization-context.js";
 
 export interface PageOpts {
@@ -22,6 +22,7 @@ export interface Page<T> {
 export type SubjectRow = typeof academicsSubjects.$inferSelect;
 export type LectureSessionRow = typeof academicsLectureSessions.$inferSelect;
 export type AssignmentRow = typeof academicsAssignments.$inferSelect;
+export type DocumentRow = typeof academicsDocuments.$inferSelect;
 
 export interface CreateSubjectInput {
   organizationId: string;
@@ -48,6 +49,43 @@ export interface CreateAssignmentInput {
   type?: string;
   dueAt?: Date;
   weight?: number;
+}
+
+/** LMS sync (TASK-078). Upserts key on (organizationId, source, sourceId) and
+ * update ONLY source-owned fields — a re-sync never clobbers the owner's own
+ * status/grade/notes edits. Submission-derived assignment fields (status/
+ * submittedAt/grade) are applied only when the source actually asserts them. */
+export interface UpsertSubjectFromSourceInput {
+  organizationId: string;
+  source: string;
+  sourceId: string;
+  title: string;
+  code?: string;
+  term?: string;
+  instructor?: string;
+}
+
+export interface UpsertAssignmentFromSourceInput {
+  organizationId: string;
+  subjectId: string;
+  source: string;
+  sourceId: string;
+  title: string;
+  dueAt?: Date;
+  status?: string;
+  submittedAt?: Date;
+  grade?: string;
+}
+
+export interface UpsertDocumentFromSourceInput {
+  organizationId: string;
+  subjectId: string;
+  source: string;
+  sourceId: string;
+  kind: "page" | "file";
+  title: string;
+  content?: string;
+  url?: string;
 }
 
 export class DrizzleAcademicsStore {
@@ -105,6 +143,182 @@ export class DrizzleAcademicsStore {
           ...(patch.targetGrade !== undefined ? { targetGrade: patch.targetGrade } : {}),
         })
         .where(and(eq(academicsSubjects.id, id), eq(academicsSubjects.organizationId, organizationId)))
+        .returning();
+      return row ?? null;
+    });
+  }
+
+  async upsertSubjectFromSource(input: UpsertSubjectFromSourceInput): Promise<{ row: SubjectRow; created: boolean }> {
+    return withOrganizationOnly(this.#db, input.organizationId, async (tx) => {
+      const [existing] = await tx
+        .select({ id: academicsSubjects.id })
+        .from(academicsSubjects)
+        .where(
+          and(
+            eq(academicsSubjects.organizationId, input.organizationId),
+            eq(academicsSubjects.source, input.source),
+            eq(academicsSubjects.sourceId, input.sourceId),
+          ),
+        )
+        .limit(1);
+      const sourceOwned = {
+        title: input.title,
+        code: input.code ?? null,
+        term: input.term ?? null,
+        instructor: input.instructor ?? null,
+      };
+      if (existing) {
+        const [row] = await tx
+          .update(academicsSubjects)
+          .set(sourceOwned)
+          .where(eq(academicsSubjects.id, existing.id))
+          .returning();
+        return { row: row!, created: false };
+      }
+      const [row] = await tx
+        .insert(academicsSubjects)
+        .values({
+          id: randomUUID(),
+          organizationId: input.organizationId,
+          source: input.source,
+          sourceId: input.sourceId,
+          ...sourceOwned,
+        })
+        .returning();
+      return { row: row!, created: true };
+    });
+  }
+
+  async upsertAssignmentFromSource(
+    input: UpsertAssignmentFromSourceInput,
+  ): Promise<{ row: AssignmentRow; created: boolean }> {
+    return withOrganizationOnly(this.#db, input.organizationId, async (tx) => {
+      const [existing] = await tx
+        .select({ id: academicsAssignments.id })
+        .from(academicsAssignments)
+        .where(
+          and(
+            eq(academicsAssignments.organizationId, input.organizationId),
+            eq(academicsAssignments.source, input.source),
+            eq(academicsAssignments.sourceId, input.sourceId),
+          ),
+        )
+        .limit(1);
+      const sourceOwned = {
+        subjectId: input.subjectId,
+        title: input.title,
+        dueAt: input.dueAt ?? null,
+        ...(input.status !== undefined ? { status: input.status } : {}),
+        ...(input.submittedAt !== undefined ? { submittedAt: input.submittedAt } : {}),
+        ...(input.grade !== undefined ? { grade: input.grade } : {}),
+      };
+      if (existing) {
+        const [row] = await tx
+          .update(academicsAssignments)
+          .set(sourceOwned)
+          .where(eq(academicsAssignments.id, existing.id))
+          .returning();
+        return { row: row!, created: false };
+      }
+      const [row] = await tx
+        .insert(academicsAssignments)
+        .values({
+          id: randomUUID(),
+          organizationId: input.organizationId,
+          source: input.source,
+          sourceId: input.sourceId,
+          ...sourceOwned,
+        })
+        .returning();
+      return { row: row!, created: true };
+    });
+  }
+
+  async upsertDocumentFromSource(input: UpsertDocumentFromSourceInput): Promise<{ row: DocumentRow; created: boolean }> {
+    return withOrganizationOnly(this.#db, input.organizationId, async (tx) => {
+      const [existing] = await tx
+        .select({ id: academicsDocuments.id })
+        .from(academicsDocuments)
+        .where(
+          and(
+            eq(academicsDocuments.organizationId, input.organizationId),
+            eq(academicsDocuments.source, input.source),
+            eq(academicsDocuments.sourceId, input.sourceId),
+          ),
+        )
+        .limit(1);
+      const sourceOwned = {
+        subjectId: input.subjectId,
+        kind: input.kind,
+        title: input.title,
+        content: input.content ?? null,
+        url: input.url ?? null,
+      };
+      if (existing) {
+        const [row] = await tx
+          .update(academicsDocuments)
+          .set(sourceOwned)
+          .where(eq(academicsDocuments.id, existing.id))
+          .returning();
+        return { row: row!, created: false };
+      }
+      const [row] = await tx
+        .insert(academicsDocuments)
+        .values({
+          id: randomUUID(),
+          organizationId: input.organizationId,
+          source: input.source,
+          sourceId: input.sourceId,
+          ...sourceOwned,
+        })
+        .returning();
+      return { row: row!, created: true };
+    });
+  }
+
+  async listDocuments(organizationId: string, opts: PageOpts): Promise<Page<DocumentRow>> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+      const where = eq(academicsDocuments.organizationId, organizationId);
+      const [rows, totalRows] = await Promise.all([
+        tx
+          .select()
+          .from(academicsDocuments)
+          .where(where)
+          .orderBy(desc(academicsDocuments.createdAt))
+          .limit(opts.limit)
+          .offset(opts.offset),
+        tx.select({ value: count() }).from(academicsDocuments).where(where),
+      ]);
+      return { items: rows, total: Number(totalRows[0]?.value ?? 0) };
+    });
+  }
+
+  /** Unsummarized page documents — the ONLY input a summarization Run reads.
+   * Bounded by `limit` so a single Run has a predictable cost. */
+  async listUnsummarizedDocuments(organizationId: string, limit: number): Promise<DocumentRow[]> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(academicsDocuments)
+        .where(
+          and(
+            eq(academicsDocuments.organizationId, organizationId),
+            eq(academicsDocuments.kind, "page"),
+            isNull(academicsDocuments.summary),
+          ),
+        )
+        .orderBy(desc(academicsDocuments.createdAt))
+        .limit(limit);
+      return rows.filter((row) => row.content);
+    });
+  }
+
+  async setDocumentSummary(id: string, organizationId: string, summary: string): Promise<DocumentRow | null> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+      const [row] = await tx
+        .update(academicsDocuments)
+        .set({ summary, summarizedAt: new Date() })
+        .where(and(eq(academicsDocuments.id, id), eq(academicsDocuments.organizationId, organizationId)))
         .returning();
       return row ?? null;
     });

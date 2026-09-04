@@ -1,0 +1,26 @@
+{
+  "name": "@bridge/integrations-canvas",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Canvas LMS integration — the EGRESS adapter (Canvas REST v1 over @bridge/net-guard's guardedFetch, the only file that touches a Canvas instance), an access-token paste-and-validate flow (Canvas Account → Settings → New Access Token; no OAuth app registration for a single-user connector), and pure intake mapping into Academics Subject/Assignment rows. Read-only: no external:send capability.",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit false",
+    "test": "node --test-reporter=dot --test dist/test/*.test.js",
+    "test:coverage": "node --experimental-test-coverage --test-coverage-include='dist/src/**' --test-coverage-exclude='**/test/**' --test-coverage-lines=70 --test dist/test/*.test.js"
+  },
+  "dependencies": {
+    "@bridge/net-guard": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3"
+  }
+}

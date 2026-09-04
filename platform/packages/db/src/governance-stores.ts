@@ -688,6 +688,39 @@ export async function ensureDevpilotTrackerGovernance(
   });
 }
 
+/** Academics Canvas sync (TASK-078) — the Study Steward sources the owner's
+ * OWN Canvas enrollments (private LMS data, unlike the tracker's public
+ * GitHub scope); never sends, submits, or posts anything back to Canvas.
+ * `additionalGrants` (TASK-079, ADR-257) adds `record:read`/`record:write`
+ * for `academics.summarizeCanvasContent` — that Skill never fetches from
+ * Canvas (it reads already-synced Documents and calls a governed cloud
+ * model), same shape as the DevPilot reviewer's grant below, kept on this
+ * ONE Agent identity rather than split like DevPilot's tracker/reviewer pair
+ * because both Skills already act on the SAME owner-scoped Academics data. */
+export async function ensureAcademicsStewardGovernance(
+  db: Database,
+  config: RuntimeAgentGovernanceConfig,
+): Promise<void> {
+  return ensurePersistentAgentGovernance(db, {
+    ...config,
+    name: "Study Steward",
+    description:
+      "May source the owner's own Canvas courses, assignments, and course documents, and summarize synced documents via a governed cloud model; never sends externally or writes back to Canvas.",
+    goal: "Sync Canvas coursework metadata into Academics Databases and summarize synced course documents for review.",
+    resourceType: "external:fetch",
+    action: "read",
+    capabilityToken: "external:fetch:read",
+    additionalGrants: [
+      { resourceType: "record", action: "read", capabilityToken: "record:read" },
+      { resourceType: "record", action: "write", capabilityToken: "record:write" },
+    ],
+    allowedSkills: ["academics.syncCanvas", "academics.summarizeCanvasContent"],
+    // The plane model's egress tier (cloud sourcing is public-clamped), not a
+    // claim about gradebook sensitivity — content lands only in Local tables.
+    dataScope: "public",
+  });
+}
+
 /** DevPilot D2 (TASK-071) — a separate Agent identity from the tracker: the
  * tracker only ever reads GitHub metadata, but the reviewer additionally
  * writes governed proposals (a Human must still approve each one), so it

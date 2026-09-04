@@ -302,6 +302,20 @@
       "when": 1786986662650,
       "tag": "0043_task075_jobpilot_onboarding",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1787340667543,
+      "tag": "0044_academics_canvas_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1787375196638,
+      "tag": "0045_sleepy_gorilla_man",
+      "breakpoints": true
     }
   ]
 }

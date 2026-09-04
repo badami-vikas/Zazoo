@@ -1375,10 +1375,17 @@ export const academicsSubjects = pgTable(
     status: text("status").notNull().default("planned"), // planned | active | complete | dropped
     grade: text("grade"),
     targetGrade: text("target_grade"),
+    // LMS sync provenance (TASK-078): "canvas" + the instance's course id.
+    // Null for rows the owner typed by hand.
+    source: text("source"),
+    sourceId: text("source_id"),
     createdAt: now(),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
   },
-  (t) => [index("academics_subjects_org_idx").on(t.organizationId, t.createdAt)],
+  (t) => [
+    index("academics_subjects_org_idx").on(t.organizationId, t.createdAt),
+    index("academics_subjects_source_idx").on(t.organizationId, t.source, t.sourceId),
+  ],
 );
 
 export const academicsLectureSessions = pgTable(
@@ -1411,10 +1418,46 @@ export const academicsAssignments = pgTable(
     risk: text("risk"), // red | yellow | green — domain signal (AP-023), not a feedback flag
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
     grade: text("grade"),
+    // LMS sync provenance (TASK-078): "canvas" + the instance's assignment id.
+    source: text("source"),
+    sourceId: text("source_id"),
     createdAt: now(),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
   },
-  (t) => [index("academics_assignments_org_idx").on(t.organizationId, t.subjectId)],
+  (t) => [
+    index("academics_assignments_org_idx").on(t.organizationId, t.subjectId),
+    index("academics_assignments_source_idx").on(t.organizationId, t.source, t.sourceId),
+  ],
+);
+
+/** Course-module content synced from an LMS (TASK-079, ADR-257): Canvas Pages
+ * (syllabi, readings — text content) and Files (metadata only, no byte
+ * download — a separate, unbuilt capability). `summary`/`summarizedAt` are
+ * filled by an explicit, user-triggered governed cloud-model call (Ox Alpha),
+ * never automatically — the existing cloud-egress consent gate still applies
+ * per call. */
+export const academicsDocuments = pgTable(
+  "academics_documents",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    subjectId: uuid("subject_id").notNull().references(() => academicsSubjects.id),
+    kind: text("kind").notNull(), // page | file
+    title: text("title").notNull(),
+    content: text("content"), // plain text (pages only); null for files
+    url: text("url"),
+    summary: text("summary"),
+    summarizedAt: timestamp("summarized_at", { withTimezone: true }),
+    // LMS sync provenance: "canvas" + the instance's page/file id.
+    source: text("source"),
+    sourceId: text("source_id"),
+    createdAt: now(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("academics_documents_org_idx").on(t.organizationId, t.subjectId),
+    index("academics_documents_source_idx").on(t.organizationId, t.source, t.sourceId),
+  ],
 );
 
 /** NetworkManager's Events sub-module (`parentModule: "relationship"`, ADR-178/231).

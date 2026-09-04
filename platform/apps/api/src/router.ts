@@ -254,6 +254,7 @@ import type { ModelBinding } from "@bridge/capability-kit";
 import { createModelRouter, MANAGED_LLAMA_PROVIDER_ID } from "@bridge/models";
 import { authUrl, CALENDAR_SOURCE, GMAIL_SOURCE, type IntakeDirective } from "@bridge/integrations-google";
 import { classifyPatShape, maskPat } from "@bridge/integrations-github";
+import { isCanvasTokenShape, maskCanvasToken, normalizeCanvasHost } from "@bridge/integrations-canvas";
 import { reposTableSpec, pullsTableSpec, issuesTableSpec, pullsTriageBoardView, issuesUpdatedListView } from "@bridge/devpilot";
 import {
   routeHelpRequest,
@@ -414,6 +415,8 @@ import {
   DEVPILOT_REVIEW_PR_AUTOMATION_ID,
   DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_ID,
   DEVPILOT_ANALYZE_ISSUE_AUTOMATION_ID,
+  ACADEMICS_CANVAS_POLL_AUTOMATION_ID,
+  ACADEMICS_CANVAS_SUMMARIZE_AUTOMATION_ID,
   TASK_MANAGER_DRIFT_AUTOMATION_ID,
   TASK_MANAGER_SWEEP_AUTOMATION_ID,
   TASK_MANAGER_SCAN_AUTOMATION_ID,
@@ -18926,6 +18929,152 @@ export const appRouter = t.router({
           ...(input.grade !== undefined ? { grade: input.grade } : {}),
         });
       }),
+
+    listDocuments: procedure
+      .input(paginatedInput)
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        const { items, total } = await ctx.wiring.academicsStore.listDocuments(input.organizationId, {
+          limit: input.limit,
+          offset: input.offset,
+        });
+        return { items, total, hasMore: input.offset + items.length < total };
+      }),
+
+    /**
+     * Canvas LMS connection (TASK-078, ADR-256) — access-token paste flow,
+     * mirroring devpilot.github's PAT shape plus an instance host (Canvas is
+     * per-institution, not one API origin). Secrets ride
+     * `credentialSettingsProcedure`: only an authenticated Human can install
+     * or remove a token.
+     */
+    canvas: t.router({
+      connect: credentialSettingsProcedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            canvasDomain: z.string().min(1),
+            accessToken: z.string().min(1),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          if (ctx.wiring.publicCloudOnly) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "Canvas access tokens require the Local Plane — connect from the desktop app",
+            });
+          }
+          const host = normalizeCanvasHost(input.canvasDomain);
+          if (!host) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `"${input.canvasDomain}" is not a Canvas instance domain — it looks like "wustl.instructure.com"`,
+            });
+          }
+          const token = input.accessToken.trim();
+          if (!isCanvasTokenShape(token)) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Not a recognized Canvas access-token shape" });
+          }
+          const gateway = ctx.wiring.academicsCanvas.gateways.forConnection(host, token);
+          let profile;
+          try {
+            profile = await gateway.profile();
+          } catch (error) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `${host} rejected this token: ${error instanceof Error ? error.message : String(error)}`,
+            });
+          }
+          const existing = (await ctx.wiring.integrationStore.list(input.organizationId)).find(
+            (row) => row.provider === "canvas",
+          );
+          const integration =
+            existing ?? (await ctx.wiring.integrationStore.connect(input.organizationId, "canvas", []));
+          await ctx.wiring.localPlane.secrets.putToken({
+            integrationId: integration.id,
+            organizationId: input.organizationId,
+            provider: "canvas",
+            accessToken: token,
+            // The scope of a Canvas token IS its institution's instance — the
+            // sync Skill reads the host back from here.
+            scope: host,
+            tokenType: "pat",
+            updatedAt: new Date().toISOString(),
+          });
+          const masked = maskCanvasToken(token);
+          return { connected: true, name: profile.name, host, last4: masked.last4 };
+        }),
+
+      disconnect: credentialSettingsProcedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          const existing = (await ctx.wiring.integrationStore.list(input.organizationId)).find(
+            (row) => row.provider === "canvas",
+          );
+          if (!existing) return { ok: true };
+          await ctx.wiring.localPlane.secrets.deleteToken(existing.id);
+          await ctx.wiring.integrationStore.disconnect(input.organizationId, existing.id);
+          return { ok: true };
+        }),
+
+      status: procedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          const existing = (await ctx.wiring.integrationStore.list(input.organizationId)).find(
+            (row) => row.provider === "canvas" && row.status === "active",
+          );
+          if (!existing) return { connected: false as const };
+          const token = await ctx.wiring.localPlane.secrets.getToken(existing.id);
+          if (!token) return { connected: false as const };
+          const masked = maskCanvasToken(token.accessToken);
+          return { connected: true as const, host: token.scope, last4: masked.last4 };
+        }),
+
+      /** Manually runs the governed canvas-poll Automation — every sync is an
+       * attributable Agent Run (devpilot.sync.run precedent). */
+      sync: procedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          const result = await ctx.wiring.automationExecutor.runById(
+            {
+              organizationId: input.organizationId,
+              automationId: ACADEMICS_CANVAS_POLL_AUTOMATION_ID,
+              onBehalfOf: { type: ctx.identity.type === "team" ? "team" : "user", id: ctx.identity.id },
+              params: { organizationId: input.organizationId },
+            },
+            withHumanInputTaint(ctx.run, `academics:canvas-sync:${ctx.identity.id}`, input),
+          );
+          const proposal = result.proposals[0];
+          if (!proposal) throw new Error("Academics Canvas sync Automation produced no proposal");
+          return proposal.output?.proposedOutput;
+        }),
+
+      /** Manually runs the governed canvas-summarize Automation (TASK-079,
+       * ADR-257) — a SEPARATE explicit action from `sync`: this is the one
+       * that sends synced Page content to a cloud model (Ox Alpha
+       * preferred), so it never runs automatically. */
+      summarize: procedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          const result = await ctx.wiring.automationExecutor.runById(
+            {
+              organizationId: input.organizationId,
+              automationId: ACADEMICS_CANVAS_SUMMARIZE_AUTOMATION_ID,
+              onBehalfOf: { type: ctx.identity.type === "team" ? "team" : "user", id: ctx.identity.id },
+              params: { organizationId: input.organizationId },
+            },
+            withHumanInputTaint(ctx.run, `academics:canvas-summarize:${ctx.identity.id}`, input),
+          );
+          const proposal = result.proposals[0];
+          if (!proposal) throw new Error("Academics course-document summarization Automation produced no proposal");
+          return proposal.output?.proposedOutput;
+        }),
+    }),
   }),
 
   /**

@@ -1,0 +1,10 @@
+# Academics
+
+Plan: [../../outputs/academics-module-and-events-submodule-plan-2026-08-13.md](../../outputs/academics-module-and-events-submodule-plan-2026-08-13.md) (ADR-231/256, AP-154, TASK-069/078)
+
+- Coursework vault Module: three sibling toggles — Subjects, Lecture Sessions, Assignments — over the standard `ModuleSurfaceLayout`/`DataViews` shell (TASK-069).
+- Canvas LMS sync (TASK-078, ADR-256): paste an access token + instance domain at `/integrations/canvas` (Canvas → Account → Settings → New Access Token; no OAuth app). Courses → Subjects (code/term/instructor), assignments → Assignments (due date, submission status, grade). Read-only — nothing is ever sent, submitted, or posted back to Canvas.
+- Idempotent upsert on `(organization_id, source, source_id)`; source owns title/code/term/due dates, the owner's own status/risk/notes edits are never clobbered; submission state maps FORWARD only (unsubmitted never downgrades a manual status); a grade lands only once Canvas says `graded`.
+- Study Steward Agent runs `academics.syncCanvas` cloud-plane at the public egress tier (plane model: local agents may not egress; cloud sourcing is public-clamped) — not a claim gradebooks are public; the token lives only in the Local Plane vault and rows land only in Local `academics_*` tables.
+- Manual "Sync now" via the governed `academics.canvas-poll` Automation (attributable Agent Run per sync); a cadence is a later phase. Per-course fetch failures (cross-shard consortium enrollments 404) skip that course, never the sync.
+- Course-module documents (TASK-079, ADR-257): sync also pulls Pages (body text) and Files (metadata + URL only, no byte download) into a new `academics_documents` table, shown on the Documents page. Manual "Summarize" (separate button, never automatic) runs `academics.summarizeCanvasContent` via the governed `academics.canvas-summarize` Automation, calling a cloud model directly (DevPilot D2 `draftFromModel` shape) — preference order `openrouter` (Ox Alpha) → `anthropic` → `groq`, batch capped at 15 documents, content truncated to 6k chars, output taint-labeled from `canvas_intake`.

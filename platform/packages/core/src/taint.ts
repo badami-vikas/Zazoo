@@ -27,6 +27,7 @@ export const TAINT_SOURCES = [
   "cache",
   "queue",
   "github",
+  "canvas",
   "mixed",
   "unknown",
 ] as const;
@@ -547,6 +548,7 @@ export const TAINT_SOURCE_IDS = [
   "file_import",
   "github_intake",
   "input_capture",
+  "canvas_intake",
 ] as const;
 export type TaintSourceId = (typeof TAINT_SOURCE_IDS)[number];
 
@@ -589,6 +591,10 @@ export const TAINT_SOURCE_REGISTRY: Readonly<
   // deliberate chat turns get. `sensor` is the source: this is the desktop
   // shell's sensor tier, alongside sensor_capture's focus events.
   input_capture: { source: "sensor", defaultTrust: "untrusted" },
+  // Academics course-document summarization (TASK-079, ADR-257) — Canvas
+  // Page bodies are institution/instructor-authored HTML, same
+  // untrusted-external tier as github_intake.
+  canvas_intake: { source: "canvas", defaultTrust: "untrusted" },
 });
 
 export const TAINT_SINK_REGISTRY: Readonly<

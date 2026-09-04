@@ -12,6 +12,7 @@ export {
 } from "./llama-cpp-provider.js";
 export { AnthropicProvider, type AnthropicProviderOpts } from "./anthropic-provider.js";
 export { GroqProvider, type GroqProviderOpts } from "./groq-provider.js";
+export { OpenRouterProvider, type OpenRouterProviderOpts } from "./openrouter-provider.js";
 export { createModelRouter, type ModelRouter } from "./router.js";
 export { createLocalContentGuard, CloudContentGuardError } from "./local-content-guard.js";
 export { defaultFetch, type FetchLike } from "./fetch-types.js";

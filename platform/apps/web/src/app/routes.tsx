@@ -30,6 +30,7 @@ import { EventsPage } from "./pages/EventsPage";
 // Personal Access Token connection panel.
 import { DevPilotPage } from "./pages/DevPilotPage";
 import { GithubIntegrationPanel } from "./pages/GithubIntegrationPanel";
+import { CanvasIntegrationPanel } from "./pages/CanvasIntegrationPanel";
 import { InstalledModuleBoundary } from "./components/InstalledModuleBoundary";
 import {
   RelationshipPage,
@@ -201,6 +202,7 @@ export const router = createBrowserRouter([
 
       { path: "integrations/google", Component: GoogleIntegrationPanel },
       { path: "integrations/github", Component: GithubIntegrationPanel },
+      { path: "integrations/canvas", Component: CanvasIntegrationPanel },
 
       {
         path: childPath(jobPilotModule.route),

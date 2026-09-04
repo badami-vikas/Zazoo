@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { BookOpen, CalendarClock, ClipboardList, GraduationCap } from "lucide-react";
+import { BookOpen, CalendarClock, ClipboardList, FileText, GraduationCap, Sparkles } from "lucide-react";
 import { defaultViewConfig, type TableSpec, type ViewConfig } from "@bridge/tables";
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
@@ -12,16 +12,17 @@ import { DataViews } from "../dataviews/DataViews";
 import type { DataRow } from "../dataviews/types";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 
-type AcademicsPageId = "subjects" | "sessions" | "assignments";
+type AcademicsPageId = "subjects" | "sessions" | "assignments" | "documents";
 
 const PAGES: Array<{ id: AcademicsPageId; label: string; icon: typeof BookOpen }> = [
   { id: "subjects", label: "Subjects", icon: GraduationCap },
   { id: "sessions", label: "Lecture Sessions", icon: CalendarClock },
   { id: "assignments", label: "Assignments", icon: ClipboardList },
+  { id: "documents", label: "Documents", icon: FileText },
 ];
 
 function isPage(value: string | undefined): value is AcademicsPageId {
-  return value === "subjects" || value === "sessions" || value === "assignments";
+  return value === "subjects" || value === "sessions" || value === "assignments" || value === "documents";
 }
 
 const SUBJECTS_SPEC: TableSpec = {
@@ -100,6 +101,17 @@ const ASSIGNMENTS_SPEC = (subjectTitles: string[]): TableSpec => ({
   ],
 });
 
+const DOCUMENTS_SPEC: TableSpec = {
+  id: "academics.documents",
+  columns: [
+    { id: "subject", label: "Subject", kind: "text" },
+    { id: "kind", label: "Type", kind: "select", options: ["page", "file"] },
+    { id: "title", label: "Title", kind: "text" },
+    { id: "summary", label: "AI summary", kind: "text" },
+    { id: "summarizedAt", label: "Summarized", kind: "date" },
+  ],
+};
+
 function textOrUndefined(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -127,7 +139,9 @@ function AcademicsRecordListPage({ kind }: { kind: AcademicsPageId }) {
       ? SUBJECTS_SPEC
       : kind === "sessions"
         ? SESSIONS_SPEC(subjects.map((subject) => subject.title))
-        : ASSIGNMENTS_SPEC(subjects.map((subject) => subject.title));
+        : kind === "documents"
+          ? DOCUMENTS_SPEC
+          : ASSIGNMENTS_SPEC(subjects.map((subject) => subject.title));
   const [view, setView] = useState<ViewConfig>(defaultViewConfig(`${spec.id}:table`, "table"));
 
   // Subjects are fetched on every toggle: Sessions/Assignments need the title
@@ -159,7 +173,9 @@ function AcademicsRecordListPage({ kind }: { kind: AcademicsPageId }) {
         ? trpc.academics.listSubjects.query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
         : kind === "sessions"
           ? trpc.academics.listLectureSessions.query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
-          : trpc.academics.listAssignments.query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 });
+          : kind === "documents"
+            ? trpc.academics.listDocuments.query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
+            : trpc.academics.listAssignments.query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 });
     request
       .then((page) => {
         if (!active) return;
@@ -187,18 +203,27 @@ function AcademicsRecordListPage({ kind }: { kind: AcademicsPageId }) {
                     status: item["status"],
                     myNotes: item["myNotes"] ?? "",
                   }
-                : {
-                    id: item["id"],
-                    subject: byId.get(String(item["subjectId"])) ?? "",
-                    title: item["title"],
-                    type: item["type"] ?? "",
-                    dueAt: item["dueAt"] ?? "",
-                    weight: item["weight"] ?? undefined,
-                    status: item["status"],
-                    risk: item["risk"] ?? "",
-                    submittedAt: item["submittedAt"] ?? "",
-                    grade: item["grade"] ?? "",
-                  },
+                : kind === "documents"
+                  ? {
+                      id: item["id"],
+                      subject: byId.get(String(item["subjectId"])) ?? "",
+                      kind: item["kind"],
+                      title: item["title"],
+                      summary: item["summary"] ?? "",
+                      summarizedAt: item["summarizedAt"] ?? "",
+                    }
+                  : {
+                      id: item["id"],
+                      subject: byId.get(String(item["subjectId"])) ?? "",
+                      title: item["title"],
+                      type: item["type"] ?? "",
+                      dueAt: item["dueAt"] ?? "",
+                      weight: item["weight"] ?? undefined,
+                      status: item["status"],
+                      risk: item["risk"] ?? "",
+                      submittedAt: item["submittedAt"] ?? "",
+                      grade: item["grade"] ?? "",
+                    },
           ),
         );
       })
@@ -291,6 +316,28 @@ function AcademicsRecordListPage({ kind }: { kind: AcademicsPageId }) {
     setReload((value) => value + 1);
   }
 
+  const [summarizing, setSummarizing] = useState(false);
+  const [summarizeMessage, setSummarizeMessage] = useState<string | null>(null);
+  async function runSummarize() {
+    setSummarizing(true);
+    setSummarizeMessage(null);
+    try {
+      const result = (await trpc.academics.canvas.summarize.mutate({ organizationId: PILOT_ORGANIZATION })) as
+        | { documentsConsidered?: number; summarized?: number; skipped?: number; modelConfigured?: boolean }
+        | undefined;
+      setSummarizeMessage(
+        result?.modelConfigured === false
+          ? "No cloud model is configured — add an API key (OpenRouter, Anthropic, or Groq) in Settings first."
+          : `Summarized ${result?.summarized ?? 0} of ${result?.documentsConsidered ?? 0} unsummarized document(s).`,
+      );
+      setReload((value) => value + 1);
+    } catch (cause) {
+      setSummarizeMessage(`Summarize failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+    } finally {
+      setSummarizing(false);
+    }
+  }
+
   const label = PAGES.find((page) => page.id === kind)!.label;
   const visibleRows = rows?.filter((row) => {
     if (!search.trim()) return true;
@@ -304,7 +351,7 @@ function AcademicsRecordListPage({ kind }: { kind: AcademicsPageId }) {
   return (
     <ModuleSurfaceLayout
       above={
-        <div className="border-b px-4 py-3" style={{ borderColor: "var(--color-border)" }}>
+        <div className="border-b px-4 py-3 flex items-center justify-between gap-3" style={{ borderColor: "var(--color-border)" }}>
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -312,6 +359,25 @@ function AcademicsRecordListPage({ kind }: { kind: AcademicsPageId }) {
             placeholder={`Search ${label.toLowerCase()}…`}
             aria-label={`Search ${label}`}
           />
+          {kind === "documents" && (
+            <div className="flex items-center gap-2">
+              {summarizeMessage && (
+                <span className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                  {summarizeMessage}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => void runSummarize()}
+                disabled={summarizing}
+                className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm"
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                {summarizing ? "Summarizing…" : "Summarize"}
+              </button>
+            </div>
+          )}
         </div>
       }
       table={
@@ -321,9 +387,9 @@ function AcademicsRecordListPage({ kind }: { kind: AcademicsPageId }) {
             view={view}
             data={visibleRows}
             onViewChange={setView}
-            onInsert={insertRecord}
-            onUpdate={updateRecord}
-            canUpdateRow={() => true}
+            {...(kind === "documents"
+              ? { insertDisabledReason: "Documents sync from Canvas — connect and Sync at /integrations/canvas" }
+              : { onInsert: insertRecord, onUpdate: updateRecord, canUpdateRow: () => true })}
           />
         </section>
       }

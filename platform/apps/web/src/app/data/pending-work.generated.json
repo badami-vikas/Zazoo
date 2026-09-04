@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-17T18:50:43.084Z",
+  "generatedAt": "2026-08-22T06:15:33.036Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1356,7 +1356,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1097,
+      "sourceLine": 1123,
       "rank": 40
     },
     {
@@ -1394,7 +1394,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1110,
+      "sourceLine": 1136,
       "rank": 41
     },
     {
@@ -1446,7 +1446,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1084,
+      "sourceLine": 1110,
       "rank": 43
     },
     {
@@ -1475,7 +1475,7 @@
       "canonicalStatus": "done (2026-08-16, live-verified)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1152,
+      "sourceLine": 1178,
       "rank": 44
     },
     {
@@ -1502,7 +1502,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1122,
+      "sourceLine": 1148,
       "rank": 45
     },
     {
@@ -1534,7 +1534,7 @@
       "canonicalStatus": "done (2026-08-16, live-verified)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1135,
+      "sourceLine": 1161,
       "rank": 46
     },
     {
@@ -2406,6 +2406,84 @@
       "rank": 73
     },
     {
+      "id": "TASK-079",
+      "title": "TASK-079 — Academics — Canvas course-module documents + Ox Alpha summarization",
+      "status": "completed",
+      "priority": "P2",
+      "horizon": "Prototype",
+      "outcome": "`academics.syncCanvas` (TASK-078) gains a Phase 3 pulling each course's Pages (body text) and Files (metadata + URL, no byte download) into a new `academics_documents` table, shown on a new Documents page. A separate, manually-triggered \"Summarize\" action runs the new governed `academics.summarizeCanvasContent` Skill, which calls a cloud model directly (DevPilot D2 `draftFromModel` shape, not the interactive per-turn consent gate) in preference order `openrouter` (Ox Alpha, `stealth/ox-alpha`) → `anthropic` → `groq`, batching up to 15 unsummarized documents at 6k chars each, taint-labeled from a new `canvas_intake` source. Summarize is never automatic and never runs inside Sync.",
+      "prototypeTest": "\"Sync now\" populates the Documents page with Pages/Files from real Canvas courses; a re-sync inserts zero duplicate documents; \"Summarize\" (with `OPENROUTER_API_KEY` configured) fills in summaries for unsummarized documents only, via an attributable Agent Run; without any configured provider it fails closed with an honest message rather than a silent no-op.",
+      "scope": [
+        "`packages/models/src/openrouter-provider.ts` (`OpenRouterProvider`, ported additively from the sibling `ox-alpha-groq-fallback-c8079d` worktree — its consent-gate-removal diff was explicitly NOT imported, see ADR-257)",
+        "`packages/integrations-canvas` gateway/intake `fetchPages`/`fetchFiles`/`mapCanvasPage`/`mapCanvasFile`",
+        "`academics_documents` table + migration `0045` + `upsertDocumentFromSource`/`listDocuments`/`listUnsummarizedDocuments`/`setDocumentSummary` in `@bridge/db`",
+        "`academics.summarizeCanvasContent` Skill + `academics.canvas-summarize` Automation (runtime id `…117`) + `writePublic` manifest helper",
+        "`academics.listDocuments`/`academics.canvas.summarize` procedures classified in `deployment-boundary.ts`",
+        "Study Steward governance (in-memory + `ensureAcademicsStewardGovernance`) extended with `record:read`/`record:write`",
+        "Documents page (read-only `DataViews` + Summarize button) in `AcademicsPage.tsx`",
+        "new `canvas` taint source."
+      ],
+      "evidence": [
+        "`@bridge/models` OpenRouterProvider unit tests",
+        "`@bridge/integrations-canvas` 11/11 (incl. new Pages/Files gateway + intake tests)",
+        "`@bridge/db` 239/239 (incl. migration 0045)",
+        "`apps/api`'s `academics-canvas-content.test.ts` 2/2 (fake OpenRouter provider, full authorization chain)",
+        "`apps/web` typecheck clean",
+        "`apps/web` `ui-conformance.test.mjs` — no new EXEMPT/KNOWN_DIVERGENCES entry needed. Full `apps/api` suite re-run clean of new regressions after fixing two real gaps this task's changes caused — `academics.canvas.*`/`academics.listDocuments` unclassified in `deployment-boundary.ts`, and a stale hardcoded slot-count assertion in `model-provider-keys.test.ts` — both fixed",
+        "remaining suite failures are pre-existing and unrelated (BUGS.md 2026-08-22). **Not verified**: live summarization against a real `OPENROUTER_API_KEY` or real `wustl.instructure.com` Pages/Files content",
+        "the Documents page and Summarize button exercised in a running browser."
+      ],
+      "requests": [
+        "user directive 2026-08-22, verbatim: *\"Are you not able to extract documents and data inside course modules, because that is where class specific data is there? If it is extractable, can use ensure bridge builder agent does it using the Ox alpha model?\"* — clarified via two rounds of questions: build extraction AND summarization (not extraction alone), and bring in Ox Alpha additively only, not the full governance-gate-removal diff from the sibling worktree (see ADR-257)."
+      ],
+      "approval": "none needed — executes P7-continuation of the approved academics plan (AP-154); no canon change. The additive-only Ox Alpha decision was itself an explicit user choice after being shown the risk, recorded in ADR-257.",
+      "dependencies": [
+        "TASK-078"
+      ],
+      "canonicalStatus": "done",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1084,
+      "rank": 74
+    },
+    {
+      "id": "TASK-078",
+      "title": "TASK-078 — Academics — Canvas LMS sync (P7 of the academics plan)",
+      "status": "completed",
+      "priority": "P2",
+      "horizon": "Prototype",
+      "outcome": "the Academics Module's first declared egress — a pasted Canvas access token (+ instance domain, since Canvas is per-institution) at `/integrations/canvas` syncs the owner's active-enrollment courses into Subjects (code/term/instructor) and their assignments into Assignments (due date, submission status, grade) — read-only (nothing ever sent/submitted/posted back to Canvas), idempotent on `(organization_id, source, source_id)`, and never clobbering the owner's own status/risk/grade/notes edits (submission state maps forward-only; a grade lands only once Canvas says `graded`). Every sync is an attributable Agent Run via the governed `academics.canvas-poll` Automation (manual \"Sync now\"; cadence is a later phase).",
+      "prototypeTest": "connect a real token → masked metadata renders (never the raw value, never logged); \"Sync now\" fills Subjects and Assignments with real Canvas rows; a re-run inserts zero duplicates; a per-course fetch failure (cross-shard consortium enrollment 404) skips that course, never the sync; disconnect deletes the local token.",
+      "scope": [
+        "new package `platform/packages/integrations-canvas` (gateway over `guardedFetch`/token/intake/manifest, mirroring `integrations-github`)",
+        "`source`/`source_id` columns + migration `0044` and `upsertSubjectFromSource`/`upsertAssignmentFromSource` in `@bridge/db`",
+        "`academics.syncCanvas` governed Skill + Study Steward runtime identity (`…10f`, role `…115`, permission `…116`, automation `…114`) + `ensureAcademicsStewardGovernance`",
+        "`academics.canvas.{connect,disconnect,status,sync}` procedures (connect/disconnect on `credentialSettingsProcedure`)",
+        "`CanvasIntegrationPanel.tsx` + route",
+        "manifests: academics 0.1.0 → 0.2.0 with skill/integration/automation capabilities and Study Steward `plane: \"cloud\"`."
+      ],
+      "evidence": [
+        "`@bridge/integrations-canvas` 7/7 tests (pagination parse, token shape/mask, host normalization, course/assignment mapping incl. forward-only submission state, fake-fetch gateway pagination + non-2xx surfaced)",
+        "LIVE end-to-end 2026-08-22 against `wustl.instructure.com` through the full governed path (connect → vault → automation → Agent Run → skill → upserts): 30 courses → 30 Subjects, 319 assignments with due dates/status/grades, 1 cross-shard course skipped, re-sync created 0 rows",
+        "turbo typecheck 59/59",
+        "`@bridge/db` build green",
+        "web typecheck green. Plane-model corrections found by the live run and fixed: Study Steward moved local → cloud (local-first gate bars Local agents from `external:fetch`), dataScope private → public (cloud egress ceiling), and the in-memory `seedGovernance` organization/status list gained the module agents (the DevPilot pair had never worked in-memory — see BUGS 2026-08-22)."
+      ],
+      "requests": [
+        "user directive 2026-08-22, verbatim: *\"Is the academics module integrated with canvas? If yes I want to launch authentication and test it\"* → *\"yes start and build it\"* (Canvas URL + token supplied in-session",
+        "token used for live verification only, never committed)."
+      ],
+      "approval": "none needed — executes P7 of the approved academics plan (AP-154); no canon change.",
+      "dependencies": [
+        "TASK-069"
+      ],
+      "canonicalStatus": "done",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1097,
+      "rank": 75
+    },
+    {
       "id": "TASK-071",
       "title": "TASK-071 — DevPilot D2 — engineering-assist Skills (PR review, best-practice suggestions, Issue triage)",
       "status": "completed",
@@ -2443,8 +2521,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1168,
-      "rank": 74
+      "sourceLine": 1194,
+      "rank": 76
     },
     {
       "id": "TASK-076",
@@ -2474,8 +2552,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1181,
-      "rank": 75
+      "sourceLine": 1207,
+      "rank": 77
     },
     {
       "id": "TASK-077",
@@ -2503,8 +2581,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1193,
-      "rank": 76
+      "sourceLine": 1219,
+      "rank": 78
     },
     {
       "id": "TASK-075",
@@ -2544,8 +2622,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1207,
-      "rank": 77
+      "sourceLine": 1233,
+      "rank": 79
     }
   ]
 }

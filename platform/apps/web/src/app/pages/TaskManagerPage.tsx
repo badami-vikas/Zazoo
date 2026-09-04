@@ -85,6 +85,84 @@ function toDataRow(task: TaskRow, dependsOn: readonly string[] = []): DataRow {
   };
 }
 
+/**
+ * Cross-module Calendar feed (user directive 2026-08-22: "add all the
+ * calendar elements to the calendar view of task manager module"). Calendar
+ * is a generic single-source View (ADR-108/TASK-014 doc note: still not
+ * rewritten into a real cross-module projection), so this Page merges other
+ * installed Modules' own date-bearing rows into the SAME `scheduledFor`/
+ * `title`/`status` shape CalendarView already reads from TASK_SPEC — Calendar
+ * mode only, never Table/Kanban/Graph, so Task Manager's own Records stay
+ * exactly as they were everywhere else. Every foreign row carries a `source`
+ * tag (routes `onOpenRecord` to the owning Module instead of Task Detail) and
+ * a distinct synthetic `status` value so CalendarView's existing
+ * status-hashed color coding tells the sources apart for free.
+ *
+ * Scope: every Page-level `kind: "date"` column in the app, minus Signals'
+ * `createdAt` (a detection timestamp, not a scheduled/deadline date — would
+ * be pure noise on a calendar) and Assignments' `submittedAt` (a past-tense
+ * echo of a due date already shown; showing both doubles every assignment).
+ * Google Calendar is excluded: its events are Gmail-pipeline-sourced
+ * proposals awaiting human review, not a plain list a client can read.
+ */
+type CalendarSource = "task-manager" | "academics-session" | "academics-assignment" | "event";
+
+interface CrossModuleCalendarRow {
+  source: Exclude<CalendarSource, "task-manager">;
+  row: DataRow;
+}
+
+function lectureSessionToCalendarRow(
+  session: Awaited<ReturnType<typeof trpc.academics.listLectureSessions.query>>["items"][number],
+): CrossModuleCalendarRow | null {
+  if (!session.sessionDate) return null;
+  return {
+    source: "academics-session",
+    row: {
+      id: session.id,
+      title: session.topic ? `Lecture: ${session.topic}` : "Lecture session",
+      status: "academics-session",
+      scheduledFor: session.sessionDate,
+    },
+  };
+}
+
+function assignmentToCalendarRow(
+  assignment: Awaited<ReturnType<typeof trpc.academics.listAssignments.query>>["items"][number],
+): CrossModuleCalendarRow | null {
+  if (!assignment.dueAt) return null;
+  return {
+    source: "academics-assignment",
+    row: {
+      id: assignment.id,
+      title: `Due: ${assignment.title}`,
+      status: "academics-assignment",
+      scheduledFor: assignment.dueAt,
+    },
+  };
+}
+
+function eventToCalendarRow(
+  event: Awaited<ReturnType<typeof trpc.events.list.query>>["items"][number],
+): CrossModuleCalendarRow | null {
+  if (!event.startsAt) return null;
+  return {
+    source: "event",
+    row: {
+      id: event.id,
+      title: event.name,
+      status: "event",
+      scheduledFor: event.startsAt,
+    },
+  };
+}
+
+const CALENDAR_SOURCE_ROUTE: Record<Exclude<CalendarSource, "task-manager">, string> = {
+  "academics-session": "/module/academics/sessions",
+  "academics-assignment": "/module/academics/assignments",
+  event: "/module/relationship/events",
+};
+
 export function TaskManagerPage() {
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<TaskRow[]>([]);
@@ -94,6 +172,7 @@ export function TaskManagerPage() {
   const [candidatesOnly, setCandidatesOnly] = useState(false);
   const [pendingProposal, setPendingProposal] = useState<TaskProposal | null>(null);
   const [dependenciesByTask, setDependenciesByTask] = useState<Record<string, string[]>>({});
+  const [crossModuleRows, setCrossModuleRows] = useState<CrossModuleCalendarRow[]>([]);
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedView = normalizeViewKind(searchParams.get("view"));
   const initialKind = requestedView && computeEligibleKinds(TASK_SPEC).includes(requestedView) ? requestedView : "table";
@@ -124,6 +203,30 @@ export function TaskManagerPage() {
     } finally {
       setLoading(false);
     }
+    void loadCrossModuleCalendarRows();
+  }
+
+  // Best-effort, separate from the Task load/error state above: a Module
+  // that isn't installed, or a transient failure fetching one source, must
+  // never blank the Calendar's own Tasks — it only means fewer cross-module
+  // entries render.
+  async function loadCrossModuleCalendarRows() {
+    const [sessions, assignments, events] = await Promise.all([
+      trpc.academics.listLectureSessions
+        .query({ organizationId: PILOT_ORGANIZATION, limit: 200, offset: 0 })
+        .catch(() => ({ items: [] })),
+      trpc.academics.listAssignments
+        .query({ organizationId: PILOT_ORGANIZATION, limit: 200, offset: 0 })
+        .catch(() => ({ items: [] })),
+      trpc.events.list.query({ organizationId: PILOT_ORGANIZATION, limit: 200, offset: 0 }).catch(() => ({ items: [] })),
+    ]);
+    setCrossModuleRows(
+      [
+        ...sessions.items.map(lectureSessionToCalendarRow),
+        ...assignments.items.map(assignmentToCalendarRow),
+        ...events.items.map(eventToCalendarRow),
+      ].filter((entry): entry is CrossModuleCalendarRow => entry !== null),
+    );
   }
 
   useEffect(() => {
@@ -137,6 +240,17 @@ export function TaskManagerPage() {
   const rows = useMemo(
     () => visibleTasks.map((task) => toDataRow(task, dependenciesByTask[task.id] ?? [])),
     [visibleTasks, dependenciesByTask],
+  );
+  // Calendar mode only — Table/Kanban/Graph keep showing exactly the Task
+  // Records they always have. `sourceById` lets onOpenRecord below route a
+  // foreign row to its owning Module instead of Task Detail.
+  const calendarRows = useMemo(
+    () => (view.kind === "calendar" ? [...rows, ...crossModuleRows.map((entry) => entry.row)] : rows),
+    [rows, crossModuleRows, view.kind],
+  );
+  const sourceById = useMemo(
+    () => new Map(crossModuleRows.map((entry) => [String(entry.row["id"]), entry.source])),
+    [crossModuleRows],
   );
 
   function changeView(next: ViewConfig) {
@@ -191,6 +305,9 @@ export function TaskManagerPage() {
   }
 
   async function updateTask(id: string, patch: Partial<DataRow>) {
+    if (sourceById.has(id)) {
+      throw new Error("This is a cross-module Calendar entry — open its owning Module to edit it.");
+    }
     if (typeof patch["status"] === "string") {
       await trpc.taskManager.transition.mutate({
         organizationId: PILOT_ORGANIZATION,
@@ -236,13 +353,19 @@ export function TaskManagerPage() {
             <DataViews
               spec={TASK_SPEC}
               view={view}
-              data={rows}
+              data={calendarRows}
               onViewChange={changeView}
               {...(API_TRANSPORT_CONFIGURED
                 ? { onInsert: insertTask, onUpdate: updateTask }
                 : { insertDisabledReason: "The API transport is not configured in this build, so Tasks cannot be created here." })}
-              onOpenRecord={(row) => navigate(`/task-manager/${String(row.id)}`)}
-              onEditRecord={(row) => navigate(`/task-manager/${String(row.id)}`)}
+              onOpenRecord={(row) => {
+                const source = sourceById.get(String(row.id));
+                navigate(source ? CALENDAR_SOURCE_ROUTE[source] : `/task-manager/${String(row.id)}`);
+              }}
+              onEditRecord={(row) => {
+                const source = sourceById.get(String(row.id));
+                navigate(source ? CALENDAR_SOURCE_ROUTE[source] : `/task-manager/${String(row.id)}`);
+              }}
               insights={
                 <DashboardRow
                   metrics={[

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { InMemorySourceCredentialVault } from "@bridge/dealpilot";
-import { ModelProviderKeyStore } from "../src/model-provider-keys.js";
+import { MODEL_PROVIDER_KEY_SLOTS, ModelProviderKeyStore } from "../src/model-provider-keys.js";
 import { PILOT_ORGANIZATION } from "../src/wiring.js";
 
 class TestStatePort {
@@ -55,7 +55,7 @@ test("list reports existence, age, and activation — never the key or a mask of
     env: {},
     activeProviderIds: new Set<string>(),
   });
-  assert.equal(before.length, 1);
+  assert.equal(before.length, MODEL_PROVIDER_KEY_SLOTS.length);
   assert.deepEqual(
     { configured: before[0]!.configured, active: before[0]!.active, env: before[0]!.fromEnvironment },
     { configured: false, active: false, env: false },

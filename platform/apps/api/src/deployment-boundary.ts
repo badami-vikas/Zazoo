@@ -91,6 +91,9 @@ const PUBLIC_CLOUD_PROCEDURES = new Set([
   // Academics — Cloud-Plane (DrizzleAcademicsStore), organizationId-scoped
   // like jobpilot/relationship above. No Local Plane in these handlers; raw
   // lecture capture (TASK-067 later phase) is a Skill, not this CRUD router.
+  // `academics.listDocuments` reads the same Cloud-Plane store (Canvas Pages/
+  // Files synced by the Skill); the `academics.canvas.*` connect/sync/summarize
+  // surface itself stays CLOSED below (Local Plane credential vault + Agent Runs).
   "academics.createSubject",
   "academics.listSubjects",
   "academics.updateSubject",
@@ -100,6 +103,7 @@ const PUBLIC_CLOUD_PROCEDURES = new Set([
   "academics.createAssignment",
   "academics.listAssignments",
   "academics.updateAssignment",
+  "academics.listDocuments",
 
   // Events (NetworkManager sub-module, TASK-068) — Cloud-Plane
   // (DrizzleEventsStore), organizationId-scoped. Speaker extraction is a
@@ -157,6 +161,7 @@ const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["integration.", "credential broker + connection secrets are Local Plane"],
   ["google.", "OAuth tokens are held in the Local Plane vault"],
   ["devpilot.", "GitHub Personal Access Tokens are held in the Local Plane vault; D1 has no public-cloud value without one"],
+  ["academics.canvas.", "Canvas access token is held in the Local Plane vault; sync/summarize drive Agent Runs on the device"],
   ["chat.model.", "managed local model lifecycle is a desktop-only concern"],
   ["modelProviderKey.", "model-provider API keys are held in the Local Plane vault"],
 

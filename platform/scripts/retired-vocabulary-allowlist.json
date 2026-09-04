@@ -237,6 +237,12 @@
       "pathPrefix": "modules/dealpilot/test/listing-extract.test.ts",
       "reason": "Same schema.org `itemListElement` key, appearing in the JSON-LD fixtures the extractor is tested against. The fixtures mirror what these sites actually serve; changing the key would make them fixtures of nothing.",
       "reviewed": "AP-164 · 2026-08-17 · TASK-075"
+    },
+    {
+      "family": "workflow",
+      "pathPrefix": "packages/integrations-canvas/",
+      "reason": "Canvas LMS's own REST field name, not the retired Bridge product noun. The Canvas API returns a submission's state as `workflow_state` (unsubmitted/submitted/graded); the gateway payload types, the intake mapper reading it, and the tests asserting the mapping must spell the field exactly as the instance serves it. Renaming it would break the contract with Canvas rather than migrate a Bridge identifier — the word is not ours to rename. No Bridge-owned identifier in this package uses the word.",
+      "reviewed": "AP-154 · 2026-08-22 · TASK-078 (ADR-256 Canvas LMS sync)"
     }
   ]
 }

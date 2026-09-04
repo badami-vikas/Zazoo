@@ -124,6 +124,21 @@ export const DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_ID = "b0000000-0000-4000-a000-
 export const DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_KEY = "devpilot.suggest-practice";
 export const DEVPILOT_ANALYZE_ISSUE_AUTOMATION_ID = "b0000000-0000-4000-a000-00000000010e";
 export const DEVPILOT_ANALYZE_ISSUE_AUTOMATION_KEY = "devpilot.analyze-issue";
+/** Academics Canvas sync (TASK-078) — the Study Steward gains its runtime
+ * identity so the `academics.syncCanvas` Skill runs under an attributable
+ * Agent (it was declared in 0.1.0 with no skills and no runtime id).
+ * Continuing the id sequence after DevPilot's analyze-issue (…10e). */
+export const ACADEMICS_STEWARD_AGENT_ID = "b0000000-0000-4000-a000-00000000010f";
+// …110-113 are already taken by wiring.ts's DevPilot role/permission ids —
+// the b0000000 sequence is shared across agents, automations, roles, AND
+// permissions, so the next free slot is …114 (…115/…116 are the Steward's
+// role/permission in wiring.ts).
+export const ACADEMICS_CANVAS_POLL_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000114";
+export const ACADEMICS_CANVAS_POLL_AUTOMATION_KEY = "academics.canvas-poll";
+// Course-document summarization (TASK-079). …115/116 are the Steward's
+// role/permission in wiring.ts — next free slot is …117.
+export const ACADEMICS_CANVAS_SUMMARIZE_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000117";
+export const ACADEMICS_CANVAS_SUMMARIZE_AUTOMATION_KEY = "academics.canvas-summarize";
 
 export function resolveModuleAutomationRuntimeId(moduleName: string, manifestAutomationId: string): string | undefined {
   if (moduleName === "deal-pilot" && manifestAutomationId === DEALPILOT_SOURCE_AUTOMATION_KEY) {
@@ -186,6 +201,12 @@ export function resolveModuleAutomationRuntimeId(moduleName: string, manifestAut
   if (moduleName === "devpilot" && manifestAutomationId === DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_KEY) {
     return DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_ID;
   }
+  if (moduleName === "academics" && manifestAutomationId === ACADEMICS_CANVAS_POLL_AUTOMATION_KEY) {
+    return ACADEMICS_CANVAS_POLL_AUTOMATION_ID;
+  }
+  if (moduleName === "academics" && manifestAutomationId === ACADEMICS_CANVAS_SUMMARIZE_AUTOMATION_KEY) {
+    return ACADEMICS_CANVAS_SUMMARIZE_AUTOMATION_ID;
+  }
   if (moduleName === "devpilot" && manifestAutomationId === DEVPILOT_ANALYZE_ISSUE_AUTOMATION_KEY) {
     return DEVPILOT_ANALYZE_ISSUE_AUTOMATION_ID;
   }
@@ -215,6 +236,8 @@ export function isModuleRuntimeAutomationId(automationId: string): boolean {
     DEVPILOT_REVIEW_PR_AUTOMATION_ID,
     DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_ID,
     DEVPILOT_ANALYZE_ISSUE_AUTOMATION_ID,
+    ACADEMICS_CANVAS_POLL_AUTOMATION_ID,
+    ACADEMICS_CANVAS_SUMMARIZE_AUTOMATION_ID,
   ].includes(automationId);
 }
 
@@ -233,6 +256,9 @@ export function resolveModuleAgentRuntimeId(moduleName: string, manifestAgentId:
   }
   if (moduleName === "task-manager" && manifestAgentId === "chief-of-staff") {
     return CHIEF_OF_STAFF_AGENT_RUNTIME_ID;
+  }
+  if (moduleName === "academics" && manifestAgentId === "study-steward") {
+    return ACADEMICS_STEWARD_AGENT_ID;
   }
   if (moduleName === "devpilot" && manifestAgentId === "tracker-agent") {
     return DEVPILOT_TRACKER_AGENT_ID;
@@ -313,6 +339,13 @@ const writePrivate = (resourceType: string) => ({
   resourceType,
   action: "write" as const,
   dataScope: "private" as const,
+  egress: false,
+});
+
+const writePublic = (resourceType: string) => ({
+  resourceType,
+  action: "write" as const,
+  dataScope: "public" as const,
   egress: false,
 });
 function capability(
@@ -529,10 +562,11 @@ const relationshipCapabilities = [
 /**
 /**
  * Academics Module capabilities (TASK-067, ADR-231). Three private
- * database Pages over the owner's own coursework Records — no egress. The
- * Study Steward Agent is declared with no `skillIds` yet: lecture-synthesis,
- * syllabus-intake, recall-scheduler, reference-resolve, and workload-forecast
- * are later phases of this same Task, not a separate Module version.
+ * database Pages over the owner's own coursework Records. 0.2.0 (TASK-078,
+ * ADR-256) adds the Canvas LMS sync — the Module's first declared egress —
+ * as the Study Steward's first Skill. Lecture-synthesis, syllabus-intake,
+ * recall-scheduler, reference-resolve, and workload-forecast remain later
+ * phases of TASK-067, not a separate Module version.
  */
 const academicsCapabilities = [
   capability("academics.page.subjects", "Subjects", "database", [readPrivate("record"), writePrivate("record")]),
@@ -544,10 +578,75 @@ const academicsCapabilities = [
     readPrivate("record"),
     writePrivate("record"),
   ]),
-  capability("academics.agent.study-steward", "Study Steward", "agent", [
-    readPrivate("record"),
-    writePrivate("record"),
-  ]),
+  capability("academics.page.documents", "Documents", "database", [readPrivate("record"), writePrivate("record")]),
+  // Canvas LMS sync (TASK-078) — the Module's first declared egress: the
+  // Study Steward sources the owner's OWN enrollments (private scope, unlike
+  // DevPilot's public GitHub tracker) behind a pasted access token, and never
+  // writes anything back to Canvas.
+  // dataScope "public" is the plane model's egress tier (cloud sourcing is
+  // ceiling-clamped to public — authority.ts), NOT a claim that a gradebook
+  // is public data: the fetched content lands only in Local academics_*
+  // tables, the same shape google.sourceGmail uses for private mail.
+  capability(
+    "academics.syncCanvas",
+    "Sync Canvas courses and assignments",
+    "skill",
+    [{ resourceType: "external:fetch", action: "read", dataScope: "public", egress: true }],
+    [{ id: "canvas" }],
+  ),
+  // Course-document summarization (TASK-079, ADR-257) — a SEPARATE Skill from
+  // syncCanvas: it calls a governed cloud model (Ox Alpha preferred) over
+  // already-synced Page content, not external:fetch. Explicitly
+  // user-triggered (its own Automation), never bundled into the background
+  // sync — see wiring.ts's ACADEMICS_SUMMARIZE_MODEL_BINDING comment.
+  capability(
+    "academics.summarizeCanvasContent",
+    "Summarize synced course documents",
+    "skill",
+    [readPublic("record"), writePublic("record")],
+    [],
+    [{ manifestId: "academics.page.documents", versionRange: "0.2.0" }],
+  ),
+  capability(
+    "academics.agent.study-steward",
+    "Study Steward",
+    "agent",
+    [readPrivate("record"), writePrivate("record")],
+    [],
+    [
+      { manifestId: "academics.syncCanvas", versionRange: "0.2.0" },
+      { manifestId: "academics.summarizeCanvasContent", versionRange: "0.2.0" },
+    ],
+  ),
+  capability(
+    "academics.canvas-poll",
+    "Canvas coursework sync",
+    "automation",
+    [readPublic("external:fetch"), writePrivate("record")],
+    [{ id: "canvas" }],
+    [
+      { manifestId: "academics.agent.study-steward", versionRange: "0.2.0" },
+      { manifestId: "academics.syncCanvas", versionRange: "0.2.0" },
+    ],
+  ),
+  capability(
+    "academics.canvas-summarize",
+    "Summarize course documents (manual)",
+    "automation",
+    [readPublic("record"), writePublic("record")],
+    [],
+    [
+      { manifestId: "academics.agent.study-steward", versionRange: "0.2.0" },
+      { manifestId: "academics.summarizeCanvasContent", versionRange: "0.2.0" },
+    ],
+  ),
+  capability(
+    "academics.canvas",
+    "Canvas coursework intake",
+    "integration",
+    [readPublic("external:fetch")],
+    [{ id: "canvas" }],
+  ),
 ];
 
 /**
@@ -1130,11 +1229,11 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     computedRisk: "operational",
     manifest: {
       name: "academics",
-      version: "0.1.0",
+      version: "0.2.0",
       kind: "organization_definition",
       summary: "Subjects, Lecture Sessions, and Assignments — the owner's coursework vault.",
       description:
-        "Three sibling toggles over the owner's own coursework Records: Subjects, Lecture Sessions, Assignments. A Subject's Record Detail carries its own Sessions and Assignments as related Sections (ui-architecture-rules — toggles stay one level; nesting is a sub-module concern, not this Module's). Local Files land under `~/Documents/Bridge/<Organization>/Academics/`.",
+        "Three sibling toggles over the owner's own coursework Records: Subjects, Lecture Sessions, Assignments. A Subject's Record Detail carries its own Sessions and Assignments as related Sections (ui-architecture-rules — toggles stay one level; nesting is a sub-module concern, not this Module's). Local Files land under `~/Documents/Bridge/<Organization>/Academics/`. Courses and assignments can sync from the owner's Canvas LMS account behind a pasted access token — read-only, never posting or submitting back to Canvas.",
       lineageManifestId: null,
       dependencies: [],
       capabilities: academicsCapabilities,
@@ -1168,19 +1267,59 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
             databaseId: "academics.assignments",
             capabilityId: "academics.page.assignments",
           },
+          {
+            id: "documents",
+            name: "Documents",
+            route: "/module/academics/documents",
+            databaseId: "academics.documents",
+            capabilityId: "academics.page.documents",
+          },
         ],
         agents: [
           {
             id: "study-steward",
             name: "Study Steward",
             capabilityId: "academics.agent.study-steward",
-            skillIds: [],
-            // Raw lecture capture (recording/transcript) stays Local by
-            // principle — the same reasoning WhatsApp's Agents carry.
-            plane: "local",
+            skillIds: ["academics.syncCanvas", "academics.summarizeCanvasContent"],
+            // Cloud plane, the DevPilot tracker's reasoning exactly: the
+            // local-first gate bars a Local agent from external:fetch ("local
+            // agents REQUEST data; a cloud agent SOURCES it" — authority.ts
+            // planeGate). The Canvas token still lives ONLY in the Local
+            // Plane vault; plane here is the sourcing authority label, not
+            // where the secret resides. When later phases add lecture-capture
+            // Skills, those stay on a separate Local identity.
+            plane: "cloud",
           },
         ],
-        automations: [],
+        automations: [
+          {
+            id: "canvas-poll",
+            name: "Canvas coursework sync",
+            capabilityId: "academics.canvas-poll",
+            agentId: "study-steward",
+            // Human-triggered ("Sync now" on the Canvas panel), not scheduled:
+            // a cadence is a later phase once the manual path has earned it.
+            // The Automation exists so every sync is an attributable Agent Run.
+            trigger: "Manual — 'Sync now' on the Canvas connection panel",
+            procedure: "academics.syncCanvas",
+            automationId: ACADEMICS_CANVAS_POLL_AUTOMATION_KEY,
+            runRoute: "/module/academics/assignments",
+          },
+          {
+            id: "canvas-summarize",
+            name: "Summarize course documents",
+            capabilityId: "academics.canvas-summarize",
+            agentId: "study-steward",
+            // Human-triggered ("Summarize" on the Documents page) — a
+            // SEPARATE action from Sync: sending Page content to a cloud
+            // model is a real egress decision the owner should trigger on
+            // purpose (ADR-257), never bundled into the background sync.
+            trigger: "Manual — 'Summarize' on the Documents page",
+            procedure: "academics.summarizeCanvasContent",
+            automationId: ACADEMICS_CANVAS_SUMMARIZE_AUTOMATION_KEY,
+            runRoute: "/module/academics/documents",
+          },
+        ],
       },
     },
   },

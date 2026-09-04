@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { OllamaProvider } from "../src/ollama-provider.js";
 import { AnthropicProvider } from "../src/anthropic-provider.js";
 import { GroqProvider } from "../src/groq-provider.js";
+import { OpenRouterProvider } from "../src/openrouter-provider.js";
 import {
   LlamaCppProvider,
   MANAGED_LLAMA_MODEL_ID,
@@ -451,6 +452,45 @@ test("GroqProvider fails loud without an API key", () => {
     assert.throws(() => new GroqProvider({}), /GROQ_API_KEY/);
   } finally {
     if (prev !== undefined) process.env["GROQ_API_KEY"] = prev;
+  }
+});
+
+test("OpenRouterProvider defaults to Ox Alpha and shapes bearer-auth requests", async () => {
+  const { impl, calls } = recordingFetch({
+    model: "stealth/ox-alpha",
+    choices: [{ message: { content: "hi there" } }],
+    usage: { prompt_tokens: 5, completion_tokens: 2 },
+  });
+  const p = new OpenRouterProvider({ apiKey: "k-test", fetchImpl: impl });
+  assert.equal(p.plane, "cloud");
+  assert.equal(p.models.default, "stealth/ox-alpha");
+
+  const schema = { type: "object" };
+  const out = await p.complete({
+    system: "sys",
+    prompt: "q",
+    tier: "default",
+    responseFormat: { type: "json_schema", name: "BridgeChatTurn", schema },
+  });
+  assert.equal(out.text, "hi there");
+  assert.equal(out.model, "stealth/ox-alpha");
+  assert.equal(calls[0]!.url, "https://openrouter.ai/api/v1/chat/completions");
+  const body = JSON.parse(calls[0]!.init!.body!);
+  assert.equal(body.model, "stealth/ox-alpha");
+  assert.equal(calls[0]!.init!.headers!["authorization"], "Bearer k-test");
+  assert.deepEqual(body.response_format, {
+    type: "json_schema",
+    json_schema: { name: "BridgeChatTurn", schema, strict: true },
+  });
+});
+
+test("OpenRouterProvider fails loud without an API key", () => {
+  const prev = process.env["OPENROUTER_API_KEY"];
+  delete process.env["OPENROUTER_API_KEY"];
+  try {
+    assert.throws(() => new OpenRouterProvider({}), /OPENROUTER_API_KEY/);
+  } finally {
+    if (prev !== undefined) process.env["OPENROUTER_API_KEY"] = prev;
   }
 });
 

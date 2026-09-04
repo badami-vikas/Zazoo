@@ -23,6 +23,7 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - [accounting](accounting.md) — **DONE 2026-08-16**: Avilo ported in whole (subtree merge, donor history preserved) as a Local-Plane `better-sqlite3` Module; first Module with a live-enforced Governance Section.
 - [d2c](d2c.md) — **DONE 2026-08-16**: CV Naturals ported in as D2C (Orders/Inventory toggle Pages, Research/Notes sub-modules); shares `@bridge/whatsapp` with the WhatsApp Module rather than importing CVN's byte-identical clone.
 - [devpilot](devpilot.md) — **DONE 2026-08-16 (D0–D2)**: engineering-assist Module behind the `BRIDGE_DEVPILOT` flight — GitHub PR/Issue tracker sync plus three governed draft-only Skills (review, best-practice suggestions, issue triage).
+- [academics](academics.md) — coursework vault (Subjects/Lecture Sessions/Assignments, TASK-069) + **Canvas LMS sync 2026-08-22** (TASK-078): token-paste connect, read-only course/assignment/grade sync, governed Sync-now Automation, user edits never clobbered.
 - [optimizations](optimizations.md) — runtime token/cost Optimization Module · Memory targets · account-constrained isolated-computer policy · strengthened DealPilot plan.
 - [commons](commons.md) — Universal Commons: signed generalized Module/capability registry; privacy gate rejects personal Memory; separate from Bridge Cloud.
 - [module-evolution](module-evolution.md) — AI-led governed Module creation/evolution, Component Registry, evaluations, and proposal loop; current Avatar/Onboarding canon wins over historical language inside.
