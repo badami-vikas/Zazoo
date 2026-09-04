@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-03T00:26:40.002Z",
+  "generatedAt": "2026-09-04T00:27:12.800Z",
   "items": [
     {
       "id": "HORIZON-prototype",
@@ -1295,7 +1295,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 505,
+      "sourceLine": 509,
       "rank": 38
     },
     {
@@ -1337,7 +1337,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 519,
+      "sourceLine": 523,
       "rank": 39
     },
     {
@@ -1373,7 +1373,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 537,
+      "sourceLine": 541,
       "rank": 40
     },
     {
@@ -1404,7 +1404,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 560,
+      "sourceLine": 564,
       "rank": 41
     },
     {
@@ -1425,7 +1425,10 @@
         "the Commons service is not deployed so keeping the flag at `1` caused all `commons.*` calls to fail with a fetch error rather than the honest `PRECONDITION_FAILED` the disabled-flight path produces. Re-enable alongside TASK-033's Commons service deploy."
       ],
       "evidence": [
-        "`outputs/2026-08-03-unfinished-work-audit.md`"
+        "`outputs/2026-08-03-unfinished-work-audit.md`",
+        "BUGS.md 2026-09-03 (FIXED) — two api tests were nested inside other tests (`modules.test.ts`, `agent-orchestration.test.ts`), so Node cancelled the inner test and failed the outer one",
+        "the suite reported failures for work nobody had broken, and the two inner tests proved nothing. Lifted to top level, no assertion changed",
+        "44/44 across both files afterwards."
       ],
       "requests": [
         "user directive 2026-08-03"
@@ -1439,7 +1442,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 589,
+      "sourceLine": 593,
       "rank": 42
     },
     {
@@ -1473,7 +1476,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 602,
+      "sourceLine": 606,
       "rank": 43
     },
     {
@@ -1504,7 +1507,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 615,
+      "sourceLine": 619,
       "rank": 44
     },
     {
@@ -1543,7 +1546,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 632,
+      "sourceLine": 636,
       "rank": 45
     },
     {
@@ -1572,7 +1575,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 575,
+      "sourceLine": 579,
       "rank": 46
     },
     {
@@ -1606,7 +1609,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1088,
+      "sourceLine": 1114,
       "rank": 47
     },
     {
@@ -1646,7 +1649,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1130,
+      "sourceLine": 1156,
       "rank": 48
     },
     {
@@ -1688,7 +1691,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1143,
+      "sourceLine": 1169,
       "rank": 49
     },
     {
@@ -1718,7 +1721,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1102,
+      "sourceLine": 1128,
       "rank": 50
     },
     {
@@ -1750,7 +1753,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1116,
+      "sourceLine": 1142,
       "rank": 51
     },
     {
@@ -1784,7 +1787,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1186,
+      "sourceLine": 1212,
       "rank": 52
     },
     {
@@ -1816,7 +1819,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1155,
+      "sourceLine": 1181,
       "rank": 53
     },
     {
@@ -1853,7 +1856,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1169,
+      "sourceLine": 1195,
       "rank": 54
     },
     {
@@ -1885,7 +1888,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 654,
+      "sourceLine": 658,
       "rank": 55
     },
     {
@@ -1924,7 +1927,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 669,
+      "sourceLine": 673,
       "rank": 56
     },
     {
@@ -1956,7 +1959,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 684,
+      "sourceLine": 688,
       "rank": 57
     },
     {
@@ -1997,7 +2000,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 730,
+      "sourceLine": 734,
       "rank": 58
     },
     {
@@ -2033,7 +2036,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 744,
+      "sourceLine": 748,
       "rank": 59
     },
     {
@@ -2072,7 +2075,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 764,
+      "sourceLine": 768,
       "rank": 60
     },
     {
@@ -2110,7 +2113,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 779,
+      "sourceLine": 783,
       "rank": 61
     },
     {
@@ -2149,7 +2152,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 794,
+      "sourceLine": 798,
       "rank": 62
     },
     {
@@ -2189,7 +2192,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 808,
+      "sourceLine": 812,
       "rank": 63
     },
     {
@@ -2229,7 +2232,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 822,
+      "sourceLine": 826,
       "rank": 64
     },
     {
@@ -2271,7 +2274,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 835,
+      "sourceLine": 839,
       "rank": 65
     },
     {
@@ -2318,7 +2321,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 848,
+      "sourceLine": 852,
       "rank": 66
     },
     {
@@ -2358,7 +2361,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 861,
+      "sourceLine": 865,
       "rank": 67
     },
     {
@@ -2399,7 +2402,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 874,
+      "sourceLine": 878,
       "rank": 68
     },
     {
@@ -2442,7 +2445,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 888,
+      "sourceLine": 892,
       "rank": 69
     },
     {
@@ -2480,7 +2483,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 903,
+      "sourceLine": 907,
       "rank": 70
     },
     {
@@ -2519,7 +2522,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 934,
+      "sourceLine": 938,
       "rank": 71
     },
     {
@@ -2554,7 +2557,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 948,
+      "sourceLine": 952,
       "rank": 72
     },
     {
@@ -2588,7 +2591,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 962,
+      "sourceLine": 966,
       "rank": 73
     },
     {
@@ -2622,7 +2625,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 976,
+      "sourceLine": 980,
       "rank": 74
     },
     {
@@ -2655,7 +2658,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 990,
+      "sourceLine": 994,
       "rank": 75
     },
     {
@@ -2687,13 +2690,14 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1004,
+      "sourceLine": 1008,
       "rank": 76
     },
     {
       "id": "TASK-061",
       "title": "TASK-061 — UI standardization convergence — one toolbar, one shell, one dropdown",
-      "status": "pending",
+      "status": "completed",
+      "statusNote": "2026-09-03, LANDED — the live desktop pass is TASK-041's, see below",
       "priority": "P1",
       "estimate": "3d",
       "horizon": "Prototype",
@@ -2719,17 +2723,18 @@
       "isGoal": false,
       "path": "1.17",
       "level": 1,
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1018,
+      "sourceLine": 1022,
       "rank": 77
     },
     {
       "id": "TASK-062",
       "title": "TASK-062 — Persist ViewConfig — the unlock behind saved views, lists, sharing and linked views",
-      "status": "pending",
+      "status": "in-progress",
+      "statusNote": "built, wired and tested 2026-09-03; only the browser leg of the exit test is outstanding — TASK-041",
       "priority": "P1",
       "estimate": "3d",
       "horizon": "Prototype",
@@ -2740,7 +2745,7 @@
       ],
       "evidence": [
         "capability audit 2026-08-10 §3 — measured from `platform/packages/tables/src/types.ts` and `dataviews/DataViews.tsx`",
-        "no persistence path exists in the repo."
+        "no persistence path existed in the repo at task creation."
       ],
       "requests": [
         "user directive 2026-08-10 (capability audit vs Notion/Airtable/Evernote)"
@@ -2750,17 +2755,18 @@
       "isGoal": false,
       "path": "1.18",
       "level": 1,
-      "canonicalStatus": "ready",
+      "canonicalStatus": "in_progress",
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1032,
+      "sourceLine": 1041,
       "rank": 78
     },
     {
       "id": "TASK-063",
       "title": "TASK-063 — Record metadata columns from the Event log",
-      "status": "pending",
+      "status": "completed",
+      "statusNote": "2026-09-03, LANDED on Task Manager — a second surface is one spec edit, see below",
       "priority": "P2",
       "estimate": "2d",
       "horizon": "Prototype",
@@ -2781,17 +2787,18 @@
       "isGoal": false,
       "path": "1.19",
       "level": 1,
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1046,
+      "sourceLine": 1061,
       "rank": 79
     },
     {
       "id": "TASK-064",
       "title": "TASK-064 — Scoped share grants — wire the built Share panel to Views and Forms",
-      "status": "pending",
+      "status": "in-progress",
+      "statusNote": "2026-09-03 — the grant primitive is LANDED and the Share panel acts; the data-plane half is named below, not claimed",
       "priority": "P1",
       "estimate": "5d",
       "horizon": "Prototype",
@@ -2814,11 +2821,11 @@
       "isGoal": false,
       "path": "1.20",
       "level": 1,
-      "canonicalStatus": "ready",
+      "canonicalStatus": "in_progress",
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1060,
+      "sourceLine": 1080,
       "rank": 80
     },
     {
@@ -2849,7 +2856,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1074,
+      "sourceLine": 1099,
       "rank": 81
     },
     {
@@ -2894,7 +2901,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1202,
+      "sourceLine": 1228,
       "rank": 82
     },
     {
@@ -2929,7 +2936,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1215,
+      "sourceLine": 1241,
       "rank": 83
     },
     {
@@ -2962,7 +2969,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1227,
+      "sourceLine": 1253,
       "rank": 84
     },
     {
@@ -3007,7 +3014,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1241,
+      "sourceLine": 1267,
       "rank": 85
     },
     {
@@ -3039,7 +3046,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1273,
+      "sourceLine": 1299,
       "rank": 86
     },
     {
@@ -3072,7 +3079,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1287,
+      "sourceLine": 1313,
       "rank": 87
     },
     {
@@ -3107,13 +3114,14 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1306,
+      "sourceLine": 1332,
       "rank": 88
     },
     {
       "id": "TASK-083",
       "title": "TASK-083 — Creation is one gesture — New opens an element page, and ⋮ gains per-element sections",
-      "status": "pending",
+      "status": "completed",
+      "statusNote": "2026-09-03, LANDED — see LANDED/NOT LANDED below",
       "priority": "P1",
       "estimate": "3d",
       "horizon": "Prototype",
@@ -3135,11 +3143,11 @@
       "isGoal": false,
       "path": "1.27",
       "level": 1,
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1327,
+      "sourceLine": 1353,
       "rank": 89
     },
     {
@@ -3176,7 +3184,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1342,
+      "sourceLine": 1374,
       "rank": 90
     },
     {
@@ -3211,7 +3219,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1365,
+      "sourceLine": 1397,
       "rank": 91
     },
     {
@@ -3242,7 +3250,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1384,
+      "sourceLine": 1416,
       "rank": 92
     },
     {
@@ -3273,7 +3281,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1406,
+      "sourceLine": 1438,
       "rank": 93
     },
     {
@@ -3306,7 +3314,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1421,
+      "sourceLine": 1453,
       "rank": 94
     },
     {
@@ -3338,7 +3346,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1444,
+      "sourceLine": 1476,
       "rank": 95
     },
     {
@@ -3369,7 +3377,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1464,
+      "sourceLine": 1496,
       "rank": 96
     },
     {
@@ -3399,7 +3407,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1482,
+      "sourceLine": 1514,
       "rank": 97
     },
     {
@@ -3428,14 +3436,14 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1498,
+      "sourceLine": 1530,
       "rank": 98
     },
     {
       "id": "TASK-093",
       "title": "TASK-093 — The conversation survives a model switch, and each Module reopens its own session",
       "status": "in-progress",
-      "statusNote": "server half landed 2026-09-02; the Module surfaces do not call it yet",
+      "statusNote": "built and wired 2026-09-03; only the browser leg of the exit test is outstanding — TASK-041",
       "priority": "P1",
       "horizon": "Living Software",
       "outcome": "switching the model in the Chat panel keeps the conversation — same thread, same turns, and the incoming engine is handed what was already said. Opening a Module reopens that Module's own live conversation with its history, and a session can attach further Modules so one conversation can span several.",
@@ -3457,7 +3465,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1514,
+      "sourceLine": 1546,
       "rank": 99
     },
     {
@@ -3492,7 +3500,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1530,
+      "sourceLine": 1563,
       "rank": 100
     }
   ]

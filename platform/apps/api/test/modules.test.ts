@@ -442,34 +442,6 @@ test("modules.install: lethal trifecta assembled across separate bundled capabil
   }
 });
 
-test("modules.promote: auto-demotes the prior available version, never two live at once", async () => {
-  const wiring = await buildWiring();
-  try {
-    const caller = await makeCaller(wiring);
-    const { installation: v1 } = await caller.modules.register({
-      organizationId: PILOT_ORGANIZATION,
-      manifest: dummyManifest({ version: "1.0.0" }),
-    });
-
-    await caller.modules.install({ organizationId: PILOT_ORGANIZATION, installationId: v1.id, todayKey: "2026-07-06" });
-    const promotedV1 = await caller.modules.promote({ organizationId: PILOT_ORGANIZATION, installationId: v1.id });
-    assert.equal(promotedV1.installation.state, "available");
-
-    const { installation: v2 } = await caller.modules.register({
-      organizationId: PILOT_ORGANIZATION,
-      manifest: dummyManifest({ version: "2.0.0" }),
-    });
-    await caller.modules.install({ organizationId: PILOT_ORGANIZATION, installationId: v2.id, todayKey: "2026-07-06" });
-    const promotedV2 = await caller.modules.promote({ organizationId: PILOT_ORGANIZATION, installationId: v2.id });
-    assert.equal(promotedV2.installation.state, "available");
-
-    const v1After = await caller.modules.get({ installationId: v1.id });
-    assert.equal(v1After.installation.state, "legacy");
-  } finally {
-    await wiring.close();
-  }
-});
-
 test("module availability: Commons attachments for different Module Agents remain available together", async () => {
   const wiring = await buildWiring();
   try {
@@ -524,6 +496,34 @@ test("module availability: Commons attachments for different Module Agents remai
 
     assert.equal((await wiring.moduleStore.get(first.id))?.state, "available");
     assert.equal((await wiring.moduleStore.get(second.id))?.state, "available");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("modules.promote: auto-demotes the prior available version, never two live at once", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    const { installation: v1 } = await caller.modules.register({
+      organizationId: PILOT_ORGANIZATION,
+      manifest: dummyManifest({ version: "1.0.0" }),
+    });
+
+    await caller.modules.install({ organizationId: PILOT_ORGANIZATION, installationId: v1.id, todayKey: "2026-07-06" });
+    const promotedV1 = await caller.modules.promote({ organizationId: PILOT_ORGANIZATION, installationId: v1.id });
+    assert.equal(promotedV1.installation.state, "available");
+
+    const { installation: v2 } = await caller.modules.register({
+      organizationId: PILOT_ORGANIZATION,
+      manifest: dummyManifest({ version: "2.0.0" }),
+    });
+    await caller.modules.install({ organizationId: PILOT_ORGANIZATION, installationId: v2.id, todayKey: "2026-07-06" });
+    const promotedV2 = await caller.modules.promote({ organizationId: PILOT_ORGANIZATION, installationId: v2.id });
+    assert.equal(promotedV2.installation.state, "available");
+
+    const v1After = await caller.modules.get({ installationId: v1.id });
+    assert.equal(v1After.installation.state, "legacy");
   } finally {
     await wiring.close();
   }

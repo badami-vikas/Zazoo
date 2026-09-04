@@ -1,5 +1,5 @@
 {
-  "id": "93312ea9-de4a-4454-a8ce-6bcae4443e4b",
+  "id": "fa5a630f-4415-4421-b76b-a2b9d255241b",
   "prevId": "88bb98f3-33c4-490f-b881-23275c7bfe5d",
   "version": "7",
   "dialect": "postgresql",
@@ -6102,12 +6102,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "deadline": {
-          "name": "deadline",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -6134,27 +6128,6 @@
             },
             {
               "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "jobpilot_jobs_org_deadline_idx": {
-          "name": "jobpilot_jobs_org_deadline_idx",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "deadline",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -10412,6 +10385,171 @@
       },
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.view_configs": {
+      "name": "view_configs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "database_id": {
+          "name": "database_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'personal'"
+        },
+        "config": {
+          "name": "config",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "hidden_columns": {
+          "name": "hidden_columns",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "view_configs_database_idx": {
+          "name": "view_configs_database_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "database_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "view_configs_organization_id_organizations_id_fk": {
+          "name": "view_configs_organization_id_organizations_id_fk",
+          "tableFrom": "view_configs",
+          "tableTo": "organizations",
+          "columnsFrom": [
+            "organization_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "view_configs_owner_user_id_users_id_fk": {
+          "name": "view_configs_owner_user_id_users_id_fk",
+          "tableFrom": "view_configs",
+          "tableTo": "users",
+          "columnsFrom": [
+            "owner_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "view_configs_owner_name_uq": {
+          "name": "view_configs_owner_name_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "organization_id",
+            "owner_user_id",
+            "database_id",
+            "name"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "view_configs_name_check": {
+          "name": "view_configs_name_check",
+          "value": "length(btrim(\"view_configs\".\"name\")) > 0"
+        },
+        "view_configs_scope_check": {
+          "name": "view_configs_scope_check",
+          "value": "\"view_configs\".\"scope\" IN ('personal', 'organization')"
+        },
+        "view_configs_database_check": {
+          "name": "view_configs_database_check",
+          "value": "length(btrim(\"view_configs\".\"database_id\")) > 0"
+        },
+        "view_configs_config_check": {
+          "name": "view_configs_config_check",
+          "value": "jsonb_typeof(\"view_configs\".\"config\") = 'object'"
+        },
+        "view_configs_hidden_columns_check": {
+          "name": "view_configs_hidden_columns_check",
+          "value": "jsonb_typeof(\"view_configs\".\"hidden_columns\") = 'array'"
+        }
+      },
       "isRLSEnabled": false
     }
   },

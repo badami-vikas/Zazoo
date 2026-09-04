@@ -1,6 +1,6 @@
 {
-  "id": "164781d6-6b1e-4c7b-8cb8-5c67d71ee9ba",
-  "prevId": "93312ea9-de4a-4454-a8ce-6bcae4443e4b",
+  "id": "4052c2a0-7bdb-40a4-89d7-4eb6e2995214",
+  "prevId": "fa5a630f-4415-4421-b76b-a2b9d255241b",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6102,12 +6102,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "deadline": {
-          "name": "deadline",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -6143,27 +6137,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "jobpilot_jobs_org_deadline_idx": {
-          "name": "jobpilot_jobs_org_deadline_idx",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "deadline",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -6182,116 +6155,7 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "jobpilot_jobs_org_url_uq": {
-          "name": "jobpilot_jobs_org_url_uq",
-          "nullsNotDistinct": false,
-          "columns": [
-            "organization_id",
-            "url"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.jobpilot_sources": {
-      "name": "jobpilot_sources",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "enabled": {
-          "name": "enabled",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "last_checked_at": {
-          "name": "last_checked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_fetched": {
-          "name": "last_fetched",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_kept": {
-          "name": "last_kept",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_error": {
-          "name": "last_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "jobpilot_sources_organization_id_organizations_id_fk": {
-          "name": "jobpilot_sources_organization_id_organizations_id_fk",
-          "tableFrom": "jobpilot_sources",
-          "tableTo": "organizations",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "jobpilot_sources_org_source_uq": {
-          "name": "jobpilot_sources_org_source_uq",
-          "nullsNotDistinct": false,
-          "columns": [
-            "organization_id",
-            "source_id"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -9036,6 +8900,212 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.share_grants": {
+      "name": "share_grants",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_kind": {
+          "name": "target_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'view'"
+        },
+        "target_id": {
+          "name": "target_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "grantee_user_id": {
+          "name": "grantee_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "access_token": {
+          "name": "access_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "access_level": {
+          "name": "access_level",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'view'"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "share_grants_target_idx": {
+          "name": "share_grants_target_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "target_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "target_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "share_grants_grantee_idx": {
+          "name": "share_grants_grantee_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "grantee_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "share_grants_organization_id_organizations_id_fk": {
+          "name": "share_grants_organization_id_organizations_id_fk",
+          "tableFrom": "share_grants",
+          "tableTo": "organizations",
+          "columnsFrom": [
+            "organization_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "share_grants_target_id_view_configs_id_fk": {
+          "name": "share_grants_target_id_view_configs_id_fk",
+          "tableFrom": "share_grants",
+          "tableTo": "view_configs",
+          "columnsFrom": [
+            "target_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "share_grants_grantee_user_id_users_id_fk": {
+          "name": "share_grants_grantee_user_id_users_id_fk",
+          "tableFrom": "share_grants",
+          "tableTo": "users",
+          "columnsFrom": [
+            "grantee_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "share_grants_created_by_user_id_users_id_fk": {
+          "name": "share_grants_created_by_user_id_users_id_fk",
+          "tableFrom": "share_grants",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "share_grants_access_token_unique": {
+          "name": "share_grants_access_token_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "access_token"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "share_grants_target_kind_check": {
+          "name": "share_grants_target_kind_check",
+          "value": "\"share_grants\".\"target_kind\" IN ('view', 'form')"
+        },
+        "share_grants_access_level_check": {
+          "name": "share_grants_access_level_check",
+          "value": "\"share_grants\".\"access_level\" IN ('view', 'edit', 'coowner')"
+        },
+        "share_grants_holder_check": {
+          "name": "share_grants_holder_check",
+          "value": "(\"share_grants\".\"grantee_user_id\" IS NULL) <> (\"share_grants\".\"access_token\" IS NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.signals": {
       "name": "signals",
       "schema": "",
@@ -10521,6 +10591,171 @@
       },
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.view_configs": {
+      "name": "view_configs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "database_id": {
+          "name": "database_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'personal'"
+        },
+        "config": {
+          "name": "config",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "hidden_columns": {
+          "name": "hidden_columns",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "view_configs_database_idx": {
+          "name": "view_configs_database_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "database_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "view_configs_organization_id_organizations_id_fk": {
+          "name": "view_configs_organization_id_organizations_id_fk",
+          "tableFrom": "view_configs",
+          "tableTo": "organizations",
+          "columnsFrom": [
+            "organization_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "view_configs_owner_user_id_users_id_fk": {
+          "name": "view_configs_owner_user_id_users_id_fk",
+          "tableFrom": "view_configs",
+          "tableTo": "users",
+          "columnsFrom": [
+            "owner_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "view_configs_owner_name_uq": {
+          "name": "view_configs_owner_name_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "organization_id",
+            "owner_user_id",
+            "database_id",
+            "name"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "view_configs_name_check": {
+          "name": "view_configs_name_check",
+          "value": "length(btrim(\"view_configs\".\"name\")) > 0"
+        },
+        "view_configs_scope_check": {
+          "name": "view_configs_scope_check",
+          "value": "\"view_configs\".\"scope\" IN ('personal', 'organization')"
+        },
+        "view_configs_database_check": {
+          "name": "view_configs_database_check",
+          "value": "length(btrim(\"view_configs\".\"database_id\")) > 0"
+        },
+        "view_configs_config_check": {
+          "name": "view_configs_config_check",
+          "value": "jsonb_typeof(\"view_configs\".\"config\") = 'object'"
+        },
+        "view_configs_hidden_columns_check": {
+          "name": "view_configs_hidden_columns_check",
+          "value": "jsonb_typeof(\"view_configs\".\"hidden_columns\") = 'array'"
+        }
+      },
       "isRLSEnabled": false
     }
   },

@@ -193,6 +193,14 @@ export { DrizzleTaskManagerStore } from "./task-manager-store.js";
 export { DrizzleSkillManifestRegistry, seedSkillManifests } from "./skill-manifest-store.js";
 export { DrizzleChildAgentRunStore } from "./child-agent-run-store.js";
 export { DrizzleResearchRunStore } from "./research-run-store.js";
+export { DrizzleViewConfigStore } from "./view-config-store.js";
+export { DrizzleShareGrantStore } from "./share-grant-store.js";
+export {
+  DrizzleRecordMetadataStore,
+  EmptyRecordMetadataSource,
+  type RecordMetadataEvent,
+  type RecordMetadataSource,
+} from "./record-metadata-store.js";
 
 import type { Database as Db } from "./client.js";
 import { DrizzleLedgerStore } from "./ledger-store.js";

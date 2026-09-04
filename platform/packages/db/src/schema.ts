@@ -2419,3 +2419,103 @@ export const claimRows = pgTable(
     }),
   ],
 );
+
+/**
+ * A saved View (TASK-062) — the durable form of what was React state.
+ *
+ * `config` is the `ViewConfig` from @bridge/tables, stored as JSON: the shape
+ * belongs to the view kinds, and the router validates it at the edge, so this
+ * table does not encode a vocabulary it would then have to migrate. Column
+ * visibility sits beside it because it is the shell's state, not the kind's.
+ *
+ * Ownership is the chat_threads rule with one widening: `personal` is
+ * owner-only, `organization` is readable by every member and writable only by
+ * its owner. That second scope is the seam scoped share grants (TASK-064) grow
+ * into — a policy that exists from the first migration rather than a retrofit.
+ */
+export const viewConfigs = pgTable(
+  "view_configs",
+  {
+    id: uuidPkV7(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    ownerUserId: uuid("owner_user_id").notNull().references(() => users.id),
+    /** TableSpec id. A View never crosses Databases. */
+    databaseId: text("database_id").notNull(),
+    name: text("name").notNull(),
+    scope: text("scope").notNull().default("personal"),
+    config: jsonb("config").$type<Record<string, unknown>>().notNull(),
+    hiddenColumns: jsonb("hidden_columns").$type<string[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check("view_configs_name_check", sql`length(btrim(${t.name})) > 0`),
+    check("view_configs_scope_check", sql`${t.scope} IN ('personal', 'organization')`),
+    check("view_configs_database_check", sql`length(btrim(${t.databaseId})) > 0`),
+    check("view_configs_config_check", sql`jsonb_typeof(${t.config}) = 'object'`),
+    check(
+      "view_configs_hidden_columns_check",
+      sql`jsonb_typeof(${t.hiddenColumns}) = 'array'`,
+    ),
+    index("view_configs_database_idx").on(t.organizationId, t.databaseId, t.name),
+    // One name per Database per owner: two identically named entries in one
+    // List dropdown is an unusable UI, so the database refuses it too.
+    unique("view_configs_owner_name_uq").on(
+      t.organizationId,
+      t.ownerUserId,
+      t.databaseId,
+      t.name,
+    ),
+  ],
+);
+
+/**
+ * Scoped share grants (TASK-064) — the generalization of the one sharing
+ * primitive Bridge had (`helpdesk_tickets.access_token`).
+ *
+ * A grant points at a saved View (or the Form over it) and names an access
+ * level. It is aimed EITHER at a member (`grantee_user_id`) or at whoever holds
+ * an opaque token (`access_token`) — never both, because a grant that is two
+ * things at once has two revocation stories.
+ *
+ * REVOCATION IS A WRITE, NOT A DELETE: a grant that vanished cannot be audited,
+ * and "who could see this last week" is exactly the question a share ledger
+ * exists to answer.
+ */
+export const shareGrants = pgTable(
+  "share_grants",
+  {
+    id: uuidPkV7(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    targetKind: text("target_kind").notNull().default("view"),
+    /** The saved View this grant points at. */
+    targetId: uuid("target_id").notNull().references(() => viewConfigs.id),
+    granteeUserId: uuid("grantee_user_id").references(() => users.id),
+    accessToken: text("access_token").unique(),
+    accessLevel: text("access_level").notNull().default("view"),
+    expiresAt: timestamp("expires_at", { withTimezone: true, precision: 3 }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true, precision: 3 }),
+    createdByUserId: uuid("created_by_user_id").notNull().references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check("share_grants_target_kind_check", sql`${t.targetKind} IN ('view', 'form')`),
+    check(
+      "share_grants_access_level_check",
+      sql`${t.accessLevel} IN ('view', 'edit', 'coowner')`,
+    ),
+    // A member grant or a link grant, never both and never neither.
+    check(
+      "share_grants_holder_check",
+      sql`(${t.granteeUserId} IS NULL) <> (${t.accessToken} IS NULL)`,
+    ),
+    index("share_grants_target_idx").on(t.organizationId, t.targetKind, t.targetId),
+    index("share_grants_grantee_idx").on(t.organizationId, t.granteeUserId),
+  ],
+);

@@ -119,12 +119,12 @@ test("the same posting url cannot be stored twice — the repeat-sweep guard", a
   }
 });
 
-test("migration 0048 survives a database that already holds duplicate urls", async () => {
+test("migration 0050 survives a database that already holds duplicate urls", async () => {
   // CLAUDE.md: "a fresh database is not a test — migration bugs hide behind
   // fresh installs." A bare ALTER ... ADD CONSTRAINT UNIQUE fails with "could
   // not create unique index" on any machine that already has two jobs sharing a
   // url, and no fresh-install run can ever surface that. This reproduces the
-  // pre-0048 state and replays the migration's OWN sql, so the test fails if
+  // pre-0050 state and replays the migration's OWN sql, so the test fails if
   // someone later removes the de-duplication step from the file.
   const { client, close, orgId } = await fixture();
   try {
@@ -146,13 +146,13 @@ test("migration 0048 survives a database that already holds duplicate urls", asy
     // Resolved the same way src/client-local.ts does it: this file runs from
     // `test/` under tsc-src layouts and `dist/test/` after a build.
     const migration = ["../migrations", "../../migrations"]
-      .map((rel) => new URL(`${rel}/0048_jobpilot_sources.sql`, import.meta.url))
+      .map((rel) => new URL(`${rel}/0050_jobpilot_sources.sql`, import.meta.url))
       .find((candidate) => existsSync(candidate));
-    assert.ok(migration, "0048 must be locatable from the test's runtime layout");
+    assert.ok(migration, "0050 must be locatable from the test's runtime layout");
     const sql = readFileSync(migration, "utf8");
     const statements = sql.split("--> statement-breakpoint");
     const dedupe = statements.find((part) => part.includes('SET "url" = NULL'));
-    assert.ok(dedupe, "0048 must de-duplicate BEFORE adding the constraint");
+    assert.ok(dedupe, "0050 must de-duplicate BEFORE adding the constraint");
     await client.query(dedupe);
     await client.query(statements.at(-1)!);
 

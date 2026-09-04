@@ -4,8 +4,12 @@ import {
   CornerDownRight, Inbox, FileText, GitCompareArrows, Info,
   AlertTriangle, RotateCw,
 } from 'lucide-react';
+import type { TableSpec, ViewConfig } from '@bridge/tables';
+import { defaultViewConfig } from '@bridge/tables';
 import { Header } from '../components/shared/Header';
-import { StandardToolbar } from '../components/shared/StandardToolbar';
+import { ModuleSurfaceLayout } from '../components/shared/ModuleSurfaceLayout';
+import { DataViews } from '../dataviews/DataViews';
+import type { DataRow } from '../dataviews/types';
 import { CollapsibleInsights } from '../components/shared/CollapsibleInsights';
 import { motion, AnimatePresence } from 'motion/react';
 import clsx from 'clsx';
@@ -79,6 +83,26 @@ function Provenance({ e }: { e: LedgerEntry }) {
   );
 }
 
+/**
+ * The review queue is a Database, so it renders through <DataViews> like every
+ * other one (TASK-061). The bespoke 380px list this Page used to draw — and the
+ * second toolbar it needed to feed — were the mechanical reason Approvals
+ * looked unlike every Module Page beside it. Nothing here is editable: a
+ * proposal is authored by the actor that proposed it and answered by a
+ * decision, never typed over in a cell.
+ */
+const QUEUE_SPEC: TableSpec = {
+  id: 'governance.approvals',
+  columns: [
+    { id: 'action', label: 'Action', kind: 'text', editable: false },
+    { id: 'resource', label: 'Target', kind: 'text', editable: false },
+    { id: 'actor', label: 'Proposed by', kind: 'text', editable: false },
+    { id: 'channel', label: 'Channel', kind: 'text', editable: false },
+    { id: 'policy', label: 'Policy', kind: 'text', editable: false },
+    { id: 'age', label: 'Waiting', kind: 'text', editable: false },
+  ],
+};
+
 export function ApprovalsPage() {
   // Live queue = any offline drafts plus authenticated pending Action Pipeline proposals.
   const queued = useActionQueue();
@@ -140,17 +164,12 @@ export function ApprovalsPage() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [vetoOpen, setVetoOpen] = useState(false);
-  const [search, setSearch] = useState('');
   const [insightsOpen, setInsightsOpen] = useState(true);
+  const [view, setView] = useState<ViewConfig>(() => defaultViewConfig('approvals:table', 'table'));
   const [resolved, setResolved] = useState<{ id: string; decision: Decision; reason?: string } | null>(null);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [decisionError, setDecisionError] = useState<string | null>(null);
 
-  const visibleQueue = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return queue;
-    return queue.filter(e => `${e.action} ${e.resource} ${e.actor} ${e.policy}`.toLowerCase().includes(q));
-  }, [queue, search]);
   const selected = useMemo(() => queue.find(e => e.id === selectedId) ?? null, [queue, selectedId]);
   const diff = useMemo(() => (selected ? lineDiff(selected.prior, editing ? draft : selected.proposed) : []), [selected, editing, draft]);
 
@@ -274,12 +293,6 @@ export function ApprovalsPage() {
   return (
     <div className="min-w-0 flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: 'var(--color-background)' }}>
       <Header tabs={[{ id: 'Approvals', icon: ShieldCheck }]} activeTab="Approvals" onTabChange={() => {}} />
-      <StandardToolbar
-        insightsExpanded={insightsOpen}
-        onToggleInsights={() => setInsightsOpen(o => !o)}
-        search={search}
-        onSearchChange={setSearch}
-      />
       <CollapsibleInsights
         expanded={insightsOpen}
         metrics={[
@@ -343,52 +356,37 @@ export function ApprovalsPage() {
         </section>
       )}
 
-      {queue.length === 0 ? (
-        // Empty state — reinforces governed-by-default, not idle
-        <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4 border" style={{ backgroundColor: 'white', borderColor: 'var(--color-border)' }}>
-            <Inbox className="w-8 h-8" style={{ color: 'var(--color-sage)' }} />
-          </div>
-          <h2 className="text-lg font-bold" style={{ color: 'var(--color-navy)', fontFamily: 'var(--font-editorial)' }}>Nothing awaiting review</h2>
-          <p className="text-sm max-w-sm mt-2" style={{ color: 'var(--color-navy-mid)' }}>
-            Agents are operating within policy. When an action needs your judgment, it will appear here with its full reasoning and provenance.
-          </p>
-        </div>
-      ) : (
-        <div className="flex-1 flex flex-col overflow-y-auto sm:flex-row sm:overflow-hidden">
-          {/* List */}
-          <div className="w-full shrink-0 border-b sm:w-[380px] sm:border-b-0 sm:border-r sm:overflow-y-auto" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-background)' }}>
-            {visibleQueue.map(e => {
-              const active = e.id === selectedId;
-              return (
-                <button
-                  key={e.id}
-                  onClick={() => { setSelectedId(e.id); setEditing(false); setVetoOpen(false); }}
-                  className="w-full text-left px-4 py-3.5 border-b transition-colors"
-                  style={{
-                    borderColor: 'var(--color-border)',
-                    backgroundColor: active ? 'color-mix(in srgb, var(--color-steel) 7%, transparent)' : 'transparent',
-                    boxShadow: active ? 'inset 3px 0 0 var(--color-steel)' : 'none',
-                  }}
-                >
-                  <div className="flex items-center justify-between gap-2 mb-1.5">
-                    <ActorChip kind={e.actorKind} name={e.actor} />
-                    <span className="text-xs font-medium shrink-0" style={{ color: 'var(--color-warm-gray)' }}>{e.age}</span>
-                  </div>
-                  <div className="text-sm font-semibold mb-0.5" style={{ color: 'var(--color-navy)' }}>
-                    {e.action} <span style={{ color: 'var(--color-warm-gray)' }}>→</span> {e.resource}
-                  </div>
-                  <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--color-navy-mid)' }}>
-                    <ShieldCheck className="w-3 h-3 shrink-0" style={{ color: 'var(--color-warm-gray)' }} />
-                    <span className="truncate">{e.policy}</span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Detail / diff drawer */}
-          <div className="w-full shrink-0 sm:w-auto sm:min-w-0 sm:flex-1 sm:overflow-y-auto">
+      <ModuleSurfaceLayout
+        table={
+          <DataViews
+            spec={QUEUE_SPEC}
+            view={view}
+            onViewChange={setView}
+            data={queue as unknown as DataRow[]}
+            moduleName="governance"
+            searchPlaceholder="Search the review queue…"
+            availableKinds={['table', 'board', 'gallery']}
+            onOpenRecord={(row) => {
+              setSelectedId(String((row as DataRow)['id'] ?? ''));
+              setEditing(false);
+              setVetoOpen(false);
+            }}
+            insertDisabledReason="A proposal reaches this queue by being proposed through the Action Pipeline; it is never typed in by hand."
+            deleteDisabledReason="The approval ledger is append-only — a proposal is approved or vetoed, never deleted."
+          />
+        }
+        below={
+          <div className="min-w-0">
+            {queue.length === 0 && (
+              // Not an empty-state hero: §6b keeps the View's chrome and says
+              // nothing at zero rows. This sits BELOW the table, where it
+              // explains rather than replaces.
+              <p className="text-sm" style={{ color: 'var(--color-navy-mid)' }}>
+                <Inbox className="mr-1.5 inline w-4 h-4" style={{ color: 'var(--color-sage)' }} />
+                Agents are operating within policy. When an action needs your judgment it
+                appears above, with its full reasoning and provenance.
+              </p>
+            )}
             {selected && (
               <div className="max-w-3xl mx-auto px-4 py-5 sm:px-8 sm:py-8 flex flex-col gap-7">
                 {/* title + provenance */}
@@ -591,8 +589,8 @@ export function ApprovalsPage() {
               </div>
             )}
           </div>
-        </div>
-      )}
+        }
+      />
     </div>
   );
 }

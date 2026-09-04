@@ -50,7 +50,7 @@ Source of truth for how Bridge surfaces (apps/web today, Egg shell + generated w
 | **Section** | A titled block within a page, stacked vertically. |
 | **Landing section** | The first section of every page: the standard data views over the page's primary data. |
 | **View** | A rendering of the landing section's data: table, card, and now **form** (plus kanban/calendar where they already exist). |
-| **List** | A named saved subset of the same rows/columns, selected via the List dropdown (first slot in StandardToolbar). |
+| **List** | A named saved subset of the same rows/columns, selected via the List dropdown (first slot in `<DataViews>`'s toolbar — the ONE toolbar since TASK-061/ADR-278). |
 | **File** | Any durable user-visible file a Module generates, imports, or accumulates (briefs, exports, captures, drafts). Non-file output is a Result. |
 
 ## 2. Data-shape → surface decision rules
@@ -218,7 +218,7 @@ List dropdown → View dropdown → Search → Filter → Custom actions → 3-d
 
 **Every element (every Record row) has a dedicated routable page** and is clickable from the table or any view. Clicking a row title/primary field navigates to that Record's detail page.
 
-- The ⚙ **Control Panel icon slot** (`controlPanelTo` in `StandardToolbar.tsx`, between Filter and 3-dots — R-018/ADR-029) is **retired as a toolbar slot**. Control Panel becomes an **item inside the 3-dots menu**.
+- The ⚙ **Control Panel icon slot** (once `controlPanelTo` in the deleted `StandardToolbar.tsx`, between Filter and 3-dots — R-018/ADR-029) is **retired as a toolbar slot**. Control Panel becomes an **item inside the 3-dots menu**.
 - **Reconsider Control Panel contents** during alignment: anything that is *data about the page's own records* (resource tables, per-Initiative bindings, status overviews) becomes a **section on the page**; only true *administration* (mounting/unmounting capabilities, scope/permission config, versioning) stays behind the 3-dots → Control Panel.
 
 ## 5e. The standard dropdown (added 2026-08-10)
@@ -233,7 +233,7 @@ Every dropdown that picks from a list of named things — Lists, Views, column p
 4. five rows visible before the option area scrolls;
 5. Escape to close, `role="listbox"`/`aria-selected` semantics, keyboard reachability.
 
-If a dropdown needs a behaviour this primitive lacks, the behaviour is added **to the primitive**. A local variant is a divergence, and §10 fails the build for it. `ListDropdown` and the `<DataViews>` View switcher are bindings over this primitive, not separate implementations.
+If a dropdown needs a behaviour this primitive lacks, the behaviour is added **to the primitive**. A local variant is a divergence, and §10 fails the build for it. The `<DataViews>` List and View dropdowns are bindings over this primitive, not separate implementations. (`ListDropdown` was a third wrapper and is deleted — TASK-061/ADR-278.)
 
 ## 5f. Right-click and 3-dots menus are one standard (restated 2026-08-10)
 
