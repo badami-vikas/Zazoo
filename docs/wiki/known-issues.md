@@ -8,6 +8,15 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+- **RESOLVED (2026-06-24) — Curated lists (ETA/WashU/HNI/DICE/Events) showed 0 contacts
+  on live prototype.** DB populated (ETA 2,690 / WashU 776 / HNI 763 / DICE 323 /
+  Events 15) and source correct, but the LIVE Cloudflare Pages bundle was built without
+  the `person_id→canonical_person_id` resolution in `loadWorkspaceLists` (db.ts) — list
+  pills filtered the canonical-keyed People grid by per-workspace `people.id`, matching
+  nothing. Root cause = stale deployed bundle (manual deploy never shipped the fix), NOT
+  data/RLS. Fixed by rebuild+redeploy; verified `canonical_person_id` present in live
+  bundle. Lesson: grep the served JS for fix string literals to prove a fix is live.
+
 - **IN PROGRESS — Identity client-asserted on `propose`.** API trusts request-body actor
   for non-decide paths. `decide` now uses server `ctx.identity` (pinned pilot user). Full
   fix = Supabase JWT verify → real per-user identity + bind human actor on propose +
