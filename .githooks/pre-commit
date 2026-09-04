@@ -6,27 +6,15 @@
 # hook, and commits there needed --no-verify, which trains people to pass that
 # flag by reflex. A hook that only exists on one machine is not a gate.
 #
-# Fast checks only. The full suite is `pnpm verify` in CI; a pre-commit hook that
-# takes a minute gets disabled.
+# One check only (AP-182): secrets / PII. Everything else runs once, in CI,
+# through `pnpm verify`. A pre-commit hook that repeats CI trains people to
+# pass --no-verify by reflex, and then the one check that matters is skipped too.
 set -e
 ROOT=$(git rev-parse --show-toplevel)
 
-# 1. Secrets / PII — never negotiable.
 if [ -x "$ROOT/scripts/check-no-pii.sh" ]; then
   sh "$ROOT/scripts/check-no-pii.sh" || {
     echo "pre-commit: PII/secret check failed." >&2
-    exit 1
-  }
-fi
-
-# 2. UI rules — only when the commit touches UI or the rulebook, so unrelated
-#    commits pay nothing.
-if git diff --cached --name-only | grep -qE '^(platform/apps/web/src/|docs/raw/ui-rulebook\.md|docs/wiki/ui-|CLAUDE\.md)'; then
-  echo "pre-commit: UI files staged — running the UI rulebook gate."
-  ( cd "$ROOT/platform" && node scripts/check-ui-rules.mjs ) || {
-    echo "" >&2
-    echo "pre-commit: UI rulebook gate failed (see above). Rules: docs/raw/ui-rulebook.md" >&2
-    echo "If you genuinely fixed violations, record them: cd platform && node scripts/check-ui-rules.mjs --update" >&2
     exit 1
   }
 fi

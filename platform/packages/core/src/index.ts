@@ -69,6 +69,7 @@ export * from "./learning/capture-consent.js";
 export * from "./learning/input-capture.js";
 export * from "./learning/source-emitters.js";
 export * from "./learning/retrieval.js";
+export * from "./pilot.js";
 export * from "./learning/archetype.js";
 export * from "./learning/promotion.js";
 export * from "./learning/builder.js";
@@ -555,7 +556,6 @@ export {
 export {
   structuralSimilarity,
   findOverlaps,
-  cosineSimilarity,
   type OverlapCandidate,
   type OverlapMatch,
   type FindOverlapsOpts,

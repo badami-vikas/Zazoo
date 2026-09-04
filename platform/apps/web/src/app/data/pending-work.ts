@@ -44,7 +44,6 @@ export interface PendingWorkEdits {
   manual?: PendingWorkItem[];
 }
 
-export const PENDING_WORK_GENERATED_AT = generated.generatedAt;
 export const PENDING_WORK_SOURCE = generated.items as PendingWorkItem[];
 const STORAGE_KEY = 'bridge.pending-work.v1';
 

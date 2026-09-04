@@ -25,22 +25,7 @@ import {
 import { appRouter } from "../src/router.js";
 import { deterministicUuid } from "../src/deterministic-uuid.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(47);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(wiring: Wiring) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity: { type: "user" as const, id: PILOT_USER },
-    authenticated: true,
-    verifying: false,
-  });
-}
+import { makeCaller, makeRun } from "./caller.js";
 
 const ORG = PILOT_ORGANIZATION;
 
@@ -69,7 +54,7 @@ async function seedSignals(
 }
 
 test("flight OFF: every promotions procedure fails closed", async () => {
-  const wiring = await buildWiring();
+  const wiring = await buildWiring({ learningObservationEnabled: false });
   try {
     const caller = makeCaller(wiring);
     for (const call of [

@@ -8,24 +8,7 @@ import test from "node:test";
 import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(1);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-async function makeCaller(wiring: Wiring) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    // Real seeded user id (not a test_fixture_-prefixed string) — organization_definitions.created_by
-    // is a real FK to users, so an arbitrary caller id would violate it.
-    identity: { type: "user", id: PILOT_USER },
-    authenticated: true, // SEC-1: in-process test caller is a trusted, authenticated actor
-    verifying: false,
-  });
-}
+import { makeCaller, makeRun } from "./caller.js";
 
 function dummyBlueprint(overrides: Record<string, unknown> = {}) {
   return {

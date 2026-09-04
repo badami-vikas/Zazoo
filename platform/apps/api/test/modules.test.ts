@@ -31,7 +31,7 @@ import {
   BUILT_IN_MODULES,
   buildModuleNavTree,
   resolveModuleAutomationRuntimeId,
-} from "../src/built-in-modules.js";
+} from "@bridge/module-manifests";
 import {
   buildWiring,
   PILOT_USER,
@@ -40,6 +40,7 @@ import {
   seedBuiltInModules,
   type Wiring,
 } from "../src/wiring.js";
+import { makeCaller, makeRun } from "./caller.js";
 
 async function pathExists(path: string): Promise<boolean> {
   try {
@@ -48,22 +49,6 @@ async function pathExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(1);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-async function makeCaller(wiring: Wiring) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity: { type: "user", id: PILOT_USER },
-    authenticated: true, // SEC-1: in-process test caller is a trusted, authenticated actor
-    verifying: false,
-  });
 }
 
 function dummyManifest(overrides: Record<string, unknown> = {}) {

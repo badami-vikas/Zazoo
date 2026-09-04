@@ -34,24 +34,9 @@ import {
   PILOT_USER,
   type Wiring,
 } from "../src/wiring.js";
+import { makeCaller, makeRun } from "./caller.js";
 
 const ORG = PILOT_ORGANIZATION;
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(99);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(wiring: Wiring, identity?: { type: "user" | "agent"; id: string }) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity: identity ?? { type: "user", id: PILOT_USER },
-    authenticated: true,
-    verifying: false,
-  });
-}
 
 /** Append one PROPOSAL + one affirming DECISION row for a skill — the real
  * two-row shape the pipeline writes, which `episodesForSkill` narrows to

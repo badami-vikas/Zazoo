@@ -28,27 +28,12 @@ import {
   PILOT_USER,
   type Wiring,
 } from "../src/wiring.js";
+import { makeCaller } from "./caller.js";
 
 const PUBLIC_CLOUD_MODEL_EGRESS = {
   dataScope: "public",
   userConfirmed: true,
 } as const;
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(1);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-async function makeCaller(wiring: Wiring, userId = PILOT_USER) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity: { type: "user", id: userId },
-    authenticated: true, // SEC-1: in-process test caller is a trusted, authenticated actor
-    verifying: false,
-  });
-}
 
 class TierTrackingModel implements ModelProvider {
   readonly plane: "local" | "cloud";

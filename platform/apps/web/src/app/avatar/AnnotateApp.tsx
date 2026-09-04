@@ -15,6 +15,7 @@
  * contained HTML-looking characters.
  */
 import { useEffect, useState } from "react";
+import { AgentPointer, type PointerTarget } from "./AgentPointer";
 
 type MarkKind = "highlight" | "arrow" | "callout" | "spotlight";
 
@@ -28,6 +29,7 @@ interface AnnotationMark {
 }
 
 const MARKS_EVENT = "annotate:marks";
+const SCRIBBLE_EVENT = "annotate:scribble";
 
 /**
  * Minimal Tauri v2 event listener — reimplements the ONE call
@@ -155,11 +157,19 @@ interface PointerPayload {
   x: number;
   y: number;
   active: boolean;
+  /** One sample of a real-cursor glide (`act.rs`) — snap, don't fly. */
+  stream?: boolean;
+  /** A click just happened here — flash the click ring. */
+  pressed?: boolean;
 }
 
 export function AnnotateApp() {
   const [marks, setMarks] = useState<AnnotationMark[]>([]);
-  const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
+  const [pointer, setPointer] = useState<PointerTarget | null>(null);
+  /** Scribble mode: the window is interactive for one drag; the rectangle the
+   * user draws is reported to Rust, which restores click-through. */
+  const [scribble, setScribble] = useState(false);
+  const [drag, setDrag] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const [markColor, setMarkColor] = useState(readMarkColor);
   const [cursorVisible, setCursorVisible] = useState(readCursorVisible);
 
@@ -199,27 +209,55 @@ export function AnnotateApp() {
       void internals?.invoke("annotate_ready").catch(() => undefined);
       void internals?.invoke("annotate_ready", { rendered: applied.length }).catch(() => undefined);
     });
+    tauriListen<{ monitor: number; active: boolean }>(SCRIBBLE_EVENT, (payload) => {
+      if (payload && payload.monitor === myMonitor) {
+        setScribble(Boolean(payload.active));
+        if (!payload.active) setDrag(null);
+      }
+    });
     tauriListen<PointerPayload>(POINTER_EVENT, (payload) => {
       setPointer(
         payload && payload.active && payload.monitor === myMonitor
-          ? { x: payload.x, y: payload.y }
+          ? { x: payload.x, y: payload.y, stream: payload.stream, pressed: payload.pressed }
           : null,
       );
     });
     void internals?.invoke("annotate_ready").catch(() => undefined);
   }, []);
 
+  const rect = drag && {
+    x: Math.min(drag.x0, drag.x1),
+    y: Math.min(drag.y0, drag.y1),
+    width: Math.abs(drag.x1 - drag.x0),
+    height: Math.abs(drag.y1 - drag.y0),
+  };
+  const internals = typeof window !== "undefined" ? window.__TAURI_INTERNALS__ : undefined;
+
   return (
     <div
-      aria-hidden="true"
+      aria-hidden={!scribble}
+      role={scribble ? "application" : undefined}
+      aria-label={scribble ? "Draw a rectangle around the area to focus on" : undefined}
+      onPointerDown={scribble ? (e) => setDrag({ x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY }) : undefined}
+      onPointerMove={scribble && drag ? (e) => setDrag({ ...drag, x1: e.clientX, y1: e.clientY }) : undefined}
+      onPointerUp={
+        scribble && rect
+          ? () => {
+              setDrag(null);
+              void internals?.invoke("annotate_scribble_done", { region: { monitor: 0, ...rect } }).catch(() => undefined);
+            }
+          : undefined
+      }
       style={{
         position: "fixed",
         inset: 0,
-        background: "transparent",
-        border: cursorVisible && marks.length > 0 ? `6px solid ${markColor}` : "none",
+        background: scribble ? "rgba(0,0,0,0.12)" : "transparent",
+        border: cursorVisible && (marks.length > 0 || scribble) ? `6px solid ${markColor}` : "none",
         borderRadius: 10,
         boxSizing: "border-box",
-        pointerEvents: "none",
+        pointerEvents: scribble ? "auto" : "none",
+        cursor: scribble ? "crosshair" : undefined,
+        touchAction: "none",
       }}
     >
     <svg
@@ -243,13 +281,16 @@ export function AnnotateApp() {
           <MarkShape mark={mark} color={markColor} />
         </g>
       ))}
-      {pointer && cursorVisible && (
-        <g>
-          <circle cx={pointer.x} cy={pointer.y} r={16} fill="none" stroke={HALO_COLOR} strokeWidth={HALO_STROKE} />
-          <circle cx={pointer.x} cy={pointer.y} r={16} fill={markColor} fillOpacity={0.25} stroke={markColor} strokeWidth={STROKE} />
-          <circle cx={pointer.x} cy={pointer.y} r={5} fill={markColor} />
-        </g>
+      {rect && (
+        <>
+          <rect x={rect.x} y={rect.y} width={rect.width} height={rect.height} rx={6} fill="none" stroke={HALO_COLOR} strokeWidth={HALO_STROKE} />
+          <rect x={rect.x} y={rect.y} width={rect.width} height={rect.height} rx={6} fill={markColor} fillOpacity={0.1} stroke={markColor} strokeWidth={STROKE} strokeDasharray="10 6" />
+        </>
       )}
+      {scribble && !rect && (
+        <MarkLabel x={24} y={40} text="Drag to circle the area you mean — Esc to cancel" color={markColor} />
+      )}
+      {cursorVisible && <AgentPointer target={pointer} color={markColor} />}
     </svg>
     </div>
   );

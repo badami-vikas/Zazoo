@@ -28,22 +28,10 @@ import {
 } from "@bridge/core";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
+import { makeCaller } from "./caller.js";
 
 const ORG = PILOT_ORGANIZATION;
 const SECRET = "XYZZY-private-message-text-never-in-a-signal";
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(37);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(
-  wiring: Wiring,
-  identity: { type: "user" | "team"; id: string } = { type: "user", id: PILOT_USER },
-) {
-  return appRouter.createCaller({ wiring, run: makeRun(), identity, authenticated: true, verifying: false });
-}
 
 class CaptureChatModel implements ModelProvider {
   readonly id = "capture-chat-local";
@@ -131,7 +119,7 @@ async function ingestWaMessages(
 }
 
 test("flight OFF: capture procedures fail closed; status stays answerable for honest hiding", async () => {
-  const wiring = await buildWiring();
+  const wiring = await buildWiring({ learningObservationEnabled: false });
   try {
     const caller = makeCaller(wiring);
     const status = await caller.learning.capture.status({ organizationId: ORG });

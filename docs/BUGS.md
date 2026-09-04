@@ -455,7 +455,8 @@ because it is not registered as an observer.
 
 ---
 
-## OPEN 2026-07-27 — Web typecheck fails on stale `@bridge/api` types: `trpc.chat` missing (TASK-026)
+## RESOLVED 2026-09-03 — was OPEN 2026-07-27 — Web typecheck fails on stale `@bridge/api` types: `trpc.chat` missing (TASK-026)
+**RESOLVED 2026-09-03:** no longer reproduces. `turbo typecheck` depends on `^build`, so `@bridge/api` types are emitted before `@bridge/web` checks; a fresh worktree `pnpm turbo run build` then `pnpm --filter @bridge/web typecheck` is clean at `542bfd7d`. The remaining fresh-worktree failure mode is simply an unbuilt workspace (missing `@bridge/*` modules), not stale types.
 Discovered while realigning the shell UX (AP-081). On freshly-pulled `main`, `pnpm --filter @bridge/web
 typecheck` reports **29 errors**, all in `platform/apps/web/src/app/chat/{ChatView.tsx,useChat.ts}`:
 `Property 'chat' does not exist on type 'TRPCClient<…>'` plus consequent implicit-`any` params, and
@@ -1111,7 +1112,8 @@ integrated TASK-001 build/test matrix.
 
 ---
 
-## OPEN 2026-07-16 — repository baseline lint is red; TASK-001 resolved the web typecheck defect
+## RESOLVED 2026-09-03 — was OPEN 2026-07-16 — repository baseline lint is red; TASK-001 resolved the web typecheck defect
+**RESOLVED 2026-09-03:** the `ZazooAvatar.tsx` disable was already gone; the one surviving `// eslint-disable-next-line react-hooks/exhaustive-deps` (`SettingsPage.tsx:533`) was removed rather than registering a plugin nobody else needs. `pnpm lint` is clean.
 `pnpm lint` fails because `apps/web/src/app/avatar/zazoo/ZazooAvatar.tsx:214` disables
 `react-hooks/exhaustive-deps` without the rule being registered. TASK-001 added the missing
 `IntelligencePage.tsx` `Link` import; clean integrated web typecheck now passes. The lint failure remains
@@ -1204,7 +1206,8 @@ A 2026-07-18 live certification run on macOS 26.5.1 with one Retina display and 
 ## RESOLVED 2026-07-18 — USER REPORT: native close/minimize controls are outside the Bridge sidebar instead of integrated into it
 The code gap is closed: macOS uses Tauri's overlay title bar with hidden title and a draggable Sidebar titlebar lane, placing AppKit's real close/minimize/zoom controls inside the supplied-reference layout. Browser/Windows/Linux render no duplicate controls and keep native decorations. Prior trusted pointer, keyboard, and Accessibility actions remain valid. In the reported 2026-07-18 run, actual VoiceOver Item Chooser navigated to the native minimize, close, and fullscreen buttons, drew the VoiceOver cursor on each, and described the correct action. HUMAN CLOSEOUT: after receiving the exact remaining checklist, the user confirmed physical VoiceOver activation of close/minimize/fullscreen works. Evidence: `outputs/2026-07-18-task-003-avatar-certification.md`.
 
-## OPEN 2026-07-18 — legacy prototype CI imports deliberately uncommitted PII-derived modules
+## RESOLVED 2026-09-03 — was OPEN 2026-07-18 — legacy prototype CI imports deliberately uncommitted PII-derived modules
+**RESOLVED 2026-09-03:** the `prototype` job (always failing on the deleted directory) and the `pii-guard` job (permanently green no-op over five absent paths) were deleted from `.github/workflows/ci.yml`. `.claude/launch.json` lost its `bridge-prototype`, `recon`, `hni`, and stale-worktree entries for the same reason. `scripts/check-no-pii.sh` stays: its `.env.local`/recon-data/JSONL patterns still guard live secrets.
 The `prototype (typecheck + build)` CI job cannot pass from a clean checkout: tracked `Design Bridge AI Interface (Copy)/src/app/components/ReconReview.tsx` and `SignalsView.tsx` import `../data/reconStaging` and `../data/dbSignals`, while `.gitignore` and the workflow's PII guard deliberately forbid those source-data modules from being committed. TypeScript reports both missing modules plus cascading implicit-`any` errors. `origin/main` run `29644303940` at `da25b97` and TASK-003 closure PR run `29648131741` fail identically; the closure branch changes no legacy-prototype files, while all other CI jobs pass. Attached to TASK-013. EXIT TEST: the legacy prototype typecheck/build passes from a clean checkout without committing private/PII-derived payloads.
 UPDATE 2026-07-26 — TASK-013 removed the legacy prototype, but `.github/workflows/ci.yml` still
 configures this job from `Design Bridge AI Interface (Copy)/.nvmrc`. Main run `30202205392` and PR
@@ -1212,7 +1215,8 @@ configures this job from `Design Bridge AI Interface (Copy)/.nvmrc`. Main run `3
 longer exists. The current fix is to retire or repoint the stale job, never restore the duplicate
 prototype. Attached to TASK-013 evidence; queue/status unchanged.
 
-## OPEN 2026-07-26 — production dependency audit reports seven HIGH advisories on main
+## RESOLVED 2026-09-03 — was OPEN 2026-07-26 — production dependency audit reports seven HIGH advisories on main
+**RESOLVED 2026-09-03:** the count had grown to 13 HIGH (5 moderate). Root `package.json` now carries `pnpm.overrides` pinning `shell-quote@1`→^1.9.0, `fast-uri@3`→^3.1.6, `find-my-way@9`→^9.7.0, `brace-expansion@4|5`→^5.0.9; `apps/web` bumps `react-router` to ^7.18.2; `modules/accounting` takes `xlsx` from the SheetJS-published tarball (`https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`) because the npm-published line stopped at 0.18.5 and has no patched version. `pnpm audit --prod --audit-level=high` now reports 0 HIGH. Accounting (168), web (75), and api `server`/`modules`/`research-runs` suites pass on the bumped tree.
 Main run `30202205392` and unchanged-lock PR #48 run `30216764943` both fail
 `pnpm audit --prod --audit-level=high`: `brace-expansion` via Glide/Linaria
 (`GHSA-3jxr-9vmj-r5cp`, `GHSA-mh99-v99m-4gvg`), `shell-quote` via Drizzle/Gel
@@ -2293,7 +2297,8 @@ The current `graph-people-communities.test.ts` has three failures outside TASK-0
 ## RESOLVED 2026-07-21 — schema-hardening regressions still targeted deleted pre-vocabulary tables and historical aliases
 The supported DB package initially failed three old tests: schema hardening queried deleted `timeline_entries`; migration 0013's historical fixture used post-VOCAB4 `event` where that migration accepted `signal`; migration 0023 invoked the current taint-aware GraphStore against a deliberately pre-0029 schema; and journal ordering used a moving `slice(-7)`. Tests now target canonical Events, preserve the historical fixture vocabulary, inspect migration-0023 rows without a future adapter, and assert the fixed 0020–0026 range. Historical migration SQL/checksums were not changed.
 
-## OPEN 2026-07-15 — @bridge/sensors coverage floor fails on a clean baseline
+## RESOLVED 2026-09-03 — was OPEN 2026-07-15 — @bridge/sensors coverage floor fails on a clean baseline
+**RESOLVED 2026-09-03:** no longer reproduces — `pnpm --filter @bridge/sensors test:coverage` reports 100.00% lines / 93.22% branches on 13 passing tests at `542bfd7d`; the package no longer imports the core barrel into its coverage aggregate.
 Before this session changed code, `pnpm test` failed in `@bridge/sensors`: measured line coverage was 35.39% against the configured 39% floor. Lint/typecheck had reached this point successfully; the full build did not run because the chained baseline command stopped at tests. This is pre-existing coverage debt, not caused by the JobPilot/DealPilot/Commons work. Fix by adding meaningful sensor tests and raising measured coverage above the existing floor; do not lower the floor again.
 TASK-005 preflight reproduced the same known gate on 2026-07-18 after the floor had been recalibrated to 38%: all 7 Sensor tests passed, but imported Core growth reduced the aggregate to 36.97%. The full platform typecheck, build, no-dummy gate, and all 36 non-Sensor test tasks passed; only this already-attached TASK-017 coverage debt keeps unfiltered `pnpm test` red.
 Supabase deployment validation on 2026-07-19 measured the current baseline at 35.76%:
@@ -2325,7 +2330,8 @@ removed — the rule is not registered, so the comment was inert except as a lin
 comment recording the mount-only intent. Registering the react-hooks plugin repo-wide remains a
 deliberate, separate decision (it would surface new findings across every React file).
 
-## OPEN 2026-07-31 — repo-wide lint red on main: 40 `bridge/no-crm-vocab` findings from the DealPilot cloud-records landing
+## RESOLVED 2026-09-03 — was OPEN 2026-07-31 — repo-wide lint red on main: 40 `bridge/no-crm-vocab` findings from the DealPilot cloud-records landing
+**RESOLVED 2026-09-03:** 35 of the 40 were already gone; the last five were `DEAL_SOURCE_CATALOG` at `wiring.ts:287/1316/5331/5335`. It is DealPilot's own catalog read from the composition root, so it joins `DEALPILOT_DOMAIN_IDENTIFIERS` in `tools/eslint-rules/src/no-crm-vocab.js` under the rule's documented composition-root allowlist. The real fix is Phase 3 of `outputs/2026-09-03-cleanup-and-egg-commons-strategy.md`, which moves the identifier out of `apps/api` with the Module.
 `pnpm lint` fails with 40 `no-crm-vocab` errors in `apps/api/src/dealpilot-store.ts`,
 `apps/api/src/router.ts` (demo seed), and `apps/api/src/wiring.ts` — Deal-vocabulary identifiers
 (`DealRecord`, `CreateDealInput`, `unpackDeal`, `DEMO_DEALS`, …) introduced by the DealPilot
@@ -2856,7 +2862,8 @@ What each answer means:
   times, and the whole `@bridge/api` suite 525/525 with 0 failures. Same interpretation as above — a timing-sensitive state assertion
   losing a race under load, not a defect. Widen the wait in this test if CI reproduces it.
 
-## OPEN 2026-08-08 — `check:vocabulary` is red on main, and the only remaining family is the WhatsApp Module's retired "Tool" primitive (TASK-036)
+## RESOLVED 2026-09-03 — was OPEN 2026-08-08 — `check:vocabulary` is red on main, and the only remaining family is the WhatsApp Module's retired "Tool" primitive (TASK-036)
+- **RESOLVED 2026-09-03:** no longer reproduces — `node scripts/check-retired-vocabulary.mjs` reports `0 grandfathered occurrences remain and the fingerprint baseline matches` at `542bfd7d`. The WhatsApp family was renamed on a later landing.
 - Task: TASK-036
 - Status: OPEN. CI runs `pnpm verify`, which runs `check:vocabulary`, so main has been red since the WhatsApp Module landed. Three of the four failing families were fixed on 2026-08-08 under AP-127; the fourth needs a decision this session deliberately did not make for another Module's owner.
 - Evidence: `node platform/scripts/check-retired-vocabulary.mjs` reports 90 `tool` findings across
@@ -3013,8 +3020,10 @@ What each answer means:
 - **Found**: 2026-08-29, consolidating the UI rules into one rulebook and checking each documented claim against the code.
 - **Exit**: TASK-080 — references purged (not reworded), `module.yaml` corrected to the manifest path in both files, and the now-homeless admin surface recorded as an open product question rather than pointed at a redirect.
 
-## OPEN 2026-08-30 — two red tests on `main` that nobody's change caused: an unawaited nested test and a timezone-dependent assertion (a third was my own bad invocation, withdrawn below) (attach: TASK-088, P2)
+## RESOLVED 2026-09-03 — was OPEN 2026-08-30 — two red tests on `main` that nobody's change caused: an unawaited nested test and a timezone-dependent assertion (a third was my own bad invocation, withdrawn below) (attach: TASK-088, P2)
+- **RESOLVED 2026-09-03:** (2) the nested `test("module availability: …")` was lifted out of `modules.promote: auto-demotes…` to a top-level test in `apps/api/test/modules.test.ts`; both now pass (27/27 in the file). (3) `packages/core/test/input-capture.test.ts` pins `process.env.TZ = "UTC"` before its imports. Mechanism confirmed on this CDT machine before the fix: `timeOfDayBucket("2026-08-16T22:00:00.000Z")` is `evening` under `America/Chicago` and `night` under `UTC`. The classifier is untouched.
 
+- **Addendum 2026-09-03:** a fourth instance of the same class — an unawaited nested `test("action.propose handles null inputs…")` inside `apps/api/test/agent-orchestration.test.ts` (pre-existing on `main`) — was lifted to top level in the same cleanup. The api-suite "hang" noted below was machine contention, not a hang: with concurrency 2 and a 900 s per-file timeout the full suite completes (581 tests, 0 fail).
 - **Found**: 2026-08-30, running the full suite centrally while merging TASK-088. All three were confirmed on a clean tree by the implementing agent and re-confirmed here against paths this branch does not touch (`git diff --stat main` on each is empty). They are pre-existing red, not merge damage — recorded so the next session does not spend the same hour re-deciding whose failure it is.
 - **(1) `apps/web/test/avatar-liveness.test.mjs` — WITHDRAWN 2026-08-30, same day: this was my error, not a defect.** I reported `ERR_MODULE_NOT_FOUND: Cannot find module '.../app/avatar/zazoo/parts'` after running the suite as `node --test "apps/web/test/*.test.mjs"`. That invocation omits the loader the suite requires. Run the way the package actually runs it — `node --import ./test/ts-resolve.mjs --test "src/app/data/*.test.mjs" "test/*.test.mjs"` from `apps/web` — the file passes and the suite is 232/232. **The lesson is the entry, not the bug**: a red test is evidence only when it was invoked the way the project invokes it, and "I ran the tests" is worth nothing without the command. Items (2) and (3) below were confirmed under the correct harness and stand.
 - **(2) `apps/api/test/modules.test.ts` → "modules.promote: auto-demotes the prior available version"** — fails via `cancelledByParent`: an unawaited nested `test()` at `modules.test.ts:386`. The assertion may well be correct; the harness never gets to it.
@@ -3175,3 +3184,34 @@ The targeted run of the new file was clean, which is why this only surfaced in t
 the next rename does not spend the same twenty minutes.
 
 **Resolved 2026-09-03** for this instance: the stale file was deleted and the suite re-run.
+
+### 2026-09-03 — Do mode refused before its first step because the frontmost app was the one you pressed Do from (FIXED, TASK-095)
+
+User report (screenshot): allowlist "Edge", task "search nifty 50 closing price from yesterday and note
+it" → *"Could not finish · 0 steps — Claude is not in your allowed apps, so I stopped."*
+
+**Root cause:** the per-app allowlist was checked before every LOOK, and the first look happens with
+whatever app the user pressed Do from in front (here the Claude desktop app). The allowlist is meant to
+bound where the hands act, and step 1 is almost always switching INTO the allowed app.
+
+**Fix:** the check moved to just before a click/type/key/scroll lands; planning, `open_app`, `done`
+and `fail` are never gated. The refusal copy now says the app "is in front and is not in your allowed
+apps … stopped before touching it". Rust suite green; app relaunched with the fix.
+
+### 2026-09-03 — "Sign in with Claude" did not open a browser inside the desktop app (FIXED, TASK-090 surface)
+
+User report, verbatim: *"Sign in with claude is not triggering browser for sign in."*
+
+**Evidence:** the sidecar log shows every `chat.model.claudeSignIn.begin` returning 200 with a URL —
+six times in a row, the user pressing again — and no browser. `SettingsPage.begin` called
+`window.open(url, "_blank")`, which is inert in the Tauri WKWebView (no new-window handler), so the
+URL was silently dropped. The same call is fine in a plain browser, which is why it was never seen.
+
+**Fix, in two steps:** new shell command `open_external_url` (https only, refuses anything else);
+Settings uses it when `__TAURI_INTERNALS__` is present and falls back to `window.open` in a browser.
+The first cut spawned the `open` CLI, and the user's very next attempt logged
+`_LSOpenURLsWithCompletionHandler() failed with error -1712` (LaunchServices timeout from the child).
+Second cut opens in-process on the main thread via `NSWorkspace.openURL` (objc2, `NSURL` feature),
+with the CLI only as a fallback when NSWorkspace returns false. App relaunched 14:05; the user's
+retry is the confirmation.
+

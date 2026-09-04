@@ -23,12 +23,7 @@ import {
   PILOT_ORGANIZATION,
   type Wiring,
 } from "../src/wiring.js";
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(1);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
+import { makeRun } from "./caller.js";
 
 function silentLog() {
   const warns: unknown[] = [];

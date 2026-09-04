@@ -34,6 +34,7 @@ import type {
 } from "@bridge/integrations-google";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
+import { makeCaller } from "./caller.js";
 
 const ORG = PILOT_ORGANIZATION;
 const SECRET_BODY = "XYZZY-the-email-body-that-must-never-reach-a-signal";
@@ -104,18 +105,6 @@ class test_fixture_FakeFactory implements GoogleGatewayFactory {
   async forIntegration(): Promise<GoogleGateway> {
     return this.gw;
   }
-}
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(53);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(wiring: Wiring) {
-  return appRouter.createCaller({
-    wiring, run: makeRun(), identity: { type: "user", id: PILOT_USER }, authenticated: true, verifying: false,
-  });
 }
 
 async function buildK5(threads: GmailThread[] = [test_fixture_thread], events: CalendarEvent[] = [test_fixture_event]) {

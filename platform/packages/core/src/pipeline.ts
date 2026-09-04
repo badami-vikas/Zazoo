@@ -45,6 +45,7 @@ import type {
   SkillOutput,
   TrustOrigin,
 } from "./types.js";
+import type { RiskBand } from "./capability/types.js";
 
 export interface PipelineDeps {
   authority: AuthorityDeps;
@@ -228,11 +229,35 @@ export class NotPendingProposalError extends Error {
   }
 }
 
-/** Approval is required if any pre/runtime policy says so, OR the actor is an agent
- * (governed agentic execution: agents always draft, humans approve). */
-function requiresApproval(actorType: string, results: PolicyResult[]): boolean {
+/** Approval is required if any pre/runtime policy says so. An Agent actor drafts
+ * (draft-then-approve) UNLESS its governed skill sits in the Trust Model's
+ * `informational` band (AP-182). An unknown band (no manifest) still drafts.
+ * `advisory` deliberately still drafts: every advisory manifest today is a
+ * learning suggestion or an intake whose PENDING proposal is the product —
+ * "only an explicit Human acceptance mints a preference" (TASK-032) and "the
+ * human approval is the emission warrant" (Google intake) are product canon,
+ * not governance friction. The auto row is still audited: the ledger carries
+ * `userDecision: "auto"` plus a `governance.auto-apply` policy result. */
+const AGENT_AUTO_APPLY_BANDS: ReadonlySet<RiskBand> = new Set(["informational"]);
+function requiresApproval(actorType: string, results: PolicyResult[], riskBand?: RiskBand): boolean {
   if (results.some((r) => r.effect === "require_approval")) return true;
-  return actorType === "agent";
+  if (actorType !== "agent") return false;
+  return !(riskBand && AGENT_AUTO_APPLY_BANDS.has(riskBand));
+}
+
+/** AP-182: a governance FLAG — recorded on the ledger row as an `allow` policy
+ * result so it is auditable and overridable, never a gate. */
+function governanceFlag(reason: string): PolicyResult {
+  return { policyId: "governance.flag", phase: "pre", effect: "allow", reason };
+}
+
+const RISK_BAND_ORDER: readonly RiskBand[] = ["informational", "advisory", "transformational", "operational", "external"];
+function mostRestrictiveBand(manifests: ReadonlyArray<{ riskBand: RiskBand }>): RiskBand | undefined {
+  let worst: RiskBand | undefined;
+  for (const m of manifests) {
+    if (!worst || RISK_BAND_ORDER.indexOf(m.riskBand) > RISK_BAND_ORDER.indexOf(worst)) worst = m.riskBand;
+  }
+  return worst;
 }
 
 function blocked(results: PolicyResult[]): PolicyResult | undefined {
@@ -404,6 +429,7 @@ export class UniversalActionPipeline {
     // configured at all (omitted entirely in @bridge/core's own test
     // harnesses and any other embedding that hasn't opted into AGS1
     // governance yet — see PipelineDeps.skillManifests).
+    let governedRiskBand: RiskBand | undefined;
     if (this.#deps.skillManifests) {
       const manifests = this.#deps.skillManifests.forSkill(req.organizationId, req.skill);
       const structurallyExempt =
@@ -419,66 +445,64 @@ export class UniversalActionPipeline {
         );
       }
       if (manifests.length > 0) {
-        // Fail closed: a governed Skill may ONLY be invoked by an Agent Run —
-        // never directly by a Human or an Automation actor (BUGS.md 2026-07-14
-        // "Skills are a standalone toggle and runtime allows non-Agent invocation").
+        // AP-182: the Agent-only invocation rule and the Goal/Task ceremony are
+        // FLAGS, not gates. The server resolves the actor either way, so
+        // attribution is intact; the Run proceeds and the ledger row records
+        // what was missing. When a Task IS supplied, resolution still REJECTS
+        // on the authority findings (assignment, scope, plane, data scope).
+        governedRiskBand = mostRestrictiveBand(manifests);
         if (req.actor.type !== "agent") {
-          return this.#reject(
-            req,
-            auth,
-            pre,
-            `governed skill "${req.skill}" may only be invoked by an eligible Agent Run — direct ${req.actor.type} invocation is not permitted`,
-            ctx,
-          );
-        }
-        if (!req.goalTaskRef || !this.#deps.goalTasks) {
-          return this.#reject(
-            req,
-            auth,
-            pre,
-            `governed skill "${req.skill}" requires a resolved Goal/Task assignment (goalTaskRef)`,
-            ctx,
-          );
-        }
-        const goal = await this.#deps.goalTasks.getGoal(req.organizationId, req.goalTaskRef.goalId);
-        const task = await this.#deps.goalTasks.getTask(req.organizationId, req.goalTaskRef.taskId);
-        if (!goal || !task || task.goalId !== goal.id) {
-          return this.#reject(
-            req,
-            auth,
-            pre,
-            `governed skill "${req.skill}": unknown or mismatched Goal/Task (${req.goalTaskRef.goalId}/${req.goalTaskRef.taskId})`,
-            ctx,
-          );
-        }
-        const agentScope = await authority.agents.capabilityScope(req.actor.id);
-        const agentDataScope = await authority.agents.dataScope(req.actor.id);
-        const [agentOrganizationId, agentActive] = await Promise.all([
-          authority.agents.organizationId(req.actor.id),
-          authority.agents.isActive(req.actor.id),
-        ]);
-        const resolution = await resolveSkillForTask(manifests, {
-          goal,
-          task,
-          agent: {
-            id: req.actor.id,
-            organizationId: agentOrganizationId,
-            active: agentActive,
-            capabilityScope: agentScope,
-            plane: req.actor.plane ?? "local",
-            dataScope: agentDataScope,
-          },
-          skillId: req.skill,
-          ...(req.dataScope ? { requestedDataScope: req.dataScope } : {}),
-        });
-        if (!resolution.ok) {
-          return this.#reject(
-            req,
-            auth,
-            pre,
-            `governed skill "${req.skill}" resolution failed: ${resolution.reason ?? "ineligible"} — ${resolution.detail ?? "no eligible manifest"}`,
-            ctx,
-          );
+          pre.push(governanceFlag(
+            `governed skill "${req.skill}" invoked directly by a ${req.actor.type} actor rather than an Agent Run`,
+          ));
+        } else {
+          // Kill switch stays a gate: an inactive Agent never acts (AP-182 keeps it).
+          if (!(await authority.agents.isActive(req.actor.id))) {
+            return this.#reject(req, auth, pre, `governed skill "${req.skill}": agent-inactive`, ctx);
+          }
+          const goalTasks = this.#deps.goalTasks;
+          const ref = req.goalTaskRef;
+          const [goal, task] = ref && goalTasks
+            ? await Promise.all([
+                goalTasks.getGoal(req.organizationId, ref.goalId),
+                goalTasks.getTask(req.organizationId, ref.taskId),
+              ])
+            : [null, null];
+          if (!goal || !task || task.goalId !== goal.id) {
+            pre.push(governanceFlag(
+              ref
+                ? `governed skill "${req.skill}": unknown or mismatched Goal/Task (${ref.goalId}/${ref.taskId})`
+                : `governed skill "${req.skill}" ran without a Goal/Task assignment (goalTaskRef)`,
+            ));
+          } else {
+            const agentScope = await authority.agents.capabilityScope(req.actor.id);
+            const agentDataScope = await authority.agents.dataScope(req.actor.id);
+            const agentOrganizationId = await authority.agents.organizationId(req.actor.id);
+            const resolution = await resolveSkillForTask(manifests, {
+              goal,
+              task,
+              agent: {
+                id: req.actor.id,
+                organizationId: agentOrganizationId,
+                active: true,
+                capabilityScope: agentScope,
+                plane: req.actor.plane ?? "local",
+                dataScope: agentDataScope,
+              },
+              skillId: req.skill,
+              ...(req.dataScope ? { requestedDataScope: req.dataScope } : {}),
+            });
+            if (!resolution.ok) {
+              return this.#reject(
+                req,
+                auth,
+                pre,
+                `governed skill "${req.skill}" resolution failed: ${resolution.reason ?? "ineligible"} — ${resolution.detail ?? "no eligible manifest"}`,
+                ctx,
+              );
+            }
+            governedRiskBand = resolution.manifest?.riskBand ?? governedRiskBand;
+          }
         }
       }
     }
@@ -597,7 +621,7 @@ export class UniversalActionPipeline {
     // 5) Review gate — append ledger row, status by approval requirement.
     const sinkTraceLabel =
       requestSink === "network_egress" ? turnTaint : effectiveTaint;
-    if (options.requireHumanReview === true || requiresApproval(req.actor.type, all)) {
+    if (options.requireHumanReview === true || requiresApproval(req.actor.type, all, governedRiskBand)) {
       const entryId = options.proposalId ?? ctx.ids.next();
       await this.#recordSinkTrace(entryId, req, sinkTraceLabel, ctx);
       const entry = await this.#appendLedger(
@@ -619,7 +643,16 @@ export class UniversalActionPipeline {
       };
     }
 
-    // Auto-approve path (human + allow policies): commit immediately.
+    // Auto-approve path (human + allow policies, or an Agent inside an
+    // auto-apply band — AP-182): commit immediately, audited.
+    if (req.actor.type === "agent") {
+      all.push({
+        policyId: "governance.auto-apply",
+        phase: "pre",
+        effect: "allow",
+        reason: `agent action auto-applied: governed skill "${req.skill}" is in the ${governedRiskBand} risk band (AP-182)`,
+      });
+    }
     const entryId = options.proposalId ?? ctx.ids.next();
     await this.#recordSinkTrace(entryId, req, sinkTraceLabel, ctx);
     const entry = await this.#appendLedger(

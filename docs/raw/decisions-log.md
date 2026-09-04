@@ -25,6 +25,11 @@ Format per entry:
 - **Alternatives rejected:** and why.
 - **Consequences / follow-ups:** what this commits us to, what remains open.
 
+**Citation convention (AP-182, 2026-09-03):** cite an entry by its **date and title**. The
+`ADR-nnn` numbers on older entries are a convenience, never a key: parallel worktrees collided
+on them fifteen times, and renumbering after a merge rewrote cross-references in three ledgers
+each time. New entries may carry a number or not; nothing is ever renumbered again.
+
 ## ADR-041 — Rejected / Parked OSS: governance engines, UI framework, runtime, agent frameworks (2026-07-09)
 
 **Context:** The OSS map assembled during the 2026-07 research sweep included several candidates that were explicitly ruled out or parked — governance-engine alternatives (OpenFGA/OPA/Cedar/SpiceDB), an alternative UI framework (Refine), a desktop-shell alternative (Electron), an agent framework in maintenance mode (AutoGen), a workflow engine with license risk (Windmill), and a deferred orchestration engine (Temporal). These verdicts existed in the execution plan but had no ADR entry, creating risk that a future session would re-evaluate them without the original rationale.
@@ -6487,6 +6492,63 @@ recorder supports one), and no surface lists them yet — `learning.builderRuns`
 but nothing in the web app calls it. Naming that plainly: the data is queryable, the screen is not
 built.
 
+## 2026-09-03 — Governance facilitates work: critical gates block, everything else flags (AP-182)
+
+**Context:** the user set one baseline rule: governance should facilitate work, not block it; only
+critical issues block, everything else is flagged and overridable; and rules premised on weak
+models are suspect now that the models are not weak. The audit
+(`outputs/2026-09-03-governance-proportionality-audit.md`) found the runtime pipeline parking
+EVERY Agent mutation regardless of the Trust Model's own risk bands, a Goal/Task ceremony that
+every router had grown a helper to satisfy, a public-cloud allowlist that produced "most modules
+say retry" twice in one day, five feature flights shipping OFF, and a process layer where a
+vocabulary lint ahead of the migration job had caused hosted schema drift, 43% of the approvals
+ledger was queue bookkeeping, and a byte budget on CLAUDE.md had cost a session eleven rewrites.
+
+**Decision:** "critical" means secret leakage, an unauthorized external side effect, a residency
+violation, or irreversible loss. Those keep hard gates: taint sinks, server-owned Agent identity,
+Human-only approval, agent-floor self-modification, the kill switch (an inactive Agent is still
+refused), residency clamp and credential gates, `ABSOLUTE_DENY`, the PII pre-commit hook, the
+dependency audit, the clean-room protocol, and coverage floors on core/net-guard/api. Everything
+else became a flag: `requiresApproval` now consults the governed skill's risk band and an Agent
+auto-applies in the `informational` band with an audited `governance.auto-apply` policy result
+(unknown band still drafts; advisory and above park — see the correction below); the Agent-only rule and the
+Goal/Task ceremony record a `governance.flag` policy result on the ledger row and proceed; the
+public-cloud boundary is a deny-list (an unlisted procedure is served, the closures with a
+residency reason stay); all five flights default ON with the env var as the off switch. Process:
+`check:vocabulary` left `verify` and runs advisory in CI; `check:agent-context` warns on size and
+no longer asserts exact override/plugin counts; the UI-rules doc gates warn; the UI-rules check
+runs once (CI), not three times; coverage floors dropped on twenty packages; `no-crm-vocab` and
+`check:no-dummy-runtime` deleted; APPROVALS rows only for irreversible or strategy-reversing
+decisions; ADRs cited by date and title; CLAUDE.md merged Tiers A/B and dropped the token budgets.
+
+**Rationale:** the stalls came from gates in the wrong position, not from thresholds. A perfect
+model still executes text it was told to treat as data, so taint and identity stay; a perfect
+model does not need a Goal id to be attributable, because the server already resolves the actor.
+The residency guarantee never rested on the allowlist — a public-cloud instance has no Local
+Plane to leak — so the allowlist only ever bought silence.
+
+**Alternatives rejected:** keeping every gate at higher thresholds (wrong axis); deleting the
+approval machinery outright (the bands are the right shape; the defect was that Actions ignored
+them); a `check:adr-numbers` gate (a gate to police a gate — citing by date removes the class).
+
+**Correction found while landing it:** the first cut auto-applied the `advisory` band too, and
+twenty-two tests said no — correctly. Every advisory manifest today is a learning suggestion or an
+intake whose *pending proposal is the product*: "only an explicit Human acceptance mints a
+preference" (TASK-032's exit test), "the human approval is the emission warrant" (Google intake),
+and the red-flag SAGA that withdraws, reopens and enacts proposals by lineage. Those are product
+canon, not governance friction, so `advisory` drafts and only `informational` auto-applies (no
+manifest uses it yet, so the mechanism is live and the behaviour change is zero until a manifest
+opts in by declaring the band). The distinction the tests taught: a gate that blocks *work* is
+friction; a pending state that *is* the work is the feature.
+
+**Consequences / follow-ups:** the pipeline consults risk bands for Actions; a Module that wants
+an Agent action to auto-apply declares `riskBand: "informational"` on the manifest, and the
+Governance Section (ADR-263 overlay) is where a user tightens it back. Trust grants and daily
+budgets still govern *capability activation*; a later pass can make the pipeline consult them
+for Actions too. The
+`provisionGoalTask` helpers in the routers are now optional attribution, not a precondition, and
+can be deleted where nothing reads the Task. The `.claude/settings.json` PostToolUse hook could
+not be removed by the agent (auto-mode refuses settings edits) and is left for the user.
 ## ADR-277 — The create surface is the Record's own page, and its Sections are a property of the Database (2026-09-03; attach: TASK-083; AP-168/AP-171, executing ADR-258/ADR-259/ADR-261)
 
 **Decision.** New opens the Database's Record page — every column on it, defaults pre-filled, one
@@ -6645,9 +6707,41 @@ in-memory mode has no durable Event log, so `EmptyRecordMetadataSource` returns 
 columns render blank there — deliberate. Extending to a second Database is a spec edit plus its
 `recordEntityType`; nothing else.
 
+## ADR-277 — The Avatar moves the real cursor, and the model's vocabulary is the authority boundary (2026-09-03)
+
+**Context:** TASK-095, from the user's directive for Hey Clicky parity. Research of Clicky (to
+v1.0.48) and its open-source family showed a split: every visible "companion cursor" is a drawn
+overlay flying a smoothstep Bézier arc, while real input goes through a hidden path — an instant
+warp+click in the clones, a per-window SkyLight driver in Clicky itself that never touches the real
+pointer. No project with a visible cursor moves the real pointer smoothly.
+
+**Decision:** Bridge moves the REAL pointer, visibly, with CGEvent `mouseMoved` streams along the
+same arc the glyph draws. The reasons: (1) the blink is the tell for capture, and a moving real cursor
+is the equivalent tell for action — a background driver that clicks invisibly is exactly the silent
+actuation this codebase refuses; (2) takeover is free: the user's hand on the mouse is detected as a
+>28 px deviation from the last posted point and halts the run — a per-window driver has no such
+natural interrupt; (3) no new crate: eleven `extern "C"` CoreGraphics symbols, the pattern
+`sensor_bridge.rs` and `accessibility.rs` already use. Rejected: `CGWarpMouseCursorPosition`
+(no motion events, hover never updates, local input suppression); `enigo` (fine crate, but adds a
+dependency for what is ten FFI lines and would still need our own easing); the cua-driver route
+(per-PID SkyLight private API — unsupported surface, and invisible by design).
+
+Second decision: the planner replies with ONE JSON action from a closed enum, and the parser is the
+gate. `click/double_click/right_click` need a printed grid cell (refined by the existing two-stage
+locator); `key` is `actuator::Key::parse`'s allowlist (no ⌘Q/⌘W/chords); `type` is capped;
+`open_app` is sanitised; anything else is `fail`. The model cannot express "delete", "pay", or
+"quit" — not "is asked not to", cannot. Same instinct as ADR-239: the strongest guarantee is the one
+the types make unsayable. Consent is per request (`allow_control`, default false, panel switch),
+Accessibility fails closed with the OS prompt, the Privacy Guard runs before every capture, and the
+run is bounded (15 steps / 150 s) and stoppable.
+
+**Consequences:** TASK-056's per-app allowlist remains a separate approval — this slice acts on
+whatever is frontmost, guarded by the credential-window check only, and says so. Multi-monitor:
+the run acts on the monitor its overlay window sits on; global coordinates derive from
+`monitor_logical_rect`, the same origin the annotate window is positioned in. Verification: Rust 195 passed + 1 ignored (11 new; clippy clean on the new files); two guards mutation-checked RED-then-green (⌘Q refusal, click-without-cell refusal); web typecheck 0 errors, 117/117 tests, production build, ui-rules and vocabulary gates pass; browser lab (`annotate.html?lab=1`) proves the arrow renders, the click ring centres on its tip, and a throttled flight still lands on target. No live desktop run — no cloud call and no real input event was posted this session; the at-keyboard walk is the user's step.
 ## ADR-281 — JobPilot deadlines are curated data, not scraped; the column exists so the curation has somewhere to land
 
-**Date**: 2026-09-02 · **Status**: accepted · **Approval**: AP-182
+**Date**: 2026-09-02 · **Status**: accepted · **Approval**: AP-183
 
 **Context.** A request to "pull all latest MBA jobs with deadline in September" met two facts. First, `jobpilot_jobs` had no deadline column at all. Second — and this is the load-bearing one — the Greenhouse, Ashby and Lever JSON feeds `@bridge/jobpilot`'s connectors are built against carry no deadline field, and the employers that run structured full-time MBA hiring are not on those ATSs: Microsoft, Apple and Google all return 404 on both the Greenhouse and Lever board APIs (probed directly, 2026-09-02). The deadlines live on firm recruiting pages and in school systems (12Twenty, Symplicity, Handshake) that have no public API and whose terms forbid scraping.
 
@@ -6659,7 +6753,7 @@ columns render blank there — deliberate. Extending to a second Database is a s
 
 ## ADR-282 — JobPilot sources: a catalog in code, toggles in rows, and one sweep both the button and the schedule call
 
-**Date**: 2026-09-02 · **Status**: accepted · **Approval**: AP-183
+**Date**: 2026-09-02 · **Status**: accepted · **Approval**: AP-184
 
 **Context.** JobPilot shipped as pure logic with no way to acquire a job. `connectors.ts` built Greenhouse/Ashby/Lever connectors around an injected `fetcher`, and nothing in the repository ever supplied one — a grep for `createGreenhouseConnector` outside `src/` and `test/` returned zero hits, so those connectors had only ever run against test doubles. The Module declared one page and one manual Automation.
 

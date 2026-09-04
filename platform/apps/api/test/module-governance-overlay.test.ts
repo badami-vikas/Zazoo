@@ -19,22 +19,7 @@ import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
 import { classifyPublicCloudProcedure } from "../src/deployment-boundary.js";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(88);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(wiring: Wiring) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity: { type: "user", id: PILOT_USER },
-    authenticated: true,
-    verifying: false,
-  });
-}
+import { makeCaller, makeRun } from "./caller.js";
 
 /** Each case gets its own Accounting sqlite so the governed call site is real
  * rather than mocked, and its own state store so overlays never leak between

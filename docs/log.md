@@ -4171,6 +4171,30 @@ What shipped: real HTTP fetchers on global `fetch`; a source catalog in code wit
 **Addendum, same day — the migration was unsafe and a fresh install could never have shown it.** `pnpm --filter @bridge/db run migrate` failed on the user's machine, which turned out to be two separate things. The instruction was wrong: `drizzle-kit migrate` targets the CLOUD Postgres and needs `MIGRATION_DATABASE_URL`, while the Local Plane calls `createLocalDb`, which applies migrations itself at boot — no manual step was ever needed locally, and no Postgres was running to connect to anyway. But investigating it surfaced a real defect: 0045's `ALTER TABLE ... ADD CONSTRAINT UNIQUE` applies perfectly to a fresh database and **fails on a populated one**, because two jobs may already share a url. Replaying the migration against a seeded database showed `could not create unique index`. 0045 now de-duplicates first and does it **non-destructively** — later duplicates keep their row, their application and their stage, releasing only the url — because deleting a job the user may be tracking to enforce a clutter guard is the wrong trade. The regression test replays the migration file's own sql, and was confirmed to fail (4/5) when the de-duplication step is removed and pass (5/5) when restored.
 
 
+## 2026-09-03 — AP-182 applied: governance proportionality (ADR 2026-09-03 "Governance facilitates work")
+
+User directive: governance should facilitate work; only critical issues block, the rest flag and
+can be overridden; model-premised rules are stale. Audit in
+`outputs/2026-09-03-governance-proportionality-audit.md`; user gave full approval in-session.
+
+Applied (nine items): `pipeline.ts` `requiresApproval` consults the risk band — Agents auto-apply in
+the `informational` band with an audited `governance.auto-apply` result (advisory still drafts: the
+first cut auto-applied advisory too and 22 tests correctly refused — every advisory manifest is a
+learning suggestion or intake whose pending proposal IS the product; see the ADR's correction); Agent-only invocation and the
+Goal/Task ceremony are `governance.flag` results, not rejections (an inactive Agent is still refused);
+`deployment-boundary.ts` is a deny-list; five flights default ON; `verify` drops `check:vocabulary`
+(advisory in CI, `continue-on-error`); `check:agent-context` warns on size and drops the equality
+counts; UI-rules doc gates warn; pre-commit keeps only the PII check; coverage floors dropped on
+twenty packages (core/net-guard/api keep theirs); `tools/eslint-rules` (`no-crm-vocab`) and
+`check:no-dummy-runtime` deleted; APPROVALS policy narrowed; CLAUDE.md merged Tiers A/B and dropped
+the token budgets; ADRs cited by date and title from here on.
+
+Same session, Phase 2 of the cleanup closed: full `@bridge/api` suite 581 tests / 580 pass / 0 fail
+(one skipped) after the router split into `routers/<ns>.ts` + `router-shared.ts`, the
+`organizationGuard` middleware, and the shared `test/caller.ts`.
+
+**Not done by the agent:** the `.claude/settings.json` PostToolUse UI-rules hook — auto mode refuses
+settings edits; the user removes the `hooks` block by hand.
 ## 2026-09-03 — TASK-028: the research agent runs without the companion, and its brief becomes a Result
 
 The Research Run engine has been correct since July and reachable only from one place: the desktop
@@ -4371,3 +4395,37 @@ joins with one spec edit and its own `recordEntityType`.
 
 Verified: api `record-metadata` 5/5, web 241/241 with a new gate that fails if a surface makes a
 metadata column writable or the shell stops filling them, tables 21/21, classification 5/5.
+
+## 2026-09-03 — TASK-095: the Avatar has hands
+
+Directive: parity with Hey Clicky, and a proper arrow pointer instead of the ring. Research first:
+Clicky's cursor is an overlay flying a smoothstep Bézier; its real input is a hidden per-window
+driver. Bridge went the other way on purpose (ADR-277): the REAL pointer glides along the same arc the
+glyph draws, so action has a visible tell the way capture has the blink, and the user's hand halts it.
+
+Landed: `actuator.rs` (move/click/type/key/scroll via eleven CoreGraphics externs, no crate),
+`act.rs` (bounded look-decide-act loop, closed JSON vocabulary, `act_start/poll/stop`, `bridge:act-step`
+narration), `AgentPointer.tsx` (arrow glyph, flight on jumps, snap on actuator samples, click ring),
+`DoRun.tsx` + Do mode in the companion panel with the mouse/keyboard switch (default OFF) and the
+Accessibility grant at point of use. Verification: Rust 195 passed + 1 ignored (11 new; clippy clean on the new files); two guards mutation-checked RED-then-green (⌘Q refusal, click-without-cell refusal); web typecheck 0 errors, 117/117 tests, production build, ui-rules and vocabulary gates pass; browser lab (`annotate.html?lab=1`) proves the arrow renders, the click ring centres on its tip, and a throttled flight still lands on target. No live desktop run — no cloud call and no real input event was posted this session; the at-keyboard walk is the user's step.
+
+Not landed, named on the task: walkthrough click-detection, scribble context, dictation-into-app,
+per-app allowlist (TASK-056), skills from the panel (TASK-057). The at-keyboard walk is the user's.
+
+## 2026-09-03 — TASK-095 (same day): the four buildable gaps close
+
+Directive: *"Fix the gaps and then launch the desktop avatar for me to test all the implementations"*.
+Guide mode reuses the Do planner with a teaching voice and swaps the hands for a wait-for-your-click
+(`CGEventSourceButtonState`, permission-free, edge-triggered, padded hit box, one nudge). Circling
+makes the annotate window interactive for exactly one drag and paints the rectangle into the consented
+screenshot rather than cropping it, so the locator's coordinates stay full-frame. Dictation is
+transcription + `act_type_text` behind the same consent, Accessibility, and privacy-guard gates.
+The allowlist is a substring match, empty meaning any (ADR-263's "empty is not default-deny").
+Rust 196 passed; web typecheck 0 errors, 238/238 tests, ui-rules and vocabulary gates pass. App launched for the user's at-keyboard walk.
+
+## 2026-09-03 — Two live defects from the user's first walk
+
+Allowlist gated the look instead of the hands (refused from the Claude app before step 1) — moved to
+right before an action lands, `open_app` exempt. "Sign in with Claude" used `window.open`, inert in
+WKWebView — the shell now opens https URLs via `open_external_url`. Both in BUGS.md; app relaunched.
+

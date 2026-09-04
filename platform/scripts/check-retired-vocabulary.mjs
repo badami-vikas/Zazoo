@@ -213,7 +213,13 @@ function isAllowedTechnicalUse(family, relativePath, value, kind) {
   if (
     family === "workspace" &&
     kind === "identifier" &&
-    relativePath === "apps/desktop/src-tauri/src/providers/apps.rs" &&
+    // AppKit's own class name, not Bridge's retired "workspace" noun —
+    // apps.rs reads the frontmost app through it, companion.rs opens a URL
+    // through it (TASK-095, `open_external_url`'s NSWorkspace.openURL).
+    [
+      "apps/desktop/src-tauri/src/providers/apps.rs",
+      "apps/desktop/src-tauri/src/companion.rs",
+    ].includes(relativePath) &&
     ["NSWorkspace", "sharedWorkspace"].includes(value)
   ) {
     return true;

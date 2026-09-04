@@ -38,16 +38,7 @@ import {
   PILOT_USER,
   type Wiring,
 } from "../src/wiring.js";
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(29);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-async function makeCaller(wiring: Wiring, identity: { type: "user" | "team"; id: string } = { type: "user", id: PILOT_USER }) {
-  return appRouter.createCaller({ wiring, run: makeRun(), identity, authenticated: true, verifying: false });
-}
+import { makeCaller, makeRun } from "./caller.js";
 
 const ORG = PILOT_ORGANIZATION;
 
@@ -74,7 +65,7 @@ async function seedSignals(wiring: Wiring, count: number, industry = "restaurant
 }
 
 test("flight OFF: status reports disabled and every other procedure fails closed", async () => {
-  const wiring = await buildWiring(); // default: flight off
+  const wiring = await buildWiring({ learningObservationEnabled: false }); // flight off (default is ON since AP-182)
   try {
     const caller = await makeCaller(wiring);
     assert.deepEqual(await caller.learning.status({ organizationId: ORG }), { enabled: false });
@@ -160,7 +151,7 @@ test("K0 regression: the digest Automation id is a real UUID — the automations
 });
 
 test("flight OFF: the digest Automation does not exist — nothing to trigger", async () => {
-  const wiring = await buildWiring();
+  const wiring = await buildWiring({ learningObservationEnabled: false });
   try {
     assert.equal(await wiring.automationRegistry.load(PILOT_ORGANIZATION, LEARNING_DIGEST_AUTOMATION_ID), null);
   } finally {
@@ -312,7 +303,7 @@ test("flight ON: an accepted preference statement reaches the chat system prompt
 
 test("flight OFF: existing preference rows influence nothing — the chat prompt stays clean", async () => {
   const local = new LearningChatModel();
-  const wiring = await buildWiring({ modelProviders: [local] }); // flight off
+  const wiring = await buildWiring({ modelProviders: [local], learningObservationEnabled: false }); // flight off (default is ON since AP-182)
   try {
     // Rows minted while the flight WAS on still exist in the store — write
     // them through the core loop directly (the tRPC surface fails closed).
