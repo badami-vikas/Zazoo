@@ -15,7 +15,7 @@
   five Agents active, chat, Research Run, Builder → register → approve → Records),
   `module-records.test.ts` 3/3, `egg-profile.test.ts` 4/4, full api suite green once its single-owner gate test (`agent-orchestration`) learned the second owner (24/24); api+web
   typecheck, `build:egg` green (12 JS assets, no Module Page chunk), vocabulary scan, `cargo check` on the sidecar.
-  Desktop installer NOT built: `build:tauri:egg` is wired and the crate compiles, but `prepare:bundle` + the Tauri release build need several GB and the machine had 365 MB free (24 worktrees = 26 GB); the …d7/…d5 Builder id split is BUGS 2026-09-04 (FIXED).
+  Desktop Egg installer built the same day once 6 GB of merged worktrees were removed: `prepare:bundle` + `build:tauri:egg` → `Bridge.app` 723 MB and `Bridge_0.1.0_aarch64.dmg` 208 MB, ad-hoc signed, llama.cpp b9000 runtime bundled; first-launch smoke run still owed; the …d7/…d5 Builder id split is BUGS 2026-09-04 (FIXED).
 
 - **2026-09-04 — the installable Egg: Commons directory, `BRIDGE_PROFILE=egg`, Builder prior art (AP-183, TASK-096)**:
   `platform/modules/*` → `platform/commons/*`, manifests → `platform/packages/module-manifests`
