@@ -3099,3 +3099,79 @@ render the same `ChatView` with the right `surface`; that is what it now checks.
 **The open question this leaves for a human:** main was pushed red. Either the gate was not run
 before that push, or it was run and the failure was accepted without a record. Neither is visible
 from the commit.
+
+### 2026-09-03 — two api tests were nested inside other tests, so the suite reported failures for work nobody had broken (FIXED, TASK-037)
+
+`apps/api/test/modules.test.ts` and `apps/api/test/agent-orchestration.test.ts` each carried a whole
+`test(...)` block pasted INSIDE another test's body:
+`"module availability: Commons attachments for different Module Agents remain available together"`
+sat inside `"modules.promote: auto-demotes the prior available version"`, and
+`"action.propose handles null inputs without crashing policy evaluation"` sat inside
+`"action.propose: a Human directly invoking the governed skill fails closed"`. Node's runner starts
+such a subtest but never awaits it, so it was cancelled when its parent finished — reported as
+`'test did not finish before its parent and was cancelled'`, which in turn failed the PARENT.
+
+**Why this is worse than a flake:** the suite failed on two assertions that were fine, in files an
+unrelated branch had not touched — so a red suite carried no information about the change under
+review, which is exactly how a real regression gets waved through. And the inner tests, which cover
+Commons attachment availability and null-input policy evaluation, were never actually proving
+anything.
+
+**Fixed** by lifting both blocks to top level (no assertion changed). Both files then ran green:
+44/44 across the two, with the two formerly-cancelled tests now genuinely executing. Found while
+running the full api suite for TASK-028.
+
+**A THIRD instance, same day, same shape:** `packages/db/test/local-store.test.ts` had
+`"persistent governance provisions DealPilot's Human Module permissions without widening Agent
+roles"` nested inside `"persistent governance aligns Egress and Intake authority with their governed
+Skill manifests"`, failing the db suite the same way. Found while running the db suite for TASK-062;
+lifted the same way, and `local-store` then ran 11/11.
+
+**Three in one day is a pattern, not three accidents.** The shape is always the same — a whole
+`test(...)` pasted into another test's body, most likely a bad merge or a paste at the wrong
+indentation — and nothing in the repo detects it, because the failure it produces names the WRONG
+test and blames whatever branch happened to run the suite. A lint rule (`no-nested-test`, or an
+assertion that no `test(` appears indented inside another) would catch the next one at authoring
+time. Not built here; recorded so the fourth instance is recognised immediately.
+
+### 2026-09-03 — a core test asserted a LOCAL time bucket from a fixed UTC instant, so it failed on the owner's own machine (FIXED, TASK-054)
+
+`packages/core/test/input-capture.test.ts` asserted
+`signal.attributes["timeOfDay"] === "night"` for a burst typed at
+`2026-08-16T22:00:00.000Z`. But `timeOfDayBucket` reads the **local** hour
+(`new Date(iso).getHours()`), so 22:00Z is "night" in UTC and "evening" in CDT —
+the assertion encoded the CI container's timezone as a property of the code.
+It failed on this machine while the code it guards was untouched and correct.
+
+**Why it is worth filing rather than just fixing:** a test that passes only in
+one timezone fails for the developer and passes in CI, which is the direction
+that erodes trust in the suite fastest — the local failure looks like "your
+branch broke it" and the honest response ("it's the clock") looks like an
+excuse. The sibling test in `learning-capture.test.ts` had already solved this,
+using `timeOfDayBucket`'s `hourOverride` parameter to pin every boundary without
+a timezone; this one simply did not.
+
+**Fixed** by asserting the bucket the function itself produces for that instant
+— what the test is actually for is that a suppressed burst still carries a
+COARSE time facet, and the boundaries stay pinned timezone-free next door.
+Verified green under `TZ=UTC`, `TZ=Asia/Kolkata`, and the machine's own CDT.
+Found while running the core suite for TASK-062.
+
+## `tsc -b` leaves the OLD compiled test behind when a test file is renamed (2026-09-03, TASK-083)
+
+**Evidence.** `apps/api/test/element-sections.test.ts` was renamed to `record-sections.test.ts` for
+the vocabulary migration. `tsc -b` compiled the new file and left `dist/test/element-sections.test.js`
+in place, so `pnpm test` — which globs `dist/test/*.test.js` — ran BOTH: the stale one against a
+router path (`elements.*`) that no longer exists, producing three `No procedure found on path
+"elements,sections"` failures that look like a broken feature and are actually a deleted file still
+executing.
+
+**Why it matters more than it reads.** The failure direction is the dangerous one: the stale artifact
+can also PASS, long after the source that produced it is gone, so a deleted test keeps voting green.
+The targeted run of the new file was clean, which is why this only surfaced in the full suite.
+
+**What would catch it.** `rm -rf dist` (or `tsc -b --clean`) after any test rename, and treating a
+`dist/test/*.js` with no matching `test/*.ts` as a build failure. Not yet automated — filed here so
+the next rename does not spend the same twenty minutes.
+
+**Resolved 2026-09-03** for this instance: the stale file was deleted and the suite re-run.

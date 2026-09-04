@@ -42,6 +42,7 @@
     "@bridge/models": "workspace:*",
     "@bridge/module-manifests": "workspace:*",
     "@bridge/net-guard": "workspace:*",
+    "@bridge/research": "workspace:*",
     "@bridge/sensors": "workspace:*",
     "@bridge/tables": "workspace:*",
     "@bridge/whatsapp": "workspace:*",

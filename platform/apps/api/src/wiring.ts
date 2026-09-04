@@ -59,11 +59,15 @@ import {
   InMemorySkillManifestRegistry,
   InMemoryChildAgentRunStore,
   InMemoryResearchRunStore,
+  InMemoryViewConfigStore,
+  InMemoryShareGrantStore,
   InMemoryChatStore,
   InMemoryTaintAuditStore,
   PlaneRoutingTaintAuditStore,
   EchoModelProvider,
   type ModelProvider,
+  type ViewConfigStore,
+  type ShareGrantStore,
   type AgentQuery,
   type EphemeralQuery,
   type LedgerStore,
@@ -214,6 +218,11 @@ import {
   DrizzleSkillManifestRegistry,
   DrizzleChildAgentRunStore,
   DrizzleResearchRunStore,
+  DrizzleViewConfigStore,
+  DrizzleShareGrantStore,
+  DrizzleRecordMetadataStore,
+  EmptyRecordMetadataSource,
+  type RecordMetadataSource,
   DrizzleChatStore,
   DrizzleIntegrationStore,
   seedSkillManifests,
@@ -604,6 +613,15 @@ export interface Wiring {
    * Runs live in `childAgentRuns`). In-memory default; `buildPersistentPorts`
    * and the local-durable path bind `DrizzleResearchRunStore`. */
   researchRuns: ResearchRunStore;
+  /** TASK-062 — saved Views: the durable form of what was React-only
+   * `ViewConfig` state. Owner-scoped, with an `organization` scope that is
+   * readable org-wide and writable only by its owner. */
+  viewConfigs: ViewConfigStore;
+  /** TASK-064 — scoped share grants over a saved View: who may reach it, at
+   * what level, until when, and whether it has been revoked. */
+  shareGrants: ShareGrantStore;
+  /** TASK-063 — the Event-log read behind the derived metadata columns. */
+  recordMetadata: RecordMetadataSource;
   /** Plane-bound durable Chat threads, turns, and lifecycle references. */
   chatStore: ChatStore;
   /** Human-triggered managed local-model install/start lifecycle. */
@@ -4565,6 +4583,14 @@ export interface ModePorts {
   /** TASK-028 — Research Run records/steps. In-memory default;
    * `buildPersistentPorts` binds `DrizzleResearchRunStore`. */
   researchRuns: ResearchRunStore;
+  /** TASK-062 — saved Views. In-memory default; the persistent and
+   * local-durable paths bind `DrizzleViewConfigStore`. */
+  viewConfigs: ViewConfigStore;
+  /** TASK-064 — share grants. Same three bindings as the Views they point at. */
+  shareGrants: ShareGrantStore;
+  /** TASK-063 — derived Record metadata. Empty in-memory: no durable Event log
+   * there, and an invented creation time is worse than an honest blank. */
+  recordMetadata: RecordMetadataSource;
   chatStore: ChatStore;
   /** ModelProviders this mode registers (echo double in-memory; Ollama/Anthropic persistent). */
   modelProviders: ModelProvider[];
@@ -4651,6 +4677,7 @@ export function buildPersistentPorts(env: {
   );
   const childAgentRunStore = new DrizzleChildAgentRunStore(db);
   const researchRunStore = new DrizzleResearchRunStore(db);
+  const viewConfigStore = new DrizzleViewConfigStore(db);
 
   return {
     roles: ports.roles,
@@ -4694,6 +4721,9 @@ export function buildPersistentPorts(env: {
     skillManifests: skillManifestRegistry,
     childAgentRuns: childAgentRunStore,
     researchRuns: researchRunStore,
+    viewConfigs: viewConfigStore,
+    shareGrants: new DrizzleShareGrantStore(db),
+    recordMetadata: new DrizzleRecordMetadataStore(db),
     chatStore: new DrizzleChatStore(db),
     // Real providers in persistent mode: Ollama is always registered (local plane,
     // dev-default per CLAUDE.md); Anthropic/Groq only when their keys are configured —
@@ -4952,6 +4982,24 @@ export async function buildInMemoryPorts(env: {
     })(),
     childAgentRuns: localDirDurable ? new DrizzleChildAgentRunStore(localDb) : new InMemoryChildAgentRunStore(),
     researchRuns: localDirDurable ? new DrizzleResearchRunStore(localDb) : new InMemoryResearchRunStore(),
+    // The in-memory pair is built together on purpose: the View store answers
+    // "may this person see this View" from the grants, exactly as the database's
+    // `view_configs_read` policy does (TASK-064, migration 0048). Constructing
+    // them apart would give the double a different answer from production.
+    ...(() => {
+      const grants = localDirDurable
+        ? new DrizzleShareGrantStore(localDb)
+        : new InMemoryShareGrantStore();
+      return {
+        viewConfigs: localDirDurable
+          ? new DrizzleViewConfigStore(localDb)
+          : new InMemoryViewConfigStore(grants),
+        shareGrants: grants,
+        recordMetadata: localDirDurable
+          ? new DrizzleRecordMetadataStore(localDb)
+          : new EmptyRecordMetadataSource(),
+      };
+    })(),
     chatStore: localDirDurable
       ? new DrizzleChatStore(localDb)
       : new InMemoryChatStore(),
@@ -5777,6 +5825,9 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     skillManifests,
     childAgentRuns,
     researchRuns,
+    viewConfigs,
+    shareGrants,
+    recordMetadata,
     chatStore: modeChatStore,
     modelProviders: modeModelProviders,
     memory,
@@ -7057,6 +7108,9 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     skillManifests,
     childAgentRuns,
     researchRuns,
+    viewConfigs,
+    shareGrants,
+    recordMetadata,
     chatStore,
     managedModel,
     cultureFetchStore,

@@ -18,12 +18,29 @@
  * it is covered by tests.
  */
 import type { ReactNode } from "react";
-import type { ColumnSpec } from "@bridge/tables";
+import { isMetadataColumn, type ColumnSpec } from "@bridge/tables";
 
 /** Plain-text projection of a cell value. The red-flag anchor's `renderedValue`. */
 export function formatCell(value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
   if (Array.isArray(value)) return value.join(", ");
+  return String(value);
+}
+
+
+/**
+ * A derived timestamp reads as an instant, not as an ISO string (TASK-063).
+ * `createdBy`/`lastEditedBy` stay verbatim: they hold an actor id, and
+ * prettifying an id into a name Bridge has not looked up would be a fabricated
+ * attribution.
+ */
+function formatMetadata(col: ColumnSpec, value: unknown): string | null {
+  if (!isMetadataColumn(col.kind)) return null;
+  if (value === null || value === undefined || value === "") return "—";
+  if (col.kind === "createdTime" || col.kind === "lastEditedTime") {
+    const at = new Date(String(value));
+    return Number.isNaN(at.getTime()) ? String(value) : at.toLocaleString();
+  }
   return String(value);
 }
 
@@ -81,6 +98,8 @@ export function trimZero(n: number): string {
  * from `renderCell` is what lets both renderers agree without sharing JSX.
  */
 export function displayText(col: ColumnSpec, value: unknown): string {
+  const metadata = formatMetadata(col, value);
+  if (metadata !== null) return metadata;
   if (col.display && value !== null && value !== undefined && value !== "") {
     switch (col.display) {
       case "badge":
@@ -109,6 +128,10 @@ export function displayText(col: ColumnSpec, value: unknown): string {
 
 /** Rich DOM rendering for a cell. Canvas renderers use `displayText` instead. */
 export function renderCell(col: ColumnSpec, value: unknown): ReactNode {
+  const metadata = formatMetadata(col, value);
+  if (metadata !== null) {
+    return <span style={{ color: "var(--color-warm-gray)" }}>{metadata}</span>;
+  }
   if (col.display && value !== null && value !== undefined && value !== "") {
     switch (col.display) {
       case "rag": {

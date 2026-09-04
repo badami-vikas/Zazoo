@@ -25,9 +25,9 @@
  * Locked or non-editable columns are skipped; formula/skill columns are skipped
  * because their values are computed server-side.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Share2, X } from "lucide-react";
-import { formatLocationInput, type ColumnSpec } from "@bridge/tables";
+import { formatLocationInput, isMetadataColumn, type ColumnSpec } from "@bridge/tables";
 import { Button } from "../../components/ui/button.js";
 import { Input } from "../../components/ui/input.js";
 import { Label } from "../../components/ui/label.js";
@@ -43,7 +43,9 @@ import type { DataViewProps, DataRow } from "../types.js";
 
 const EXCLUDED_KINDS = new Set<ColumnSpec["kind"]>(["formula", "skill"]);
 
-function isFormEditable(col: ColumnSpec): boolean {
+export function isFormEditable(col: ColumnSpec): boolean {
+  // TASK-063: derived from the Event log, so there is nothing to write to.
+  if (isMetadataColumn(col.kind)) return false;
   if (col.locked) return false;
   if (col.editable === false) return false;
   if (col.hiddenInForm) return false;
@@ -51,7 +53,7 @@ function isFormEditable(col: ColumnSpec): boolean {
   return true;
 }
 
-function FieldInput({
+export function FieldInput({
   col,
   value,
   onChange,
@@ -211,7 +213,6 @@ export function FormView({ spec, view, onInsert, onUpdate, formRecord }: DataVie
   );
   const [draft, setDraft] = useState<Partial<DataRow>>(resetDraft);
   const [submitting, setSubmitting] = useState(false);
-  const [formMode, setFormMode] = useState<"build" | "preview">("preview");
   const [shareOpen, setShareOpen] = useState(false);
   const [shareFormOnly, setShareFormOnly] = useState(true);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -222,6 +223,45 @@ export function FormView({ spec, view, onInsert, onUpdate, formRecord }: DataVie
     setSubmitError(null);
     setSubmitSuccess(null);
   }, [resetDraft]);
+
+  /**
+   * CLICK-OUTSIDE AUTOSAVE (§5, TASK-061) — for an EXISTING Record only.
+   *
+   * A new Record writes nothing until Save (C-34/ADR-259): autosaving one would
+   * post a half-typed Record through the pipeline the moment the user's
+   * attention moved. Editing a Record that already exists is the opposite case
+   * — the row is there, the edit is the change, and losing it to a stray click
+   * is the defect. So the rule is scoped by whether there is a row to update.
+   */
+  const formRef = useRef<HTMLDivElement>(null);
+  const editingExisting =
+    typeof formRecord?.["id"] === "string" || typeof formRecord?.["id"] === "number";
+  const autosave = useCallback(async () => {
+    if (!editingExisting || !onUpdate) return;
+    const rowId = String(formRecord!["id"]);
+    const changed = Object.keys(draft).some(
+      (key) => draft[key] !== (resetDraft as Record<string, unknown>)[key],
+    );
+    if (!changed) return;
+    try {
+      await onUpdate(rowId, draft);
+      setSubmitSuccess("Changes saved.");
+      setSubmitError(null);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "The row could not be saved.");
+    }
+  }, [draft, editingExisting, formRecord, onUpdate, resetDraft]);
+
+  useEffect(() => {
+    if (!editingExisting) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const root = formRef.current;
+      if (!root || root.contains(event.target as Node)) return;
+      void autosave();
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [autosave, editingExisting]);
 
   if (editableColumns.length === 0) {
     return (
@@ -271,37 +311,11 @@ export function FormView({ spec, view, onInsert, onUpdate, formRecord }: DataVie
 
   return (
     <div className="flex h-full min-h-0 gap-4">
-      <div className="min-w-0 flex-1 overflow-auto">
-        {/* Build / Preview. Build lists the fields the spec produces and says
-            where they come from; it is NOT a drag-and-drop builder, because the
-            field set is derived from the Database's ColumnSpec and there is no
-            governed schema-mutation capability on this surface to change it
-            (AP-021 — explain rather than offer a control that cannot act). */}
+      <div ref={formRef} className="min-w-0 flex-1 overflow-auto">
+        {/* §5: ONE form. The Build/Preview split was a second surface for the
+            same fields — Build only listed what the spec already renders, so it
+            could disagree with nothing and cost a click to leave (TASK-061). */}
         <div className="mb-4 flex items-center gap-3">
-          <div
-            role="tablist"
-            aria-label="Form mode"
-            className="inline-flex items-center gap-1 rounded-lg border p-0.5"
-            style={{ borderColor: "var(--color-border)" }}
-          >
-            {(["build", "preview"] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                role="tab"
-                aria-selected={formMode === mode}
-                onClick={() => setFormMode(mode)}
-                className="rounded-md px-3 py-1 text-[12.5px] font-medium capitalize"
-                style={
-                  formMode === mode
-                    ? { background: "var(--color-line-soft)", color: "var(--color-navy)" }
-                    : { color: "var(--color-warm-gray)" }
-                }
-              >
-                {mode}
-              </button>
-            ))}
-          </div>
           <span className="text-[12.5px] capitalize" style={{ color: "var(--color-warm-gray)" }}>
             {formTitle}
           </span>
@@ -316,31 +330,6 @@ export function FormView({ spec, view, onInsert, onUpdate, formRecord }: DataVie
           </button>
         </div>
 
-        {formMode === "build" ? (
-          <div className="max-w-lg rounded-md border p-5" style={{ borderColor: "var(--color-border)" }}>
-            <h3 className="text-sm font-semibold capitalize" style={{ color: "var(--color-navy)" }}>
-              {formTitle}
-            </h3>
-            <p className="mt-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>
-              These fields come from the Database's columns, so the form and the table can
-              never disagree about what a Record holds. Changing the field set means changing
-              the columns, which this surface has no governed capability to do.
-            </p>
-            <ul className="mt-4 divide-y rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
-              {editableColumns.map((col) => (
-                <li key={col.id} className="flex items-center justify-between gap-4 px-3 py-2">
-                  <span className="text-[13px]" style={{ color: "var(--color-navy)" }}>
-                    {col.label}
-                    {col.required && <span aria-hidden="true" className="text-destructive"> *</span>}
-                  </span>
-                  <span className="text-[11px] uppercase tracking-[0.06em]" style={{ color: "var(--color-warm-gray)" }}>
-                    {col.kind}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : (
     <form onSubmit={handleSubmit} className="space-y-4 max-w-lg border rounded-md p-5">
       <div className="border-b pb-3" style={{ borderColor: "var(--color-border)" }}>
         <div className="text-[10px] font-semibold uppercase tracking-[0.07em]" style={{ color: "var(--color-warm-gray)" }}>
@@ -393,7 +382,6 @@ export function FormView({ spec, view, onInsert, onUpdate, formRecord }: DataVie
         </p>
       )}
     </form>
-        )}
       </div>
 
       {shareOpen && (
@@ -445,9 +433,13 @@ export function FormView({ spec, view, onInsert, onUpdate, formRecord }: DataVie
                     is not wired to Views. Rendering a plausible-looking URL here
                     would be a fabricated capability — AP-021 requires this to
                     explain instead. */}
+                {/* The share primitive EXISTS now (TASK-064, `view.share.*`) —
+                    what it points at is a SAVED View, and a Form view rendered
+                    from a spec is not one. So the honest answer changed: not
+                    "no capability", but "nothing saved to point at yet". */}
                 <p className="mt-1 rounded-lg border border-dashed px-3 py-2 text-xs" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
-                  Unavailable: issuing a form link needs a governed share token for Views.
-                  Bridge only has one today, on Helpdesk tickets, and it is not wired here.
+                  Save this View as a List first — a share points at a saved View. The List
+                  dropdown's Share panel then issues and revokes the link.
                 </p>
               </section>
 
@@ -463,7 +455,7 @@ export function FormView({ spec, view, onInsert, onUpdate, formRecord }: DataVie
                   ].map(([label, hint]) => (
                     <div
                       key={label}
-                      title="Unavailable: access levels need the share token above"
+                      title="Access levels are chosen when the link is issued, in the List dropdown's Share panel"
                       className="rounded-lg border px-3 py-2"
                       style={{ borderColor: "var(--color-border)" }}
                     >

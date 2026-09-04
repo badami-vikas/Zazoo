@@ -4154,3 +4154,204 @@ Verified: api `builder-attribution` 4/4 with the negative case mutation-checked,
 **Not done, and said out loud rather than left implicit:** the Builder's Runs carry no taint label,
 and no web surface lists them. `learning.builderRuns` exists and is tested; nothing in the app calls
 it. The data is queryable, the screen is not built.
+
+## 2026-09-03 — TASK-028: the research agent runs without the companion, and its brief becomes a Result
+
+The Research Run engine has been correct since July and reachable only from one place: the desktop
+overlay webview. "Bridge runs a multi-step research objective on its own in the background" was true
+while a panel was open on one Mac. That is the gap this slice closes.
+
+**The executor moved, the governance did not.** `apps/api/src/research-executor.ts` runs the same
+`@bridge/research` loop in the API process. It owns no authority of its own — every outside edge is a
+hook the router hands it from helpers that were already governed: search is the pipeline-proposed
+`web-research` Skill, planning is a receipted `ModelProvider` completion, reading is `HttpPageReader`
+over `guardedFetch`, each step lands as a terminal child Agent Run. That is what makes an executor
+testable with no network, no model, and no database — and why the file is short.
+
+**Four functions were extracted rather than copied.** `skill.webResearch`, `research.start`,
+`research.recordStep` and `research.complete` now share exactly the code the server executor calls.
+Two executors over two copies of the egress path would have been two chances to drift on rights,
+quarantine, or taint; the sharing is the point, the thinner procedures are a side effect.
+
+**Stop is checked per executed step, not on a timer.** A timer is either laxer than the engine allows
+(a poll interval of latency) or wasteful (polling a database while a page loads). Reading the flag
+immediately after a step's evidence lands means the engine's next loop-top check sees it, so a Run
+ends at the very next step edge — one step of latency, which is the step that was already in flight.
+The test that proves it was seen failing against the timer version first.
+
+**The executor never rejects.** A loop that throws still freezes the Run as `executor_error`. A Run
+left `running` with nothing driving it is the one state the Run detail Page cannot describe honestly,
+so the executor is not allowed to produce it.
+
+**The brief is now a Result, not a column.** `completeResearchRun` freezes the Run row first —
+complete-once belongs to the store and the 0035 trigger — then writes the brief as an owner-scoped
+Memory plus an Event on the Learning Agent's Task, both `untrusted_external`: a brief synthesized
+from fetched pages is exactly as trustworthy as the pages it summarizes. A Run that stopped without a
+brief records nothing. The desktop overlay gets this too, because it completes through the same
+procedure.
+
+Verified: api typecheck clean, web typecheck clean, `research-executor` 6/6, `research-runs` 7/7
+(3 new), web suite green.
+
+**Not done, and said out loud.** The loop runs in the API process, so an API restart interrupts a Run
+rather than carrying it — BR4 resume replays the ledger, and the call site carries a `ponytail:` note
+naming the job runner as the upgrade. There is still no actuator and no proposal channel, so amber
+steps stay engine-blocked. And nothing here ran against a live provider or a live model: this proof
+is deterministic, and the live checks remain TASK-041's.
+
+## 2026-09-03 — TASK-093 and TASK-062: a conversation that spans Modules, and a View that survives a reload
+
+Two P1s off the queue, taken in the order that puts the smallest gap first.
+
+**TASK-093 — the control that was missing.** The server had carried `moduleName` and
+`attachedModules` since ADR-267e and `useChat` had called `attachModule` since; nothing in the app
+reached it. A thread that can span Modules but offers no way to attach one is a capability only a
+test can use. The composer now carries an "Attach a Module" select beside the model select, offering
+only Modules this Organization has installed (the same `modules.list` filter the nav uses, so the
+offer matches what a user can actually open) and hiding the ones already on the thread; the Modules
+on the conversation render as badges above the composer, which is the half of the exit test that says
+"confirm both are listed".
+
+Noted rather than guarded: `forModule`/`attachModule` still accept any Module-name string. That is
+harmless while the name is a durable LABEL with no filesystem or authority effect — grep says nothing
+but `liveModuleThread` reads it — and the UI only offers installed Modules. The moment a Module name
+selects that Module's files for an agentic backend, both procedures need an installed-Module check,
+in one shared guard rather than two. Building it now would have been a guard against a threat that
+does not exist yet; saying where it goes costs nothing.
+
+**TASK-062 — configuration that only lives in React state is not configuration.** One `view_configs`
+table (migration 0047), a `ViewConfigStore` port with an in-memory double, a Drizzle implementation,
+`view.saved.list/save/update/remove`, and `useSavedViews` wired into `<DataViews>` **itself**. The
+shell owns it deliberately: fifteen pages render through `<DataViews>`, and a per-page opt-in would
+have been fifteen chances to forget — every one of them gained saved Lists without being edited. A
+saved View restores both halves of what was on screen: the `ViewConfig`, and the column visibility
+the shell keeps outside it. The List slot's "not built yet (TASK-062)" disabled reason is deleted,
+and a conformance test now fails if that placeholder ever returns.
+
+**Two scopes from the first migration, not one.** A View is `personal` or `organization`, and the
+RLS policy uses a WIDER predicate for read than for write — an organization-scoped View is readable
+by every member and writable only by its owner. That asymmetry is not symmetry-for-its-own-sake: a
+shared View anyone could rewrite is not a share, and it is exactly the seam TASK-064 extends. Default
+is `personal`: a View is never shared by omission.
+
+**The shape is validated at the router, not in the column.** `ViewConfig` belongs to the view kinds;
+a column that encoded it would migrate every time a kind gained a field. `.strict()` there is
+load-bearing — an unknown key would turn the stored config into a place to carry state past every
+validator downstream, and a test asserts that an unknown key is refused rather than stored.
+
+Verified: core 5/5 new + suite green in three timezones, api `saved-views` 5/5 over the real wiring,
+db suite green including both migration gates (rebased through 0047 with its snapshot, and `generate`
+still a deterministic no-op), web suite green, all typechecks clean.
+
+**Three bugs found by running the suites, all in files neither task touched.** A third instance of
+the nested-`test()` defect (`packages/db/test/local-store.test.ts`) — three in one day is a pattern,
+and BUGS.md now says what would catch the fourth. And a core test that asserted a LOCAL time bucket
+from a fixed UTC instant, so it passed in CI and failed on this machine: the direction of failure
+that erodes trust in a suite fastest, because the local failure looks like "your branch broke it".
+
+**TASK-083 — creation is one gesture, and a Section is a property of the Database.** The table's
+in-place draft row is deleted (state, commit path, row and `DraftCell` all gone). New raises
+`onRequestCreate` and `<DataViews>` opens the Record page: every column listed — a `formula`, `skill`
+or locked column shown with what fills it rather than dropped — column defaults pre-filled into React
+state, and exactly one request, on Save. Backing out sends nothing, because there was nothing in
+flight to cancel.
+
+**The shell owns the create page for the same reason it owns saved Lists.** `TableView` had one
+create surface and the Form view another; putting the page in the shell leaves one place to compose a
+new Record and one place to change it. The table only raises the intent.
+
+**⋮ → Records toggles Notes, Intelligence and Governance per DATABASE**, over `records.sections` /
+`records.setSection` on the Local-Plane state store the column overlay already uses — human-only,
+membership-checked, and keyed by spec id alone so there is no Record-scoped variant to diverge into.
+Notes live in a **separate namespace**, which is what makes switching the Section off a hide rather
+than a delete; a test turns Notes on, writes a note, turns it off and reads the note back.
+
+**The approved word was "elements"; the shipped word is Record.** `element` is retired canon and
+`check:vocabulary` is the authority on identifiers and copy. An allowlist entry for a surface written
+today would be grandfathering, not migration, so the rename went the other way — the ⋮ entry reads
+**Records** and the behaviour AP-171 approved is untouched.
+
+**The gated test was rewritten, not deleted**, and still guards its original defect: New is always
+present and states a reason when it cannot act (JobPilot and Signals once silently lost a control
+DealPilot had). Two more conformance tests came with it.
+
+Honest ceiling: only ONE per-Module Record Detail page exists (`TaskRecordDetailPage`), so "reopen
+ANY Record page of that Database and the Section is there" is demonstrable on Tasks and nowhere else
+— every other surface opens a Record in a side panel. Those panels render no Sections yet.
+
+Verified: api `record-sections` 5/5 over the real wiring, web 220/220, `check:vocabulary` and
+`check:ui-rules` clean, both typechecks clean. No browser verification (TASK-041).
+
+**TASK-061 — two toolbars was the mechanical reason every page looked different.** `StandardToolbar`
+was §5-conformant and had ONE consumer; `<DataViews>`'s row had fifteen. The documented toolbar and
+the shipped toolbar were different objects, so drift was guaranteed. Approvals moved onto the shell
+and both `StandardToolbar` and its `ListDropdown` wrapper are deleted — the direction of convergence
+is the opposite of the one the task text named, because converging the other way would have moved
+fifteen pages onto the weaker component to satisfy a sentence.
+
+**The ratchet is empty and gone.** Research Runs and Approvals were Databases drawn by hand and are
+now `<ModuleSurfaceLayout>` + `<DataViews>`; Second Brain needed only the layout; Organization and the
+Relationship sub-module pages are exempt with written reasons. The primitive scan now honours EXEMPT —
+a page excused from the shell cannot then be required to use the shell's slots, which is what had been
+failing Settings and Helpdesk for a search box on a surface with no toolbar. Replacing the backlog is
+a stricter gate, not a softer one: a second toolbar component or a reordered §5 slot list now fails
+the build.
+
+Research Runs are started from the standard New gesture (TASK-083's Record page) rather than a
+page-local form. FormView's Build/Preview split is deleted, and click-outside autosave applies only to
+a Record that already exists — autosaving a half-typed new one is the exact defect C-34 forbids.
+
+Verified: web 220/220 with the rewritten gate (shell backlog 0, primitive backlog 0), `check:ui-rules`
+and `check:vocabulary` clean, web typecheck clean. NOT verified: the live desktop pass over the seven
+surfaces, which needs the user's machine (TASK-041).
+
+**TASK-064 — the Share panel stops explaining and starts sharing.** `share_grants` (migration 0048)
+generalizes the one primitive Bridge had (`helpdesk_tickets.access_token`) into a grant with a target,
+a level (`view` ⊂ `edit` ⊂ `coowner`), an expiry and a revocation. Human-only, owner-only, token minted
+server-side — a token the caller chose is not unguessable.
+
+**The RLS replacement is the part that makes a share real.** 0047's read policy admitted owner +
+`organization` scope, so a grant on a personal View would have granted nothing. 0048 replaces it to
+admit rows a LIVE grant names you on, with expiry and revocation inside the predicate: access ends at
+the database, not at whichever caller remembers to check. The in-memory double takes the grant store
+for the same reason — a double that answers differently from production is worse than none.
+
+**Revocation is a write.** The grant stays and reports itself dead; there is no DELETE policy on the
+table. "Who could see this last week" is the question a share ledger exists to answer.
+
+**What is NOT shared yet, said plainly.** Enforcement is on the VIEW, not on the DATA. `resolve` gives
+a recipient the sharer's hidden-column list and the server's `canEdit`/`canReshare`, but Module read
+procedures take an identity, not a grant, so a recipient's rows are still their own. And no route
+opens a shared View, so the panel shows the token rather than inventing a URL. Both are in the TASK row
+as NOT LANDED rather than folded into a green line.
+
+Verified: core `share-grant` 5/5, api `share-grants` 5/5 over the real wiring, procedure-classification
++ public-cloud boundary 7/7 with the four new procedures classified, migration-metadata rebased through
+0048, web conformance 19/19 including a gate that fails if a share URL is ever fabricated.
+
+**Suite note, so the next run is not misread.** The full api suite reported two failures on the pass
+that closed these three rows — `chat-model-manager`'s install-retry test and
+`jobpilot-culture-research`'s socket-abort test, neither in a file this work touched. Both were run
+again on their own: **63/63, green.** They failed because three suites were running concurrently on
+this machine and the second of them asserts a 120s liveness deadline on a real socket close — the same
+sensitivity its own last commit ("Cut shard parallelism to cores/3 and make the socket liveness
+deadline unmissable") was written for. Recorded rather than waved off: a red test is evidence only
+when it is invoked the way the project invokes it, and "it passed alone" is a claim that has to be
+run, not assumed.
+
+**TASK-063 — created/last-edited without storing them twice.** Four new `ColumnKind`s, folded from the
+`events` table on read. The fold lives in the API rather than in a store, so the ordering rule — get it
+wrong and "created" and "last edited" silently swap — is unit-testable without a database, and there
+are five tests on it.
+
+**Derived means unwritable, structurally rather than by convention.** One `isMetadataColumn` predicate
+in `@bridge/tables`: the form refuses them, the Record page lists them with what fills them, and
+Change-type is handed no kind because there is no type they could become. The shell merges them before
+search and sort, or "sort by last edited" would order on empty cells.
+
+**The actor is read from five declared keys and is otherwise unknown.** `events.payload` is free-form
+jsonb; sniffing an actor out of it would invent provenance. Wired on Task Manager; any other Database
+joins with one spec edit and its own `recordEntityType`.
+
+Verified: api `record-metadata` 5/5, web 241/241 with a new gate that fails if a surface makes a
+metadata column writable or the shell stops filling them, tables 21/21, classification 5/5.

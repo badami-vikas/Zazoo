@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 import type { TableSpec, ViewConfig, ViewKind } from "@bridge/tables";
 import { Header } from "../components/shared/Header";
 import { DataViews } from "../dataviews/DataViews";
+import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { viewConfigForKind } from "../dataviews/eligibility";
 import type { DataRow, GraphEdge, GraphNode } from "../dataviews/types";
 import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
@@ -434,11 +435,12 @@ export function SecondBrainPage({ embedded = false }: { embedded?: boolean } = {
       {claimsEnabled && (
         <ClaimsPanel onClaimsChanged={() => setGraphRefresh((tick) => tick + 1)} />
       )}
-      {/* One surface, one view, nothing below the fold: the view region takes
-          the whole remaining height so the table/graph covers the screen, and
-          each renderer scrolls its own body. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-4">
-        {error ? (
+      {/* One surface, one view, nothing below the fold — through the same
+          <ModuleSurfaceLayout> every other Module Page uses (TASK-061), so the
+          view region's definite height comes from one place rather than from a
+          hand-rolled flex column here. */}
+      <ModuleSurfaceLayout
+        table={error ? (
           <p role="alert" className="rounded-md border border-red-200 p-4 text-sm text-red-600">
             Full graph could not load: {error}
           </p>
@@ -461,7 +463,7 @@ export function SecondBrainPage({ embedded = false }: { embedded?: boolean } = {
               : undefined}
           />
         )}
-      </div>
+      />
     </div>
   );
 }
