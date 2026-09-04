@@ -15,6 +15,7 @@ import {
   boolean,
   customType,
   date,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -154,6 +155,11 @@ export const communitiesCanonical = pgTable("communities_canonical", {
   /** [{title, url, postedAt?}] open roles from Greenhouse/Lever */
   hiringSignals: jsonb("hiring_signals").$type<Array<{ title: string; url: string; postedAt?: string }>>(),
   reconRunAt: timestamp("recon_run_at", { withTimezone: true }),
+  // ── Geocoded location (added v1.2) ──────────────────────────────────────
+  headquartersLat: doublePrecision("headquarters_lat"),
+  headquartersLng: doublePrecision("headquarters_lng"),
+  /** Nominatim/Wikidata normalised display name, e.g. "New York, NY, United States" */
+  locationDisplay: text("location_display"),
 });
 
 export const communities = pgTable("communities", {

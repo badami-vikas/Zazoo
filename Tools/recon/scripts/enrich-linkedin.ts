@@ -28,6 +28,7 @@ import { createClient } from '@supabase/supabase-js';
 import { resolveIdentities, buildReport } from '../lib/recon';
 import type { ReconReport, Field } from '../lib/recon';
 import { appendStaging, reportToRows } from '../lib/store';
+import { resolveLocation } from '../lib/geocode';
 
 // ── Bootstrap env from .env.local if dotenv-style file present ───────────────
 // (Next.js loads .env.local automatically; running via tsx does not)
@@ -510,12 +511,33 @@ async function main() {
             const { data: commCanon, error: commErr } = await supabase
               .from('communities_canonical')
               .upsert(communityRow, { onConflict: 'dedup_key' })
-              .select('id')
+              .select('id, headquarters_lat, headquarters_city, headquarters_country')
               .single();
             if (commErr) console.warn(`  ⚠ communities_canonical: ${commErr.message}`);
             else {
               canonCommunityId = commCanon?.id as string;
               console.log(`  ✓ communities_canonical  id=${canonCommunityId}  name=${communityRow.name}`);
+
+              // Auto-geocode if the community row has no coordinates yet.
+              if (!commCanon?.headquarters_lat) {
+                const geo = await resolveLocation({
+                  orgName: communityRow.name,
+                  city: communityRow.headquarters_city,
+                  country: null,
+                });
+                if (geo) {
+                  await supabase.from('communities_canonical').update({
+                    headquarters_lat: geo.lat,
+                    headquarters_lng: geo.lng,
+                    location_display: geo.display,
+                    ...(geo.source === 'wikidata' && !commCanon?.headquarters_city &&
+                        geo.display.toLowerCase() !== communityRow.name.toLowerCase()
+                      ? { headquarters_city: geo.display.split(',')[0].trim() }
+                      : {}),
+                  }).eq('id', canonCommunityId);
+                  console.log(`  📍 geocoded  ${geo.display} [${geo.source}]`);
+                }
+              }
             }
           }
 

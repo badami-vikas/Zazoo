@@ -150,6 +150,9 @@ export type Database = {
           description: string | null
           headquarters_city: string | null
           headquarters_country: string | null
+          headquarters_lat: number | null
+          headquarters_lng: number | null
+          location_display: string | null
           id: string
           kind: string | null
           linkedin_url: string | null
@@ -163,6 +166,9 @@ export type Database = {
           description?: string | null
           headquarters_city?: string | null
           headquarters_country?: string | null
+          headquarters_lat?: number | null
+          headquarters_lng?: number | null
+          location_display?: string | null
           id?: string
           kind?: string | null
           linkedin_url?: string | null
@@ -176,6 +182,9 @@ export type Database = {
           description?: string | null
           headquarters_city?: string | null
           headquarters_country?: string | null
+          headquarters_lat?: number | null
+          headquarters_lng?: number | null
+          location_display?: string | null
           id?: string
           kind?: string | null
           linkedin_url?: string | null
@@ -977,60 +986,93 @@ export type Database = {
         Row: {
           avatar_url: string | null
           bio: string | null
+          bluesky_handle: string | null
           current_company_name: string | null
           current_title: string | null
           dedup_key: string | null
+          education: Array<{ institution: string; degree?: string; field?: string; year?: string }> | null
           emails: string[] | null
           enrichment_confidence: number | null
           enrichment_source: string | null
           full_name: string | null
           github_handle: string | null
           id: string
+          instagram_handle: string | null
           last_enriched_at: string | null
           linkedin_url: string | null
           location_city: string | null
           location_country: string | null
+          mastodon_url: string | null
+          orcid_id: string | null
           preferred_name: string | null
+          previous_companies: Array<{ name: string; title?: string; period?: string }> | null
+          recon_run_at: string | null
+          recon_signals: Array<{ label: string; value: string; source: string; url?: string }> | null
+          scholar_url: string | null
+          skills: string[] | null
+          tiktok_handle: string | null
           twitter_handle: string | null
           website_url: string | null
         }
         Insert: {
           avatar_url?: string | null
           bio?: string | null
+          bluesky_handle?: string | null
           current_company_name?: string | null
           current_title?: string | null
           dedup_key?: string | null
+          education?: Array<{ institution: string; degree?: string; field?: string; year?: string }> | null
           emails?: string[] | null
           enrichment_confidence?: number | null
           enrichment_source?: string | null
           full_name?: string | null
           github_handle?: string | null
           id?: string
+          instagram_handle?: string | null
           last_enriched_at?: string | null
           linkedin_url?: string | null
           location_city?: string | null
           location_country?: string | null
+          mastodon_url?: string | null
+          orcid_id?: string | null
           preferred_name?: string | null
+          previous_companies?: Array<{ name: string; title?: string; period?: string }> | null
+          recon_run_at?: string | null
+          recon_signals?: Array<{ label: string; value: string; source: string; url?: string }> | null
+          scholar_url?: string | null
+          skills?: string[] | null
+          tiktok_handle?: string | null
           twitter_handle?: string | null
           website_url?: string | null
         }
         Update: {
           avatar_url?: string | null
           bio?: string | null
+          bluesky_handle?: string | null
           current_company_name?: string | null
           current_title?: string | null
           dedup_key?: string | null
+          education?: Array<{ institution: string; degree?: string; field?: string; year?: string }> | null
           emails?: string[] | null
           enrichment_confidence?: number | null
           enrichment_source?: string | null
           full_name?: string | null
           github_handle?: string | null
           id?: string
+          instagram_handle?: string | null
           last_enriched_at?: string | null
           linkedin_url?: string | null
           location_city?: string | null
           location_country?: string | null
+          mastodon_url?: string | null
+          orcid_id?: string | null
           preferred_name?: string | null
+          previous_companies?: Array<{ name: string; title?: string; period?: string }> | null
+          recon_run_at?: string | null
+          recon_signals?: Array<{ label: string; value: string; source: string; url?: string }> | null
+          scholar_url?: string | null
+          skills?: string[] | null
+          tiktok_handle?: string | null
           twitter_handle?: string | null
           website_url?: string | null
         }
