@@ -15,21 +15,9 @@ import test from "node:test";
 import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
+import { makeCaller } from "./caller.js";
 
 const ORG = PILOT_ORGANIZATION;
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(41);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(
-  wiring: Wiring,
-  identity: { type: "user" | "team"; id: string } = { type: "user", id: PILOT_USER },
-) {
-  return appRouter.createCaller({ wiring, run: makeRun(), identity, authenticated: true, verifying: false });
-}
 
 let evidenceSeq = 0;
 function evidenceId(): string {
@@ -136,7 +124,7 @@ test("an empty substrate refuses rather than inventing a structure", async () =>
 });
 
 test("flight OFF: structure synthesis fails closed like every other claims lane", async () => {
-  const wiring = await buildWiring(); // default: claim substrate off
+  const wiring = await buildWiring({ claimSubstrateEnabled: false }); // claim substrate off (default is ON since AP-182)
   try {
     await assert.rejects(
       makeCaller(wiring).learning.claims.proposeStructure({ organizationId: ORG }),

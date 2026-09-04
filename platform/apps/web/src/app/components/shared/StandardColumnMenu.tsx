@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "../ui/dialog.js";
 import { Input } from "../ui/input.js";
+import { useDismiss } from "../../lib/useDismiss";
 import {
   Select,
   SelectContent,
@@ -212,19 +213,9 @@ export function StandardColumnMenuPanel({
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !pending) onClose();
-    };
-    // While a warning dialog is open the menu must not dismiss under it — the
-    // dialog owns the interaction until the person answers it.
-    if (!pending) window.addEventListener("pointerdown", onClose);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("pointerdown", onClose);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [onClose, pending]);
+  // While a warning dialog is open the menu must not dismiss under it — the
+  // dialog owns the interaction until the person answers it.
+  useDismiss(!pending, onClose);
 
   const open = (command: PendingCommand) => {
     setFailure(null);

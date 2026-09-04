@@ -18,24 +18,9 @@ import { CAPABILITY_BUILDER_AGENT } from "../src/wiring.js";
 import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
+import { makeCaller, makeRun } from "./caller.js";
 
 const ORG = PILOT_ORGANIZATION;
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(41);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(wiring: Wiring) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity: { type: "user", id: PILOT_USER },
-    authenticated: true,
-    verifying: false,
-  });
-}
 
 let evidenceSeq = 0;
 function evidenceId(): string {
@@ -150,7 +135,7 @@ test("narrowing the Builder's scope fails the lane closed — the identity is an
 });
 
 test("the Builder's Runs are flight-gated and member-scoped like the lanes they record", async () => {
-  const off = await buildWiring();
+  const off = await buildWiring({ learningObservationEnabled: false, claimSubstrateEnabled: false }); // both lanes off (defaults are ON since AP-182)
   try {
     await assert.rejects(
       makeCaller(off).learning.builderRuns({ organizationId: ORG }),

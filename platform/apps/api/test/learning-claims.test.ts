@@ -28,21 +28,9 @@ import {
 import { fusedChatMemory } from "../src/retrieval-fusion.js";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
+import { makeCaller } from "./caller.js";
 
 const ORG = PILOT_ORGANIZATION;
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(41);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(
-  wiring: Wiring,
-  identity: { type: "user" | "team"; id: string } = { type: "user", id: PILOT_USER },
-) {
-  return appRouter.createCaller({ wiring, run: makeRun(), identity, authenticated: true, verifying: false });
-}
 
 const PRIYA_TIMEZONE = {
   organizationId: ORG,
@@ -56,7 +44,7 @@ const PRIYA_TIMEZONE = {
 };
 
 test("flight OFF: status reports disabled; every claims procedure fails closed", async () => {
-  const wiring = await buildWiring(); // default: all flights off
+  const wiring = await buildWiring({ learningObservationEnabled: false, claimSubstrateEnabled: false }); // flights off (default is ON since AP-182)
   try {
     const caller = makeCaller(wiring);
     assert.deepEqual(await caller.learning.claims.status({ organizationId: ORG }), { enabled: false });

@@ -27,6 +27,7 @@ import { useAuthSession } from "./auth/AuthSession";
 // inventing a second one — same viewport clamp, same fixed panel, same
 // right-click gesture that opens StandardColumnMenu on a column header.
 import { clampMenuPosition, type MenuPosition } from "./components/shared/StandardColumnMenu";
+import { useDismiss } from "./lib/useDismiss";
 import {
   applyRailPresentation,
   canHideModule,
@@ -128,17 +129,7 @@ function RailMenuPanel({
   onClose: () => void;
   children: ReactNode;
 }) {
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("pointerdown", onClose);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("pointerdown", onClose);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [onClose]);
+  useDismiss(true, onClose);
   return (
     <div
       role="menu"

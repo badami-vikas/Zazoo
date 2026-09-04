@@ -53,13 +53,6 @@ const RAG_DOT: Record<string, string> = {
   red: "bg-rose-500",
 };
 
-/** Canvas has no CSS classes — the same palette as concrete hex for Glide. */
-export const RAG_HEX: Record<string, string> = {
-  green: "#10b981",
-  yellow: "#fbbf24",
-  red: "#f43f5e",
-};
-
 /** Compact money label: 4_200_000 → "$4.2M", 68_000_000 → "$68M". */
 export function formatCurrency(value: number): string {
   const abs = Math.abs(value);

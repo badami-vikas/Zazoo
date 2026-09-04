@@ -24,19 +24,7 @@ import { InMemorySourceCredentialVault } from "@bridge/dealpilot";
 
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
-
-function makeCaller(wiring: Wiring, seed = 41) {
-  const clock = new SystemClock();
-  const rng = new SeededRng(seed);
-  const run: RunCtx = { clock, rng, ids: new UuidGen(clock, rng) };
-  return appRouter.createCaller({
-    wiring,
-    run,
-    identity: { type: "user" as const, id: PILOT_USER },
-    authenticated: true,
-    verifying: false,
-  });
-}
+import { makeCaller } from "./caller.js";
 
 /** Stands in for Claude Code: records what it was asked, returns prose and a
  * session handle, and never sees Bridge's assistant envelope. */

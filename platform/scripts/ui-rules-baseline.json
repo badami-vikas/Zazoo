@@ -29,7 +29,6 @@
     "apps/web/src/app/avatar/zazoo/ZazooWorld.tsx": 47,
     "apps/web/src/app/avatar/zazoo/species.ts": 90,
     "apps/web/src/app/components/CommonsCapabilityPanel.tsx": 1,
-    "apps/web/src/app/dataviews/cell-format.tsx": 3,
     "apps/web/src/app/dataviews/graph-palette.ts": 13,
     "apps/web/src/app/dataviews/views/GraphView.tsx": 8,
     "apps/web/src/app/dataviews/views/MapView.tsx": 15,

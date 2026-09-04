@@ -20,25 +20,7 @@ import {
   PILOT_ORGANIZATION,
   type Wiring,
 } from "../src/wiring.js";
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(1);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(
-  wiring: Wiring,
-  identity: Actor = { type: "user", id: PILOT_USER },
-) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity,
-    authenticated: true,
-    verifying: false,
-  });
-}
+import { makeCaller } from "./caller.js";
 
 test("Map resolves labels only through an explicitly injected Local Plane provider", async () => {
   const queries: string[] = [];

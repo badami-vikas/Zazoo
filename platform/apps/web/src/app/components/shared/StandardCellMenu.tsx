@@ -68,8 +68,7 @@ export function StandardCellMenu({
   onDeleteRow,
   ...rowProps
 }: StandardCellMenuProps) {
-  // Radix needs a real anchor; a zero-size element at the pointer is the same
-  // trick GlideTableView used for its canvas cells.
+  // Radix needs a real anchor: a zero-size element at the pointer.
   const [open, setOpen] = useState(true);
   useEffect(() => {
     if (!open) onClose();

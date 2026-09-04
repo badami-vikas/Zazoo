@@ -13,11 +13,11 @@ import {
   trpcAuthorizationHeaders,
 } from '../lib/trpc';
 import { API_URL, apiFetch } from '../lib/api-transport';
+import { PILOT_ORGANIZATION } from '@bridge/core';
 
 export const API_ENABLED = API_TRANSPORT_CONFIGURED;
 const TRPC = `${API_URL}/trpc`;
 
-const PILOT_ORGANIZATION = 'b0000000-0000-4000-a000-000000000001';
 
 async function requestHeaders(): Promise<Record<string, string>> {
   return {

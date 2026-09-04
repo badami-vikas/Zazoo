@@ -35,30 +35,15 @@ import type { ModuleManifest } from "@bridge/core";
 import {
   COMMONS_BUILT_IN_MODULES,
   LEARNING_RECOMMENDATION_SKILL_ID,
-} from "../src/built-in-modules.js";
+} from "@bridge/module-manifests";
 import { appRouter } from "../src/router.js";
 import { buildWiring, LEARNING_AGENT, PILOT_USER, PILOT_ORGANIZATION, type Wiring } from "../src/wiring.js";
 import { makeUnsignedCommonsEntry, TEST_COMMONS_SCAN } from "./commons-fixtures.js";
+import { makeCaller, makeRun } from "./caller.js";
 
 // ---------------------------------------------------------------------------
 // Test fixtures
 // ---------------------------------------------------------------------------
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(1);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-async function makeCaller(wiring: Wiring, identityId = PILOT_USER) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity: { type: "user", id: identityId },
-    authenticated: true,
-    verifying: false,
-  });
-}
 
 /** Minimal valid ModuleManifest as the registry would serve it. */
 function commonsManifest(overrides: Partial<{ name: string; version: string }> = {}): ModuleManifest {

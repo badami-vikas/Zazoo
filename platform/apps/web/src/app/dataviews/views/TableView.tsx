@@ -58,6 +58,7 @@ import {
 } from "../eligibility.js";
 import type { DataRow, DataViewProps } from "../types.js";
 import { formatCell, formatCurrency, renderCell, trimZero } from "../cell-format.js";
+import { useDismiss } from "../../lib/useDismiss";
 import {
   AGGREGATE_LABELS,
   availableAggregates,
@@ -972,8 +973,7 @@ function CellMenu({
 /**
  * A footer cell that computes one aggregate over its column, and lets the user
  * change which. Restores the summary row ADR-182 had to report as permanently
- * open on canvas — Glide has no footer, and `freezeTrailingRows` would have
- * shifted the row indices the flag and menu layers depend on.
+ * open on the former canvas renderer (removed under ADR-194).
  */
 function AggregateCell({
   kind,
@@ -991,22 +991,11 @@ function AggregateCell({
   onChange: (kind: AggregateKind) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const closeAggregateMenu = useCallback(() => setOpen(false), []);
   const result = useMemo(() => computeAggregate(values, kind), [values, kind]);
   const options = availableAggregates(numeric);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = () => setOpen(false);
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("pointerdown", close);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("pointerdown", close);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
+  useDismiss(open, closeAggregateMenu);
 
   const display =
     result.value === null

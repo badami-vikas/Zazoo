@@ -6,21 +6,20 @@ Integrations, Agents, and Automations. Commons is a signed generalized-capabilit
 stores personal data; Bridge Cloud is separate hosted control/sync infrastructure. Local Plane and
 Cloud Plane are the only residency boundaries. Terms: [docs/glossary.md](docs/glossary.md).
 
-## Work tiers - classify first
+## Governance facilitates work (AP-182)
 
-- **A - read-only:** explanations, status, narrow lookups, code questions. No repository edits; use
-  supplied context and targeted reads only. Do not read TASKS/log/BUGS by default, run tests, invoke
-  agents, or write TASKS/output/log/ADR/approval files.
-- **B - routine:** isolated code/docs change with no security, persistence, canon, deployment, or
-  cross-surface impact. Every repository edit, including a test-only rename, is at least Tier B.
-  Read [current tasks](docs/CODEMAPS/current-tasks.md), then only the matching task/wiki/code. Run the
+Only critical governance blocks: secret leakage, an unauthorized external side effect, a residency
+violation, or irreversible loss. Everything else is a flag that is recorded and can be overridden.
+
+- **Routine work:** reads, questions, and isolated code/docs changes. Read
+  [current tasks](docs/CODEMAPS/current-tasks.md), then only the matching task/wiki/code. Run the
   smallest targeted check and inspect direct callers/shared types. Update ledgers only when the state
-  they represent changes.
-- **C - governed:** security/privacy/auth, schema/migration, production/deployment, canonical
+  they represent changes; a read-only answer writes nothing.
+- **Governed work:** security/privacy/auth, schema/migration, production/deployment, canonical
   vocabulary/strategy, cross-plane, broad, or multi-surface work. Use the full rules below.
 
-Uncertainty escalates B to C. Secret handling, Local/Cloud residency, governed execution, and user
-approval remain universal. Never weaken a safety boundary to save tokens.
+Secret handling, Local/Cloud residency, governed execution, and user approval remain universal.
+Never weaken a safety boundary to save tokens.
 
 ## Context and docs
 
@@ -30,39 +29,37 @@ approval remain universal. Never weaken a safety boundary to save tokens.
   [docs/CODEMAPS/flows.md](docs/CODEMAPS/flows.md); summaries:
   [docs/wiki/index.md](docs/wiki/index.md). Read wiki -> raw -> code, escalating only as needed.
 - [docs/TASKS.md](docs/TASKS.md) is the sole execution queue. Plans scope work; BUGS, requests, and
-  APPROVALS preserve evidence/gates, never parallel task rows. Tier A skips it; Tier B/C read the
-  compact task projection first and only targeted TASK IDs.
-- `docs/wiki/` stays caveman-terse; invoke `caveman` when available. `docs/raw/` holds full depth and
-  needs frontmatter: `title`, `type: raw`, `doc_kind`, `status`, `companions`, `related_wiki`,
-  `updated`, `tags`. Requirement bodies are verbatim. Data-shaped raw docs use fenced YAML, not
-  tables.
-- Write `outputs/` only for Tier C decisions/audits/plans, a requested durable handoff, or a Tier B
+  APPROVALS preserve evidence/gates, never parallel task rows. Create or reorder a TASK directly,
+  citing the directive. Read the compact task projection first and only targeted TASK IDs.
+- `docs/wiki/` stays caveman-terse; invoke `caveman` when available. `docs/raw/` holds full depth;
+  frontmatter (`title`, `type: raw`, `doc_kind`, `status`, `updated`, `tags`) and a wiki companion
+  are guidance, not gates. Requirement bodies are verbatim. Data-shaped raw docs use fenced YAML.
+- Write `outputs/` only for governed decisions/audits/plans, a requested durable handoff, or a
   result that must outlive chat. Never store secrets, private payloads, hidden reasoning, raw tool
-  output, or transient commentary. Changed raw docs require their wiki companion and log entry.
-- Never default-load append-only ledgers; search targeted sections. Batch independent reads, bound
-  output/ranges, never reread files just edited. Regenerate codemaps only on structural change.
+  output, or transient commentary.
+- Never default-load the append-only ledgers (they are hundreds of KB); search targeted sections.
+  Batch independent reads, never reread files just edited. Regenerate codemaps only on structural
+  change. Any new always-loaded instruction or skill metadata is a reviewed recurring cost.
 - Optimize **total** tokens: handle simple chains inline. Delegate only independent broad work whose
   context isolation exceeds agent startup cost; never duplicate delegated exploration.
-- Keep Tier B orientation under ~2k documentation tokens and Tier C under ~4k. Any new always-loaded
-  instruction or skill metadata is a reviewed recurring cost.
 
 ## Governance and engineering
 
-- Non-trivial Tier C engineering decisions append rationale, rejected alternatives, and consequences
-  to [docs/raw/decisions-log.md](docs/raw/decisions-log.md). Strategic one-liners also update
-  `docs/wiki/decisions.md`.
+- Non-trivial governed decisions append rationale, rejected alternatives, and consequences to
+  [docs/raw/decisions-log.md](docs/raw/decisions-log.md), cited by **date and title** (numbers are a
+  convenience, never renumbered). Strategic one-liners also update `docs/wiki/decisions.md`.
 - File abnormalities immediately as targeted `docs/BUGS.md` evidence attached to the matching TASK. A
   new TASK needs an independent outcome/test. Resolve evidence with date when fixed.
 - User-reported bugs preserve the verbatim report and promote the matching task to P0 when blocking
   the prototype/current path. Same-surface scope may grow ~30% only when sharing the exit test.
-- Tier B owns direct callers/shared types. Tier C owns callers, sibling adapters, pipeline/gates,
-  persistence, and prototype surfaces. Fix in scope or record an honest blocker; narrow green checks
-  cannot hide affected failures.
+- Routine work owns direct callers/shared types. Governed work owns callers, sibling adapters,
+  pipeline/gates, persistence, and prototype surfaces. Fix in scope or record an honest blocker;
+  narrow green checks cannot hide affected failures.
 - **Build and wire in the same run.** Nothing is shipped until a real caller reaches it from the
   surface that needs it; otherwise record the gap in the TASK as NOT LANDED.
-- Canon changes - locked wiki/requirements, TASK scope/order, plan status, phase completion, roadmap
-  order, or ADR reversal - require [docs/APPROVALS.md](docs/APPROVALS.md), recorded APPLIED when the
-  user approved in-session. Routine code/evidence updates do not need a row.
+- Only irreversible or strategy-reversing changes - locked wiki/requirements, ADR reversal, a
+  security/residency boundary, phase completion - need [docs/APPROVALS.md](docs/APPROVALS.md),
+  recorded APPLIED when the user approved in-session. Everything else is done, then logged.
 - Runtime surfaces use real connected data or honest empty states. Any unavoidable dummy is tracked
   in [docs/dummy.md](docs/dummy.md) with reason, represented element, and removal condition.
 - Evidence: a test proves nothing until seen failing unfixed; "zero results" != "nothing to do"; a

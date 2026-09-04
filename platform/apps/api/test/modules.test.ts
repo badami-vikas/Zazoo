@@ -31,7 +31,7 @@ import {
   BUILT_IN_MODULES,
   buildModuleNavTree,
   resolveModuleAutomationRuntimeId,
-} from "../src/built-in-modules.js";
+} from "@bridge/module-manifests";
 import {
   buildWiring,
   PILOT_USER,
@@ -40,6 +40,7 @@ import {
   seedBuiltInModules,
   type Wiring,
 } from "../src/wiring.js";
+import { makeCaller, makeRun } from "./caller.js";
 
 async function pathExists(path: string): Promise<boolean> {
   try {
@@ -48,22 +49,6 @@ async function pathExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(1);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-async function makeCaller(wiring: Wiring) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity: { type: "user", id: PILOT_USER },
-    authenticated: true, // SEC-1: in-process test caller is a trusted, authenticated actor
-    verifying: false,
-  });
 }
 
 function dummyManifest(overrides: Record<string, unknown> = {}) {
@@ -442,6 +427,65 @@ test("modules.install: lethal trifecta assembled across separate bundled capabil
   }
 });
 
+test("module availability: Commons attachments for different Module Agents remain available together", async () => {
+  const wiring = await buildWiring();
+  try {
+    const manifest = parseModuleManifest(dummyManifest({ name: "shared-commons-skill", version: "1.0.0" }));
+    const first = await wiring.moduleStore.create({
+      organizationId: PILOT_ORGANIZATION,
+      moduleName: manifest.name,
+      moduleVersion: manifest.version,
+      manifest,
+      computedRisk: "informational",
+      state: "promoted",
+      status: "installed",
+      lineageManifestId: null,
+      moduleAttachment: {
+        source: "commons",
+        ownerModuleName: "job-pilot",
+        agentId: "application-agent",
+        needId: "calendar",
+        contentHash: `sha256:${"1".repeat(64)}`,
+      },
+    });
+    const second = await wiring.moduleStore.create({
+      organizationId: PILOT_ORGANIZATION,
+      moduleName: manifest.name,
+      moduleVersion: manifest.version,
+      manifest,
+      computedRisk: "informational",
+      state: "promoted",
+      status: "installed",
+      lineageManifestId: null,
+      moduleAttachment: {
+        source: "commons",
+        ownerModuleName: "job-pilot",
+        agentId: "research-agent",
+        needId: "calendar",
+        contentHash: `sha256:${"1".repeat(64)}`,
+      },
+    });
+
+    for (const target of [first, second]) {
+      const available = await wiring.moduleStore.getAvailable(
+        PILOT_ORGANIZATION,
+        target.moduleName,
+        target.moduleAttachment,
+      );
+      const promotion = promoteToAvailable(target, available);
+      await wiring.moduleStore.setState(promotion.promoted.installationId, promotion.promoted.nextState);
+      if (promotion.demoted) {
+        await wiring.moduleStore.setState(promotion.demoted.installationId, promotion.demoted.nextState);
+      }
+    }
+
+    assert.equal((await wiring.moduleStore.get(first.id))?.state, "available");
+    assert.equal((await wiring.moduleStore.get(second.id))?.state, "available");
+  } finally {
+    await wiring.close();
+  }
+});
+
 test("modules.promote: auto-demotes the prior available version, never two live at once", async () => {
   const wiring = await buildWiring();
   try {
@@ -451,64 +495,6 @@ test("modules.promote: auto-demotes the prior available version, never two live 
       manifest: dummyManifest({ version: "1.0.0" }),
     });
 
-    test("module availability: Commons attachments for different Module Agents remain available together", async () => {
-      const wiring = await buildWiring();
-      try {
-        const manifest = parseModuleManifest(dummyManifest({ name: "shared-commons-skill", version: "1.0.0" }));
-        const first = await wiring.moduleStore.create({
-          organizationId: PILOT_ORGANIZATION,
-          moduleName: manifest.name,
-          moduleVersion: manifest.version,
-          manifest,
-          computedRisk: "informational",
-          state: "promoted",
-          status: "installed",
-          lineageManifestId: null,
-          moduleAttachment: {
-            source: "commons",
-            ownerModuleName: "job-pilot",
-            agentId: "application-agent",
-            needId: "calendar",
-            contentHash: `sha256:${"1".repeat(64)}`,
-          },
-        });
-        const second = await wiring.moduleStore.create({
-          organizationId: PILOT_ORGANIZATION,
-          moduleName: manifest.name,
-          moduleVersion: manifest.version,
-          manifest,
-          computedRisk: "informational",
-          state: "promoted",
-          status: "installed",
-          lineageManifestId: null,
-          moduleAttachment: {
-            source: "commons",
-            ownerModuleName: "job-pilot",
-            agentId: "research-agent",
-            needId: "calendar",
-            contentHash: `sha256:${"1".repeat(64)}`,
-          },
-        });
-
-        for (const target of [first, second]) {
-          const available = await wiring.moduleStore.getAvailable(
-            PILOT_ORGANIZATION,
-            target.moduleName,
-            target.moduleAttachment,
-          );
-          const promotion = promoteToAvailable(target, available);
-          await wiring.moduleStore.setState(promotion.promoted.installationId, promotion.promoted.nextState);
-          if (promotion.demoted) {
-            await wiring.moduleStore.setState(promotion.demoted.installationId, promotion.demoted.nextState);
-          }
-        }
-
-        assert.equal((await wiring.moduleStore.get(first.id))?.state, "available");
-        assert.equal((await wiring.moduleStore.get(second.id))?.state, "available");
-      } finally {
-        await wiring.close();
-      }
-    });
     await caller.modules.install({ organizationId: PILOT_ORGANIZATION, installationId: v1.id, todayKey: "2026-07-06" });
     const promotedV1 = await caller.modules.promote({ organizationId: PILOT_ORGANIZATION, installationId: v1.id });
     assert.equal(promotedV1.installation.state, "available");

@@ -20,22 +20,7 @@ import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_USER, PILOT_ORGANIZATION, type Wiring } from "../src/wiring.js";
 import { loggerOptions } from "../src/server.js";
 import { makeContextFactory, verifiedReauthenticationAt } from "../src/context.js";
-
-function makeRun(seed = 1): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(seed);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(wiring: Wiring, identity: Actor) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity,
-    authenticated: true,
-    verifying: false,
-  });
-}
+import { makeCaller, makeRun } from "./caller.js";
 
 test("credential re-auth accepts only a verified password AMR timestamp", () => {
   const encoded = (payload: object) =>

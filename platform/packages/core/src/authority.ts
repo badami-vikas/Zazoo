@@ -11,6 +11,7 @@
  * self-modification escape: no agent may write/execute/archive governance tables,
  * read the full network graph, or send/share externally — and no grant overrides it.
  */
+import { scopePermits } from "./agent-scope.js";
 import type {
   Action,
   Actor,
@@ -87,9 +88,6 @@ function tokensFor(action: Action, resourceType: ResourceType): string[] {
   ];
 }
 
-function scopePermits(scope: ReadonlySet<string>, action: Action, resourceType: ResourceType): boolean {
-  return tokensFor(action, resourceType).some((t) => scope.has(t));
-}
 
 function grantMatches(
   g: GrantRule,

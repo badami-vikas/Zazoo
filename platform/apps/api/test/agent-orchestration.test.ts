@@ -547,7 +547,9 @@ test("web-research authority rejects local-plane and direct-Human invocation bef
     );
     assert.equal(local.status, "rejected");
     assert.match(local.rejectionReason ?? "", /plane|external fetch/i);
+    assert.equal(fixture.calls.length, 0, "the plane rejection happens before provider access");
 
+    // AP-182: a direct Human invocation is a governance FLAG, not a refusal.
     const directHuman = await wiring.pipeline.propose(
       {
         ...common,
@@ -555,12 +557,29 @@ test("web-research authority rejects local-plane and direct-Human invocation bef
       },
       run,
     );
-    assert.equal(directHuman.status, "rejected");
-    assert.match(
-      directHuman.rejectionReason ?? "",
-      /may only be invoked by an eligible Agent Run/,
+    assert.notEqual(directHuman.status, "rejected");
+    assert.ok(
+      directHuman.policyResults.some((r) => r.policyId === "governance.flag" && /invoked directly by a user actor/.test(r.reason)),
     );
-    assert.equal(fixture.calls.length, 0);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("action.propose handles null inputs without crashing policy evaluation", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    const proposal = await caller.action.propose({
+      organizationId: PILOT_ORGANIZATION,
+      actor: { type: "user", id: PILOT_USER },
+      action: "write",
+      resourceType: "person",
+      inputs: null,
+      skill: "stageMutation",
+    });
+    assert.equal(proposal.status, "applied");
+    assert.equal(proposal.output?.proposedOutput, null);
   } finally {
     await wiring.close();
   }
@@ -585,34 +604,14 @@ test("action.propose: a Human directly invoking the governed skill fails closed 
         }]),
       /stageMutation|invalid literal/i,
     );
-
-    test("action.propose handles null inputs without crashing policy evaluation", async () => {
-      const wiring = await buildWiring();
-      try {
-        const caller = await makeCaller(wiring);
-        const proposal = await caller.action.propose({
-          organizationId: PILOT_ORGANIZATION,
-          actor: { type: "user", id: PILOT_USER },
-          action: "write",
-          resourceType: "person",
-          inputs: null,
-          skill: "stageMutation",
-        });
-        assert.equal(proposal.status, "applied");
-        assert.equal(proposal.output?.proposedOutput, null);
-      } finally {
-        await wiring.close();
-      }
-    });
   } finally {
     await wiring.close();
   }
 });
 
-test("server-owned Agent runtime: a governed Skill with no goalTaskRef fails closed", async () => {
+test("server-owned Agent runtime/AP-182: a governed Skill with no goalTaskRef is flagged on the ledger and still drafts", async () => {
   const wiring = await buildWiring();
   try {
-    const caller = await makeCaller(wiring);
     const proposal = await wiring.pipeline.propose({
       organizationId: PILOT_ORGANIZATION,
       actor: { type: "agent", id: INTERNAL_STRATEGIST_AGENT },
@@ -621,8 +620,11 @@ test("server-owned Agent runtime: a governed Skill with no goalTaskRef fails clo
       inputs: { text: "a strategic recommendation" },
       skill: "stageStrategicRecommendation",
     }, makeRun());
-    assert.equal(proposal.status, "rejected");
-    assert.match(proposal.rejectionReason ?? "", /requires a resolved Goal\/Task assignment/);
+    assert.equal(proposal.status, "pending_review", proposal.rejectionReason);
+    assert.ok(
+      proposal.policyResults.some((r) => r.policyId === "governance.flag" && /without a Goal\/Task assignment/.test(r.reason)),
+      "the missing Goal/Task must be recorded as a governance flag",
+    );
   } finally {
     await wiring.close();
   }

@@ -21,22 +21,7 @@ import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
 import { classifyPublicCloudProcedure } from "../src/deployment-boundary.js";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(84);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(wiring: Wiring) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity: { type: "user", id: PILOT_USER },
-    authenticated: true,
-    verifying: false,
-  });
-}
+import { makeCaller, makeRun } from "./caller.js";
 
 async function withCaller<T>(
   operation: (caller: ReturnType<typeof makeCaller>, wiring: Wiring) => Promise<T>,
