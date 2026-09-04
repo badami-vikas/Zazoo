@@ -131,6 +131,9 @@ async function sendOnce(
       prompt: args.text,
       options: {
         cwd: args.workingDirectory,
+        ...(args.system
+          ? { systemPrompt: { type: "preset" as const, preset: "claude_code" as const, append: args.system } }
+          : {}),
         ...(args.backendSessionId ? { resume: args.backendSessionId } : {}),
         permissionMode: args.permissionMode,
         maxTurns: args.maxTurns,

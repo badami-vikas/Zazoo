@@ -188,12 +188,28 @@ function MorningBriefCard() {
             </div>
           )}
 
-          <div className="flex flex-wrap items-center gap-3 text-xs" style={{ color: "var(--color-warm-gray)" }}>
-            {brief.approvals.total > 0 && (
-              <Link to="/settings?section=governance" className="font-semibold" style={{ color: "var(--color-steel)" }}>
+          {/* Approvals belong to Tasks (ADR 2026-09-04): each one waiting is named
+              with its Task and opens there; the count links to the full queue. */}
+          {brief.approvals.total > 0 && (
+            <div className="flex flex-col gap-1 text-xs">
+              {brief.approvals.items.slice(0, 5).map((item) => (
+                <Link
+                  key={item.proposalId}
+                  to={item.task ? `/task-manager/${item.task.taskId}#approvals` : "/approvals"}
+                  className="no-underline hover:underline"
+                  style={{ color: "var(--color-navy)" }}
+                >
+                  <span className="font-semibold">{item.skill ?? `${item.action} ${item.resourceType}`}</span>
+                  {item.task ? ` · ${item.task.title}` : item.resource ? ` · ${item.resource}` : ""}
+                </Link>
+              ))}
+              <Link to="/approvals" className="font-semibold" style={{ color: "var(--color-steel)" }}>
                 {brief.approvals.total} approval{brief.approvals.total === 1 ? "" : "s"} waiting →
               </Link>
-            )}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3 text-xs" style={{ color: "var(--color-warm-gray)" }}>
             {brief.recentActivity.map((activity) => (
               <span key={activity.moduleId}>
                 {activity.moduleId}: {activity.count} signal{activity.count === 1 ? "" : "s"} in 24h

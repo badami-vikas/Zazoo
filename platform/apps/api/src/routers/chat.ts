@@ -7,6 +7,10 @@ import { createModelRouter, MANAGED_LLAMA_PROVIDER_ID } from "@bridge/models";
 import { captureAllowed, chatTurnCaptureSignal, detectCommitmentCandidates, proposeCommitmentSuggestions, recordSignal as recordCaptureSignal } from "@bridge/core";
 import { MAX_TRANSCRIPTION_AUDIO_BYTES, transcribeAudio, VoiceTranscriptionError } from "../voice-transcription.js";
 import { organizationFilesRoot } from "../module-files.js";
+import { relative, sep } from "node:path";
+import { BUILT_IN_MODULES } from "@bridge/module-manifests";
+import { commonsPriorArt, moduleBuildBriefing } from "../builder/run.js";
+import { readModuleManifestFile, registerModuleManifest } from "../module-register.js";
 import { ClaudeSignInRequiredError } from "../chat/claude-code-backend.js";
 import { deterministicUuid } from "../deterministic-uuid.js";
 import { CHAT_MODEL_TIER, addChatTurnRef, appendChatBackendChangedFiles, appendChatRoutingDecision, assembleChatCompletion, authenticatedProcedure, chatAssistantEnvelopeSchema, chatHumanTaint, chatLedgerEntryIsProposal, chatOwnerScope, chatSendInput, chatTurnAbortControllers, chatTurnProposalStaging, composerCapability, createGovernedModelProvider, idempotentUuid, loadChatThreadView, organizationGuard, parseChatAssistantEnvelope, priorTurnsTranscript, readCaptureConsentState, requireOrganizationNameForFiles, resolveChatModel, resolveChatRetryPair, stageChatTaskProposal, t, transcriptionApiKey, type PublicCloudModelEgress } from "../router-shared.js";
@@ -626,6 +630,23 @@ export const chatRouter = t.router({
               ? `${carriedContext}\n\n---\nContinue that conversation. The user now says:\n${input.message}`
               : input.message;
 
+            // The agent gets Bridge's own briefing — what a Module is and how one
+            // is built — not just a folder and a sentence (TASK-098). Prior art
+            // from Commons rides along as data; an unreachable registry is noted.
+            const attachedModule = thread.moduleName ?? null;
+            const isNewModule =
+              attachedModule !== null &&
+              !BUILT_IN_MODULES.some((entry) => entry.manifest.name === attachedModule) &&
+              (await ctx.wiring.moduleStore.listVersions(thread.organizationId, attachedModule)).length === 0;
+            const priorArt = await commonsPriorArt(ctx.wiring.commonsRegistry, attachedModule ?? "", input.message);
+            const system = moduleBuildBriefing({
+              organizationRoot: workingDirectory,
+              moduleName: attachedModule,
+              isNewModule,
+              priorArt: priorArt.items,
+              priorArtUnavailable: priorArt.unavailable,
+            });
+
             let backendTurn: ChatBackendTurn;
             try {
               backendTurn = await backend.send({
@@ -634,6 +655,7 @@ export const chatRouter = t.router({
                 workingDirectory,
                 organizationId: thread.organizationId,
                 signal: controller.signal,
+                system,
               });
             } catch (error) {
               if (error instanceof ClaudeSignInRequiredError) {
@@ -643,6 +665,30 @@ export const chatRouter = t.router({
                 });
               }
               throw error;
+            }
+
+            // A module.yaml the agent wrote for a Module Bridge does not know yet
+            // enters the governed lifecycle here, the same way a Builder Run's
+            // does (ADR 2026-09-04): registered private and pending review;
+            // `modules.install` stays the proposal that decides whether it runs.
+            const registrationNotes: string[] = [];
+            for (const changed of backendTurn.changedPaths ?? []) {
+              const rel = relative(workingDirectory, changed).split(sep);
+              const [moduleName, file] = rel;
+              if (rel.length !== 2 || file !== "module.yaml" || !moduleName || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(moduleName)) continue;
+              if (BUILT_IN_MODULES.some((entry) => entry.manifest.name === moduleName)) continue;
+              if ((await ctx.wiring.moduleStore.listVersions(thread.organizationId, moduleName)).length > 0) continue;
+              try {
+                const raw = await readModuleManifestFile(ctx.wiring, organizationName, moduleName);
+                if (raw === null) continue;
+                const installation = await registerModuleManifest(ctx.wiring, thread.organizationId, raw);
+                registrationNotes.push(`Registered the Module "${moduleName}" (${installation.status}) — install it from Modules to make it live.`);
+              } catch (error) {
+                registrationNotes.push(`Could not register ${moduleName}/module.yaml: ${error instanceof Error ? error.message : String(error)}`);
+              }
+            }
+            if (registrationNotes.length > 0) {
+              backendTurn = { ...backendTurn, reply: `${backendTurn.reply}\n\n${registrationNotes.join("\n")}` };
             }
 
             if (backendTurn.backendSessionId) {

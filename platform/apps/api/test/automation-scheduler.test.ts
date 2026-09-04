@@ -17,9 +17,13 @@ import {
   runSchedulerTick,
   scheduledRunCtx,
 } from "../src/automation-scheduler.js";
+import { supersedeDuplicateProposals } from "../src/automation-scheduler.js";
 import {
   buildWiring,
   INTERNAL_STRATEGIST_AGENT,
+  LEARNING_AGENT,
+  LEARNING_DIGEST_AUTOMATION_ID,
+  OBSERVATION_DIGEST_SKILL_ID,
   PILOT_ORGANIZATION,
   type Wiring,
 } from "../src/wiring.js";
@@ -242,4 +246,104 @@ test("a scheduled Run carries an explicit system_generated taint label", async (
   assert.equal(ctx.taintLabel?.source, "system");
   assert.equal(ctx.taintLabel?.instructionRisk, "data");
   assert.equal(ctx.taintLabel?.sensitivity, "organization");
+});
+
+// ── One open proposal per identical step (ADR 2026-09-04 "Approvals belong to Tasks") ──
+//
+// The learning digest is the real case: wiring registers it, it ticks every 15
+// minutes, and its write of organization-wide scope parks for a Human — which is
+// how one Local Plane came to hold 254 identical undecided digests.
+
+const DIGEST_STEP = {
+  skill: OBSERVATION_DIGEST_SKILL_ID,
+  action: "write" as const,
+  resourceType: "signal" as const,
+  dataScope: "all" as const,
+  inputs: {},
+};
+
+function digestPending(wiring: Wiring) {
+  return wiring.pipeline.openAutomationProposals(PILOT_ORGANIZATION);
+}
+
+test("an Automation whose earlier proposal is still undecided waits on it instead of proposing again", async () => {
+  const wiring = await buildWiring();
+  try {
+    const first = await wiring.automationExecutor.runById(
+      { organizationId: PILOT_ORGANIZATION, automationId: LEARNING_DIGEST_AUTOMATION_ID },
+      scheduledRunCtx(LEARNING_DIGEST_AUTOMATION_ID),
+    );
+    assert.equal(first.status, "completed");
+    assert.equal(first.proposals[0]?.status, "pending_review", "the digest parks for a Human");
+    const open = (await digestPending(wiring)).filter((entry) => entry.context?.id === LEARNING_DIGEST_AUTOMATION_ID);
+    assert.equal(open.length, 1);
+
+    // The next tick: the identical step is still waiting, so the Run halts on
+    // it and adds nothing — the 254-row pile can no longer form.
+    const second = await wiring.automationExecutor.runById(
+      { organizationId: PILOT_ORGANIZATION, automationId: LEARNING_DIGEST_AUTOMATION_ID },
+      scheduledRunCtx(LEARNING_DIGEST_AUTOMATION_ID),
+    );
+    assert.equal(second.status, "halted");
+    assert.equal(second.haltedAtStep, 0);
+    assert.equal(second.proposals.length, 0);
+    assert.equal((await digestPending(wiring)).filter((entry) => entry.context?.id === LEARNING_DIGEST_AUTOMATION_ID).length, 1);
+    const run = await wiring.automationRunRecorder.get(PILOT_ORGANIZATION, second.runId);
+    assert.equal(run?.status, "halted");
+    assert.equal((run?.output as { waitingOn?: string } | null)?.waitingOn, open[0]!.id);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("the tick withdraws stale duplicate proposals a Local Plane already holds, keeping the newest", async () => {
+  const wiring = await buildWiring();
+  try {
+    const { log } = silentLog();
+    // Three identical digest proposals, the way the old executor left them,
+    // plus one from another Automation that must stay untouched.
+    const ids: string[] = [];
+    const proposeDigest = async (automationId: string) => {
+      const ctx = scheduledRunCtx(automationId);
+      const proposal = await wiring.pipeline.propose(
+        {
+          organizationId: PILOT_ORGANIZATION,
+          actor: { type: "agent", id: LEARNING_AGENT, plane: "local" },
+          ...DIGEST_STEP,
+          context: { type: "automation", id: automationId, runId: ctx.ids.next() },
+        },
+        ctx,
+      );
+      assert.equal(proposal.status, "pending_review");
+      return proposal.id;
+    };
+    for (let i = 0; i < 3; i++) ids.push(await proposeDigest(LEARNING_DIGEST_AUTOMATION_ID));
+    const other = await proposeDigest("test-fixture-other-digest");
+    assert.equal((await digestPending(wiring)).length, 4);
+
+    const superseded = await supersedeDuplicateProposals(wiring.pipeline, PILOT_ORGANIZATION, scheduledRunCtx("sweep"));
+    assert.equal(superseded, 2);
+    const remaining = (await digestPending(wiring)).map((entry) => entry.id).sort();
+    assert.deepEqual(remaining, [ids[2]!, other].sort(), "the newest of the pile and the other Automation's remain");
+
+    // Withdrawn rows read as superseded in history — not approved, not vetoed,
+    // and nothing executed.
+    const history = await wiring.ledger.listHistory(PILOT_ORGANIZATION, { limit: 100, offset: 0 });
+    const withdrawn = history.items.filter((entry) => entry.userDecision === "superseded");
+    assert.equal(withdrawn.length, 2);
+    assert.ok(withdrawn.every((entry) => entry.refLedgerId !== undefined && ids.slice(0, 2).includes(entry.refLedgerId)));
+
+    // The tick itself runs the sweep, so a second sweep finds nothing left.
+    await runSchedulerTick({
+      registry: wiring.automationRegistry,
+      runRecorder: wiring.automationRunRecorder,
+      executor: wiring.automationExecutor,
+      pipeline: wiring.pipeline,
+      organizationId: PILOT_ORGANIZATION,
+      log,
+    });
+    assert.equal(await supersedeDuplicateProposals(wiring.pipeline, PILOT_ORGANIZATION, scheduledRunCtx("sweep")), 0);
+  } finally {
+    await wiring.close();
+  }
 });

@@ -43,6 +43,7 @@ export {
 } from "./pipeline.js";
 export {
   InProcessAutomationExecutor,
+  automationProposalKey,
   type AutomationExecutor,
   type AutomationExecutorOpts,
   type AutomationStep,

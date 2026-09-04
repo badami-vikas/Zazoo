@@ -937,7 +937,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
      Its companion ADR is grafted as ADR-217. -->
 ## Companion trigger and capture parity — Fn hold, double-click listen, on-request recording
 - ID: TASK-055
-- Status: ready
+- Status: partly landed (2026-09-04; the Fn-hold summon shipped under TASK-099 as a sustained-hold poll of the Function flag, no Input Monitoring needed; double-click listen and on-request recording remain open)
 - Priority: P3
 - Estimate: 3d
 - Horizon: Convergence
@@ -1606,3 +1606,45 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: AP-183 APPLIED (in-session directive).
 - Dependencies: TASK-092 (Builder sandbox, open); TASK-031 (cleanup, in_progress)
 - NOT LANDED (stated): the api still compiles every Commons Module in; `module-host` dynamic routers, per-Module migrations, and Commons code bundles (strategy §Phase 3 preconditions) are what make the Egg light on the server side. `relationship` and `whatsapp` cannot be installed from the registry until split (lethal-trifecta refusal). No `/builder` page yet (strategy §Phase 4 item 3). Desktop Egg installer BUILT 2026-09-04 after freeing 6 GB of merged worktrees: `prepare:bundle` (pinned llama.cpp b9000 runtime, node sidecar) then `build:tauri:egg` → `Bridge.app` (723 MB, ad-hoc signed) and `Bridge_0.1.0_aarch64.dmg` (208 MB) under `apps/desktop/src-tauri/target/release/bundle/`; a first-launch smoke run in the installed app is still owed. Relation/formula/skill column kinds on a declared Database are stored but have no picker on the standard Page.
+
+## Approvals belong to Tasks: one open proposal per Automation, profile-parked Automations, Task Page and Home as the approval surfaces
+- ID: TASK-097
+- Status: in_progress (2026-09-04; executor rule, scheduler sweep, profile parking, `listPendingForTask`, brief nudges, Task Page section, Home list, Settings card removed — installer rebuild pending)
+- Priority: P0
+- Horizon: Living Software
+- Outcome: A launched Egg shows no inherited pile of approvals: an Automation never holds more than one undecided proposal per identical step, stale duplicates are withdrawn as `superseded`, Automations of Modules outside the profile do not tick, and every waiting approval is reachable from its Task (Task Page Approvals section) and named with its Task on Home — never from Settings.
+- Prototype test: boot the Egg on a Local Plane holding the 371 duplicate rows → the first scheduler tick withdraws all but one per Automation and the DevPilot poll is `draft`; Home lists "learning.observationDigest · Learning observation digest outcome" linking to that Task's page, whose Approvals section approves or vetoes it; Settings → Governance shows only the Execution Ledger.
+- Scope: `packages/core/src/{types,pipeline,automation-executor}.ts`, `apps/api/src/{automation-scheduler,server,wiring}.ts`, `apps/api/src/routers/{action,brief}.ts`, `apps/web/src/app/pages/{TaskRecordDetailPage,HomePage,SettingsPage}.tsx`.
+- Evidence: `automation-scheduler.test.ts` (waits on an undecided twin; sweep keeps the newest and history reads `superseded`), `egg-profile.test.ts` (full-profile Local Plane booted as Egg parks foreign Automations), `chat-agentic-backend.test.ts`; Local Plane copy inspected 2026-09-04: 254 × digest, 117 × DevPilot poll undecided.
+- Requests: user report 2026-09-04 verbatim in BUGS 2026-09-04 "255 pending approvals".
+- Approval: none needed (routine surfaces + a new ledger value; ADR 2026-09-04 "Approvals belong to Tasks" records it).
+- Dependencies: TASK-030 (Task Manager; anchor Tasks still live in kernel `goalTasks`, not Task Manager Records — the Task Page renders their approvals without a Record).
+- NOT LANDED (stated): no "importance" ranking on Home — every waiting approval is listed with its Task, capped at five, the rest behind `/approvals`.
+
+## The agentic chat lane knows what a Module is: the Claude Code backend is briefed and registers what it builds
+- ID: TASK-098
+- Status: in_progress (2026-09-04; briefing + registration landed, installer rebuild pending)
+- Priority: P0
+- Horizon: Living Software
+- Outcome: "Build me a Module for X" in the desktop chat starts the standard Module build process — the agent knows Bridge, the Module definition, the Organization folder, the process, and Commons prior art — and a `module.yaml` it writes becomes a pending Module the user installs from Modules.
+- Prototype test: in the installed Egg, a Claude Code thread asked "Can you build me a new module for managing my academics" creates `<Organization>/academics-manager/module.yaml`, the reply ends with "Registered the Module "academics-manager" (pending_review)", and Modules lists it.
+- Scope: `packages/core/src/chat-backend.ts` (`system`), `apps/api/src/chat/claude-code-backend.ts`, `apps/api/src/builder/run.ts` (`moduleBuildBriefing`), `apps/api/src/routers/chat.ts`.
+- Evidence: `chat-agentic-backend.test.ts` "the agentic backend is briefed on what a Module is, and a module.yaml it writes is registered".
+- Requests: user report 2026-09-04 verbatim in BUGS 2026-09-04 "the desktop chat asked what a module is".
+- Approval: none needed.
+- Dependencies: TASK-096 (Module manifest databases, `registerModuleManifest`).
+- NOT LANDED (stated): the briefing is static text plus prior art; it does not yet carry the installed Modules' manifests or the user's existing folders as data.
+
+## The companion appears only when summoned: shortcut or open panel, never hover or launch
+- ID: TASK-099
+- Status: in_progress (2026-09-04; gate landed, installer rebuild pending)
+- Priority: P0
+- Horizon: Living Software
+- Outcome: The desktop companion is concealed at rest in both homes and appears only on ⌘⇧Space or while a panel it opened is up; moving the cursor over the notch, finishing launch, or an arrow/Home/End/F-key while typing never presents it; a held Fn (≈0.4 s) still does, and a push-to-talk request dismisses itself once the dictation is typed or the answer is delivered and spoken.
+- Prototype test: launch the installed Egg and wait — no avatar; pass the cursor over the notch — no avatar; press ⌘⇧Space — the avatar and Ask panel appear; close the panel — it conceals.
+- Scope: `apps/web/src/app/avatar/OverlayApp.tsx` (`summoned`); `apps/desktop/src-tauri/src/notch.rs` (Fn push-to-talk is a HOLD of `FN_HOLD_TICKS` polls with NumericPad-flagged keys excluded — macOS sets the Function flag for arrow, Home/End, Page, forward-delete and F-keys, which is how typing summoned it with Fn untouched); `OverlayApp.tsx` `pttOpened` + `dismissAfterTask`; `CompanionAsk.tsx` `onTaskDone` after dictation, hint copy names Fn and ⌘⇧Space.
+- Evidence: typecheck + `cargo check`; the two presentation effects share the `summoned` gate and `bridge:companion-ptt` is emitted only by the ⌘⇧Space global shortcut (`lib.rs`) and a sustained Fn hold (`notch.rs`). Second and third user reports 2026-09-04 ("Even now, as I type, the avatar is getting activated"; "I didnt even press Fn and it was triggered") root-caused to the raw Function-flag poll — the `summoned` gate alone kept `pttActive` as a summon, so it would not have stopped this. No automated test drives the macOS flag poll; verified by reasoning on NSEvent flag semantics, to be confirmed on the rebuilt installer. A UI-rules doc gate for the companion is not in place.
+- Requests: user report 2026-09-04 verbatim in BUGS 2026-09-04 "the companion avatar activated on its own".
+- Approval: none needed (supersedes the 2026-08-05 readiness-only rule; recorded in ADR 2026-09-04 "Approvals belong to Tasks", decision 4).
+- Dependencies: none.
+- NOT LANDED (stated): no automated test drives the overlay's Tauri presentation calls.

@@ -6740,6 +6740,58 @@ whatever is frontmost, guarded by the credential-window check only, and says so.
 the run acts on the monitor its overlay window sits on; global coordinates derive from
 `monitor_logical_rect`, the same origin the annotate window is positioned in. Verification: Rust 195 passed + 1 ignored (11 new; clippy clean on the new files); two guards mutation-checked RED-then-green (⌘Q refusal, click-without-cell refusal); web typecheck 0 errors, 117/117 tests, production build, ui-rules and vocabulary gates pass; browser lab (`annotate.html?lab=1`) proves the arrow renders, the click ring centres on its tip, and a throttled flight still lands on target. No live desktop run — no cloud call and no real input event was posted this session; the at-keyboard walk is the user's step.
 
+## 2026-09-04 — Approvals belong to Tasks; one open proposal per Automation; the companion appears only when summoned; agentic chat carries the Module briefing
+
+**Context:** three user reports on the first Egg launch (BUGS 2026-09-04, verbatim there): *"Why am
+I seeing 255 pending approvals the moment I launch, clear them. Also All approvals should be
+associated witht hte taska nd should appear under inside the task page. If really important, with
+task name, they should dynamically appear inhome page, not inside settings"*; the desktop chat
+answering "build me a new module for my academics" by asking what a module is (*"Isnt the module well
+defined and doesnt the agent know what a module is and how to build it?"*); and *"The avatar should
+activate only when triggered by shortcut, why is it getting activated on its own?"*
+
+**Decision:**
+1. **One open proposal per identical Automation step.** `automationProposalKey` = Automation +
+   Skill + target Record + inputs. The executor halts a Run whose step already has an undecided
+   twin (`waitingOn` in the Run output) rather than proposing again; the scheduler tick first
+   withdraws stale duplicates, keeping the newest (`supersedeDuplicateProposals` →
+   `pipeline.supersede`). Withdrawal is a new ledger value, `superseded`: attributed to the original
+   actor, never executed, never a Human decision, excluded from learning like `auto`.
+2. **Automations of Modules outside the profile are parked.** At boot every Automation runtime id a
+   non-profile built-in Module declares is set to `draft` if it is `active`; reinstalling the Module
+   reactivates it. The scheduler reads rows, so rows must follow the profile.
+3. **Approvals belong to Tasks.** A proposal's Automation Run is anchored to a Task; that Task is
+   the approval's home: `action.listPendingForTask`, an Approvals section on the Task Page (also
+   rendered for a kernel anchor Task with no Task Manager Record), Home listing each waiting approval
+   by Task name and opening there, and Settings keeping only the Execution Ledger.
+4. **The companion appears only when summoned.** `summoned = pttActive || panel !== "none" ||
+   notchPose === "chat"` gates presentation in both homes; notch hover and session readiness no
+   longer present it. Supersedes the 2026-08-05 "session readiness only" rule.
+   Amended the same day after two more reports: push-to-talk itself must be deliberate. The Fn
+   trigger is a HOLD — the Function flag must stay set for `FN_HOLD_TICKS` polls (≈0.4 s) with the
+   NumericPad flag clear, because macOS sets that flag for arrow, Home/End, Page, forward-delete and
+   F-keys and a raw poll summoned the companion on ordinary typing. And a panel opened by
+   push-to-talk dismisses itself once the request is carried out (dictation typed; answer delivered
+   and spoken), so the companion does the task and gets out of the way.
+5. **The agentic chat lane is briefed.** `ChatBackendSendArgs.system` carries `moduleBuildBriefing`
+   (Bridge, the Module definition, the standard build process, the Organization folder, Commons
+   prior art, the attached Module's state); the Claude Code backend appends it to its preset prompt;
+   a `<module>/module.yaml` the agent writes is registered pending review and named in the reply.
+
+**Rejected alternatives:** auto-approving the learning digest (a policy change dressed as a
+cleanup; the pile was duplicates, not decisions); deleting the stale rows (the ledger is append-only
+and the reason must survive); filtering Home by a "importance" score (the user asked for Task
+names, and a small honest list beats an invented rank); a hover-to-peek compromise for the companion
+(the report was about unprompted appearance, hover is unprompted).
+
+**Consequences:** the first tick after upgrade withdraws the 371 duplicate rows the user's Local
+Plane holds (254 digest, 117 DevPilot) and the DevPilot poll stops in the Egg; from then on at most
+one digest proposal waits, under the "Learning observation digest outcome" Task. The Task Page and
+Home are the approval surfaces; `/approvals` remains the full queue. Automation anchor Tasks still
+live in the kernel `goalTasks` store, not the Task Manager's Records — the Task Page shows their
+approvals but not a Record; unifying the two stores is TASK-030's remaining work, recorded there.
+Cited by date and title.
+
 ## 2026-09-04 — The Egg ships the kernel; Modules live in Commons (AP-183)
 
 **Context:** user directive 2026-09-03/04: *"I want all commons to be moved to commons and only
