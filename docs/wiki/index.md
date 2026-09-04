@@ -9,6 +9,7 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 
 ## Pages
 - [vision](vision.md) — **2026-07-06 PIVOT: Living Software / Capability Lifecycle Platform. READ FIRST.**
+- **Day-zero founder packet** → [../day-zero/README.md](../day-zero/README.md). Business, product, trust, architecture, GTM, pilot, metrics, legal, risk, roadmap, go-live. Commit story → [../commit-history/README.md](../commit-history/README.md).
 - [decisions](decisions.md) — decision set + pivot re-audit verdicts (nothing "locked").
 - [clients](clients.md) — **one platform, three clients** (desktop depth / browser reach / mobile accessibility) + context-provider registry (Learning Agent consumes context, not screenshots) + voice command center.
 - [architecture](architecture.md) — planes, pipeline, registries, local↔gate↔cloud two-plane agents.

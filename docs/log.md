@@ -2087,3 +2087,17 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Advanced the existing free Supabase pilot from `0026` through canonical `0030` with the official linked CLI and no owner URI in chat, files, or shell history.
 - Certified live health/readiness, exact CORS, pilot sign-in/activation/refresh/logout, public bearer success, anonymous credential rejection, private `412 desktop-required`, least-privilege `bridge_app`, cross-Organization RLS/context reset, API restart, secret scans, zero cloud operational Records/local Memories/credential columns, and exact 375px without overflow or page-load errors.
 - Public URLs and provider/deploy IDs are recorded in `outputs/2026-07-21-render-free-deployment.md`. Free idle sleep remains accepted and was not separately timed. TASK-006 remains blocked only on the independent authorized Google OAuth + real Source credential gate.
+
+# 2026-07-26 — Day-zero founder packet and business commit history
+- Added `docs/day-zero/`: founder memo, product requirements, Avatar/Onboarding, Platform/Modules, Commons, governance/privacy/security, architecture, GTM, pilot operations, metrics/economics, legal/risk, roadmap/resourcing, go-live proposal, and open decisions.
+- Preserved canonical product vocabulary: Egg appears only as historical launch codename; current product remains Avatar, Onboarding, Local Plane, Modules, and Commons.
+- Added `docs/commit-history/`: 512 unique commits from all visible local refs translated into monthly business-language entries; 463 are in current HEAD lineage and 49 are preserved on other refs.
+- Added a deterministic local generator for the commit archive and linked both deliverables from repository navigation and wiki index.
+- Recommended controlled paid design-partner launch, not public self-serve. Exact founder decisions and launch gates live in `docs/day-zero/13-go-live-proposal.md` and `14-open-decisions.md`.
+
+# 2026-07-26 — Founder memo rebuilt from first principles
+- Replaced the platform-insider opening with a first-read explanation beginning from fragmented human work, invisible process, disconnected AI, automation trust, and lost reusable practice.
+- Defined Egg as Bridge's bounded first-run experience and cold-start solution; it remains an experience metaphor, not a Plane, authority state, or schema primitive.
+- Explained Avatar, Modules, Engine, and Commons individually by the problem each solves, then connected them into the Living Software cycle.
+- Made ETA the running first-client example: Egg → Onboarding → Avatar → DealPilot → governed sourcing → Relationship/Task Manager → Commons installation/generalization.
+- Retained current trust, privacy, governance, clean-room, and platform-differentiation boundaries.
