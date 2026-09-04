@@ -65,6 +65,32 @@ fn main() {
                     .expect("could not create the debug native framework placeholder");
             }
         }
+        // tauri.conf.json's bundle.macOS.frameworks list is validated by
+        // tauri_build::build() below for EVERY profile, not just release — so a
+        // fresh debug build fails with "Library not found" before the sqlite
+        // Framework has ever been produced by prepare-bundle.mjs's
+        // extractMacNativeSqlite() (TASK-071/072, decisions-log). Same fix as
+        // the keyring placeholder above: debug never loads this path at runtime
+        // (resolve_native_sqlite3() in api_sidecar.rs returns None whenever
+        // cfg!(debug_assertions), always preferring better-sqlite3's own
+        // prebuild), so an empty placeholder is enough to satisfy the manifest
+        // check without affecting behavior.
+        if target.contains("apple-darwin") {
+            let native_sqlite3 = std::path::PathBuf::from(
+                std::env::var("CARGO_MANIFEST_DIR").expect("Cargo must provide CARGO_MANIFEST_DIR"),
+            )
+            .join("generated/native/bridge-sqlite3.dylib");
+            if !native_sqlite3.exists() {
+                std::fs::create_dir_all(
+                    native_sqlite3
+                        .parent()
+                        .expect("the generated native framework path must have a parent"),
+                )
+                .expect("could not create the generated native framework directory");
+                std::fs::write(native_sqlite3, [])
+                    .expect("could not create the debug native framework placeholder");
+            }
+        }
     }
     tauri_build::build()
 }

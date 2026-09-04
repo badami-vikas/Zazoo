@@ -45,6 +45,7 @@ Every rule states the thing to build. No rule is phrased as the negation of a pa
 ## 1 · Shell & navigation
 
 - **One header height** `[GATED]` — rail org row, page header and chat-panel header are the shared `h-14` constant, aligned on one line at the same y-origin, at every viewport and orientation. (§5g, C-1, ADR-187)
+- **Toggles live in the header** `[CANON]` — every segmented switch that swaps what a surface shows (Module Page toggles, Section tab strips, `/intelligence`, Second Brain, compiler output) renders inside that surface's `h-14` header row, never in the body, never as a second row (icon-only when it does not fit). View/List dropdowns are toolbar slots, not toggles. Not yet gated. (raw §5h, AP-184, TASK-061)
 - **macOS titlebar** `[GATED]` — on macOS the header row *is* the titlebar: no reserved strip, traffic-light gutter respected, workspace name exactly once.
 - **Closed left-nav** `[CANON]` — the rail carries ONLY profile/Organization control, Modules, Intelligence, Settings. Settings pinned last; the Modules region is the rail's only scroller. (ADR-180/AP-103)
 - **Right-click a Module** `[NEW]` — opens a context menu with **Hide** and **Rename**, the same gesture that opens the column menu on a table header. Hidden Modules are restored from a rail **View options** entry, never lost. Hiding is presentation only: it never uninstalls, never alters permissions or plane, never filters a Module out of Intelligence or search. (TASK-081)

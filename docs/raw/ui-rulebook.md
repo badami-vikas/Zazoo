@@ -273,6 +273,43 @@ Binding rules:
 - **On macOS that header row IS the titlebar** (revised 2026-08-10, supersedes ADR-187's separate strip). The rail's organization row carries the Tauri drag region and pads past the traffic-light gutter, so traffic lights, workspace name, the centre toggle and the chat panel's Agent name all land on one line. There is no reserved band above the shell and the workspace name appears exactly once.
 - **The Zazoo companion is present on every launch of the Bridge app**, on every route, independent of onboarding state (user directive 2026-08-05, restated 2026-08-10). Presence is not gated on organization confirmation or on onboarding completion; only what the companion may *do* is gated (AP-021 — before setup it greets and drives onboarding rather than offering actions that cannot execute).
 
+## 5h. Toggle options always live in the header (user directive 2026-08-30, AP-184)
+
+**Rule, generic and unconditional: a toggle renders inside its surface's header row, never in the
+surface's body.** §5's Shell paragraph already says this for the Module page toggle ("Toggle strip at
+the very top of the module header"); it is restated as its own numbered rule because that phrasing
+read as one layout note about one strip, and every other toggle in the product was left to decide for
+itself. It binds *every* segmented switch/tab strip that swaps what a surface shows, at every level:
+
+- Module Page toggles (Signals / People / Communities, Deals / Sources / Theses) → the page `Header`
+  (`h-14`, `Header.tsx`), which is where they already are.
+- Section-level tab strips (Intelligence Section's Agents · Automations · Integrations, the
+  `/intelligence` route's tabs, Second Brain's tabs) → that Section's or route's own header row, not a
+  free-floating strip above its content.
+- Anything the compiler generates that swaps sibling content the same way. The compiler has no
+  separate allowance.
+
+Consequences:
+
+- **The header is where a user looks for "what am I switching between".** One resident position
+  across every surface is the whole point (Jakob's Law, C-28); a toggle floating in the body moves
+  the answer per page.
+- **A toggle is never a second row of its own.** If it does not fit at label width it goes icon-only
+  inside the same `h-14` (existing `Header.tsx` behaviour) — it never wraps and never earns a new row.
+- **This does not promote non-toggles into the header.** The toolbar (List · View · Search · Filter ·
+  Custom actions · ⋮ · Insights chevron) stays the row BELOW the header. View and List dropdowns
+  switch render mode / row subset of ONE dataset, so they are toolbar slots, not toggles.
+- **A single-item "toggle" is not a toggle** and renders as the plain centered Title-case name — still
+  in the header.
+
+**Enforcement is NOT claimed here.** `ui-conformance.test.mjs` (§10) does not yet assert toggle
+placement. Adding the assertion (a page that renders a segmented switch outside its header row fails)
+belongs to the TASK-061 burn-down with the pre-existing divergences in the same ratchet.
+
+Provenance: written 2026-08-30 on branch `claude/toggle-header-module-creation-be53d6` against the
+since-retired `ui-architecture-rules-2026-07.md`; ported into this rulebook 2026-09-04 when the
+branch was merged.
+
 ## 5a. Standard column + toggle context menus
 
 Right-click behavior is compiler-owned and consistent across every Module. DealPilot is an example, not a special implementation.
