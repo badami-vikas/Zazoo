@@ -299,21 +299,21 @@ test("chiefOfStaff.converse: tier routing ignores registration order and persist
   }
 });
 
-test("chiefOfStaff.converse: cloud providers are never a fallback for a turn without explicit public-data egress", async () => {
+// ADR-256/AP-166 retired the old rule here ("cloud providers are never a
+// fallback without explicit public-data egress"): models are plane-free, so a
+// remote provider serves intent classification directly.
+test("chiefOfStaff.converse: a remote provider serves intent classification directly (ADR-256)", async () => {
   const cheap = new TierTrackingModel("cheap-cloud", ["cheap"], "jobpilot");
   const wiring = await buildWiring({ modelProviders: [cheap] });
   try {
     const caller = await makeCaller(wiring);
-    await assert.rejects(
-      () =>
-        caller.chiefOfStaff.converse({
-          organizationId: PILOT_ORGANIZATION,
-          message: "check my job applications PRIVATE_SENTINEL",
-          chainDepth: 0,
-        }),
-      /LOCAL-plane/,
-    );
-    assert.equal(cheap.calls.length, 0);
+    const result = await caller.chiefOfStaff.converse({
+      organizationId: PILOT_ORGANIZATION,
+      message: "check my job applications PRIVATE_SENTINEL",
+      chainDepth: 0,
+    });
+    assert.ok(result.decision);
+    assert.equal(cheap.calls.length, 1);
   } finally {
     await wiring.close();
   }

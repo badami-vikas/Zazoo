@@ -18,7 +18,7 @@
     "test": "node --test-concurrency=4 --test-reporter=dot --test dist/test/*.test.js",
     "test:coverage": "node --experimental-test-coverage --test-coverage-include='dist/src/**' --test-coverage-exclude='**/test/**' --test-coverage-lines=60 --test-concurrency=4 --test dist/test/*.test.js",
     "typecheck": "tsc -b --noEmit false",
-    "dev": "node --watch dist/src/server.js",
+    "dev": "node --watch --env-file-if-exists=.env dist/src/server.js",
     "start": "node dist/src/server.js",
     "publish-builtins": "node dist/src/scripts/publish-builtins.js"
   },

@@ -243,7 +243,10 @@ test("indexer embeds prose only — learning machinery is never indexed", async 
   }
 });
 
-test("HARD INVARIANT: a Cloud-Plane thread gets no Local-Plane memory even with fusion on", async () => {
+// ADR-256/AP-166 retired the old HARD INVARIANT here ("a Cloud-Plane thread
+// gets no Local-Plane memory"): planes are storage residency only, so memory
+// fusion now rides EVERY thread identically — this asserts the new canon.
+test("memory fusion fills the memory slot on synced (cloud-stored) threads exactly like private ones (ADR-256)", async () => {
   const localModel = new FusionChatModel();
   const cloudModel = new FusionChatModel("cloud");
   const wiring = await buildWiring({
@@ -269,9 +272,8 @@ test("HARD INVARIANT: a Cloud-Plane thread gets no Local-Plane memory even with 
       threadId: thread.id,
       message: "what do I think about hvac businesses in texas",
     });
-    assert.equal(prepared.disclosure.memory.length, 0);
-    assert.doesNotMatch(prepared.disclosure.system, /texas hill country/);
-    assert.doesNotMatch(prepared.disclosure.system, /quarterly paperwork/);
+    assert.ok(prepared.disclosure.memory.length > 0);
+    assert.match(prepared.disclosure.system, /texas hill country/);
   } finally {
     await wiring.close();
   }

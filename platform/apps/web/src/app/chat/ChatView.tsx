@@ -173,16 +173,16 @@ function ModelSetup({
 }) {
   if (!state) return null;
   const cloudNote = state.cloud.available
-    ? " The Model dropdown above can switch a new Chat to Groq (Cloud) instead."
+    ? null
     : state.cloud.restartRequired
-      ? " A Groq key is saved in Settings → API Keys but needs Bridge restarted to activate."
+      ? " A model API key is saved in Settings → API Keys but needs Bridge restarted to activate."
       : (
         <>
           {" "}Or{" "}
           <Link to="/settings?section=api" className="underline">
-            add a Groq API key in Settings
+            add a model API key in Settings
           </Link>
-          {" "}to chat over the Cloud Plane instead.
+          {" "}(OpenRouter or Groq) to chat without a download.
         </>
       );
   if (state.local.state === "ready") return null;
@@ -674,8 +674,10 @@ export function ChatView({
     ? askSessions.find((entry) => entry.id === openSession.id) ?? null
     : null;
   const openHistory = openRun ?? openAsk;
-  const localThread = chat.view?.thread.plane === "local";
-  const modelReady = !localThread || chat.model?.local.state === "ready";
+  // ADR-256/AP-166: models are plane-free — the composer is ready when ANY
+  // model can answer (a remote API model, or the managed local one).
+  const modelReady =
+    chat.model?.cloud.available || chat.model?.local.state === "ready";
 
   return (
     <div className={`flex min-h-0 flex-1 flex-col ${className}`}>
@@ -761,7 +763,9 @@ export function ChatView({
       {openRun && <ResearchSessionView run={openRun} compact={compact} />}
       {openAsk && <AskSessionView session={openAsk} compact={compact} />}
 
-      {!openHistory && localThread && (
+      {/* The managed local model is now the offline fallback — surface its
+          setup only when no remote API model can answer. */}
+      {!openHistory && !chat.model?.cloud.available && (
         <ModelSetup
           state={chat.model}
           onInstall={() => void chat.installModel()}
@@ -792,11 +796,9 @@ export function ChatView({
           <div className="rounded-md border border-dashed p-4 text-sm text-[var(--color-navy-mid)]">
             {modelReady
               ? "This Chat is empty. Ask a question, or ask to create a Task for governed review."
-              : chat.model?.cloud.available
-                ? "Set up the local model below, or pick Cloud in the model menu to chat with Groq instead."
-                : chat.model?.cloud.restartRequired
-                  ? "Set up the local model below. A Groq key is saved in Settings but needs Bridge restarted before Cloud chat is available."
-                  : "Set up the local model below to start a private Chat, or add a Groq API key in Settings → API Keys to chat over the Cloud Plane instead."}
+              : chat.model?.cloud.restartRequired
+                ? "A model API key is saved in Settings but needs Bridge restarted before chat is available. Or set up the local model below."
+                : "Add a model API key in Settings → API Keys, or set up the local model below."}
           </div>
         )}
         {chat.view?.turns.map((turn) => (
@@ -944,9 +946,7 @@ export function ChatView({
             placeholder={
               modelReady
                 ? "Ask Chief of Staff…"
-                : chat.model?.cloud.available
-                  ? "Set up the local model, or pick Cloud in the model menu"
-                  : "Set up the local model first"
+                : "Add a model API key in Settings, or set up the local model"
             }
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
@@ -972,27 +972,22 @@ export function ChatView({
               >
                 <Paperclip className={compact ? "size-3.5" : "size-4"} />
               </Button>
+              {/* ADR-256/AP-166: this picker chooses where the Chat's turns
+                  are STORED (private on this device vs synced), never which
+                  model answers — models are plane-free and the same
+                  preference order serves every thread. */}
               <select
-                aria-label="Chat model"
+                aria-label="Chat storage"
                 className="min-w-0 max-w-[9.5rem] truncate rounded-full border bg-background px-2 py-1 text-xs disabled:opacity-50"
                 value={chat.view?.thread.plane ?? "local"}
                 disabled={chat.sending}
                 onChange={(event) => {
                   void chat.newChat(event.target.value === "cloud" ? "cloud" : "local");
                 }}
-                title="Starts a new Chat on the selected model"
+                title="Starts a new Chat stored in the selected place — the model is the same either way"
               >
-                <option value="local">Local model</option>
-                {chat.model?.cloud.available ? (
-                  <option value="cloud">Cloud · {chat.model.cloud.providerId}</option>
-                ) : chat.model?.cloud.restartRequired ? (
-                  // The key is saved (Settings → API Keys) but this process's
-                  // router snapshot predates it (ADR-181) — say so rather
-                  // than silently omitting Cloud as if nothing were set up.
-                  <option value="cloud" disabled>Cloud — restart to activate</option>
-                ) : chat.model?.cloud.configured === false ? (
-                  <option value="cloud" disabled>Cloud — add a key in Settings</option>
-                ) : null}
+                <option value="local">Private · this device</option>
+                <option value="cloud">Synced · cloud</option>
               </select>
             </div>
             <div className="flex items-center gap-1">

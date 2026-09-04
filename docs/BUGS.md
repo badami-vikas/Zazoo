@@ -2981,3 +2981,20 @@ What each answer means:
   surfaces; its author should pick the replacement term.
 - **Consequence**: any session running the full gate on `main` will see red that is not theirs. Check the finding paths before
   attributing a `check:vocabulary` failure to your own change.
+
+## OPEN 2026-08-22 — 5 pre-existing `@bridge/api` test failures on `main` (found during ADR-256 verification)
+
+- **What is wrong**: the full `@bridge/api` suite is red on `main` independent of the ADR-256 plane-free-models change. Verified by
+  running the same built test files in an untouched `main`-based worktree (`academics-canvas-integration-09beb4`) — identical failures:
+  1. `procedure-classification.test`: 16 procedures neither PUBLIC_CLOUD nor LOCAL_ONLY — all `accounting.*`, `d2c.*`, `d2cNotes.*`,
+     `d2cResearch.*`, `jobpilot.onboarding.*` (arrived with the Accounting/D2C module merges; `apps/api/src/deployment-boundary.ts`
+     was never updated).
+  2. `agent-orchestration.test` ×2: `test()` nested INSIDE another `test()` body without await ("action.propose handles null inputs…"
+     inside "…fails closed even with a valid goalTaskRef", test/agent-orchestration.test.ts:589) — the parent finishes first, the
+     child is cancelled, both report ✖. Structural, fails every run.
+  3. `modules.test` ×2: same nested-test structure ("Commons attachments…" under "modules.promote: auto-demotes…").
+- **Also observed once, not reproducible in isolation**: `chat-model-manager.test` "managed model install persists failure and permits
+  a verified retry" flaked (`'failed' !== 'downloading'`) under `--test-concurrency=4`; passes alone.
+- **Not fixed here, deliberately**: classification wants a per-procedure residency decision by the Accounting/D2C owner; the nested
+  tests belong to their suites' authors. ADR-256's own suites (chat, retrieval-fusion, chief-of-staff, models) are green.
+- **Consequence**: a full-suite run shows ~5 reds that are not yours; check this list before attributing.

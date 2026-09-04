@@ -3459,25 +3459,15 @@ const MODEL_BINDING_BY_TIER: Readonly<Record<ModelTier, ModelBinding>> = {
   },
 };
 
-interface PublicCloudModelEgress {
-  dataScope: "public";
-  userConfirmed: true;
-}
-
-function resolveConfiguredModel(
-  models: Wiring["models"],
-  tier: ModelTier,
-  cloudEgress?: PublicCloudModelEgress,
-) {
+function resolveConfiguredModel(models: Wiring["models"], tier: ModelTier) {
   const configured = [...models.providers().values()].filter(
     (provider) =>
       provider.id !== "echo" && provider.routingHealth() !== "unavailable",
   );
   if (configured.length === 0) return undefined;
-  const binding = cloudEgress
-    ? MODEL_BINDING_BY_TIER[tier]
-    : { ...MODEL_BINDING_BY_TIER[tier], planeDefault: "local" as const };
-  return createModelRouter(configured).resolve(binding, tier);
+  // ADR-256: the binding resolves as declared (cloud-preferring with local
+  // fallback) — no per-call egress confirmation forces it local anymore.
+  return createModelRouter(configured).resolve(MODEL_BINDING_BY_TIER[tier], tier);
 }
 
 async function appendIntentModelReceipt(
@@ -3543,7 +3533,6 @@ async function authorizeModelCompletion(
   model: ModelProvider,
   purpose: string,
   tier: ModelTier,
-  cloudEgress?: PublicCloudModelEgress,
 ): Promise<{
   actor: Actor;
   onBehalfOf?: OnBehalfOf;
@@ -3554,32 +3543,16 @@ async function authorizeModelCompletion(
   dataScope: DataScope;
   cloudEgressConfirmed: boolean;
 }> {
-  const cloud = model.plane === "cloud";
-  let actor: Actor;
-  let onBehalfOf: OnBehalfOf | undefined;
-  let requestedDataScope: DataScope;
-  if (cloud) {
-    if (!cloudEgress?.userConfirmed || cloudEgress.dataScope !== "public") {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "cloud model execution requires an explicit declaration that this turn contains only public data",
-      });
-    }
-    if (ctx.identity.type !== "user" && ctx.identity.type !== "team") {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "cloud model execution requires an attributable user or team principal",
-      });
-    }
-    requestedDataScope = cloudEgress.dataScope;
-    actor = { type: "agent", id: EGRESS_AGENT, plane: "cloud" };
-    onBehalfOf = { type: ctx.identity.type, id: ctx.identity.id };
-  } else {
-    requestedDataScope = "all";
-    actor = { ...ctx.identity, plane: "local" };
-  }
+  // ADR-256/AP-166: models are plane-free — every completion is authorized
+  // uniformly for the attributable requesting principal. Planes remain a DATA
+  // residency concept (storage/sync); the per-turn cloud-egress declaration
+  // is gone. The kernel policy keeps the one data-protective rule (no
+  // untrusted_external taint into a remote provider).
+  const onBehalfOf: OnBehalfOf | undefined = undefined;
+  const requestedDataScope: DataScope = "all";
+  const actor: Actor = { ...ctx.identity, plane: "local" };
   const action: Action = "read";
-  const resourceType: ResourceType = cloud ? "external:fetch" : "module";
+  const resourceType: ResourceType = "module";
   const authority = await resolveAuthority(
     {
       organizationId,
@@ -3609,7 +3582,6 @@ async function authorizeModelCompletion(
     providerPlane: model.plane,
     tier,
     dataScope: requestedDataScope,
-    cloudEgressConfirmed: cloud,
     promptStored: false,
   };
   const policyResults = await ctx.wiring.policies.evaluate({
@@ -3639,7 +3611,7 @@ async function authorizeModelCompletion(
     authority,
     policyResults,
     dataScope: authority.dataScope,
-    cloudEgressConfirmed: cloud,
+    cloudEgressConfirmed: false,
   };
 }
 
@@ -3648,7 +3620,6 @@ function createGovernedModelProvider(
   organizationId: string,
   model: ModelProvider,
   purpose: string,
-  cloudEgress?: PublicCloudModelEgress,
 ): { provider: ModelProvider; receiptLedgerId: () => string | null } {
   let receiptLedgerId: string | null = null;
   const provider: ModelProvider = {
@@ -3666,7 +3637,6 @@ function createGovernedModelProvider(
         model,
         purpose,
         request.tier,
-        cloudEgress,
       );
       const completion = await model.complete(request);
       assertModelOutputTaint(request, completion);
@@ -4884,20 +4854,35 @@ function withHumanInputTaint(
   };
 }
 
-function resolveChatModel(wiring: Wiring, plane: "local" | "cloud"): ModelProvider | null {
+/**
+ * ADR-256/AP-166: one plane-free Chat/Avatar model preference — OpenRouter
+ * (Ox Alpha) → Groq → Anthropic → managed local llama → Ollama. Planes are a
+ * data-residency concept (storage/sync) and never pick the model.
+ * `remoteOnly` exists for the Settings/status surface, which reports whether
+ * a remote API model is configured separately from the managed local runtime.
+ */
+const CHAT_MODEL_PREFERENCE = [
+  "openrouter",
+  "groq",
+  "anthropic",
+  MANAGED_LLAMA_PROVIDER_ID,
+  "ollama",
+];
+
+function resolveChatModel(
+  wiring: Wiring,
+  opts?: { remoteOnly?: boolean },
+): ModelProvider | null {
   const candidates = [...wiring.models.providers().values()]
     .filter((provider) => provider.id !== "echo")
-    .filter((provider) => provider.plane === plane)
+    .filter((provider) => !opts?.remoteOnly || provider.plane === "cloud")
     .filter((provider) => provider.tiers.includes(CHAT_MODEL_TIER))
     .sort((left, right) => {
-      const localOrder = [MANAGED_LLAMA_PROVIDER_ID, "ollama"];
-      if (plane === "local") {
-        const leftIndex = localOrder.indexOf(left.id);
-        const rightIndex = localOrder.indexOf(right.id);
-        const leftRank = leftIndex === -1 ? localOrder.length : leftIndex;
-        const rightRank = rightIndex === -1 ? localOrder.length : rightIndex;
-        if (leftRank !== rightRank) return leftRank - rightRank;
-      }
+      const leftIndex = CHAT_MODEL_PREFERENCE.indexOf(left.id);
+      const rightIndex = CHAT_MODEL_PREFERENCE.indexOf(right.id);
+      const leftRank = leftIndex === -1 ? CHAT_MODEL_PREFERENCE.length : leftIndex;
+      const rightRank = rightIndex === -1 ? CHAT_MODEL_PREFERENCE.length : rightIndex;
+      if (leftRank !== rightRank) return leftRank - rightRank;
       return left.id.localeCompare(right.id);
     });
   return candidates[0] ?? null;
@@ -4987,26 +4972,25 @@ async function assembleChatCompletion(
       taintLabel: turn.taintLabel,
     }));
 
-  const isCloud = provider.plane === "cloud";
-  const profileRow = isCloud
-    ? null
-    : await ctx.wiring.onboardingProfileStore.get(thread.organizationId);
+  // ADR-256/AP-166: models are plane-free — persona, task creation, memory
+  // fusion, and learned preferences ride EVERY turn regardless of which
+  // provider answers it. Planes stay a storage/sync concept only.
+  const profileRow = await ctx.wiring.onboardingProfileStore.get(thread.organizationId);
   const profile = profileRow ? profileFromRow(profileRow) : undefined;
   const persona = buildChiefOfStaffPersona(
     profile ?? { organizationId: thread.organizationId, source: "onboarding" },
   );
-  const canCreateTask = !isCloud &&
-    await chatCanCreateTask(ctx.wiring, thread.organizationId);
+  const canCreateTask = await chatCanCreateTask(ctx.wiring, thread.organizationId);
   const responseSchema = canCreateTask
     ? CHAT_ASSISTANT_RESPONSE_SCHEMA
     : provider.id === MANAGED_LLAMA_PROVIDER_ID
       ? CHAT_LLAMA_PUBLIC_RESPONSE_SCHEMA
       : CHAT_PUBLIC_RESPONSE_SCHEMA;
 
-  // LA5 retrieval fusion (flight-gated, Local Plane only): the memory slot
-  // is filled by structured+vector+graph RRF fusion instead of the naive
-  // newest-8 slice. Flight off → the pre-fusion behavior below, unchanged.
-  const fusion = !isCloud && ctx.wiring.retrievalFusionEnabled
+  // LA5 retrieval fusion (flight-gated): the memory slot is filled by
+  // structured+vector+graph RRF fusion instead of the naive newest-8 slice.
+  // Flight off → the pre-fusion behavior below, unchanged.
+  const fusion = ctx.wiring.retrievalFusionEnabled
     ? await fusedChatMemory({
         memoryStore: ctx.wiring.memoryStore,
         vectorIndex: ctx.wiring.vectorIndex,
@@ -5020,7 +5004,7 @@ async function assembleChatCompletion(
         ...(ctx.wiring.semanticEmbedder ? { embedder: ctx.wiring.semanticEmbedder } : {}),
       })
     : null;
-  const memoryRows = isCloud || fusion
+  const memoryRows = fusion
     ? []
     : await ctx.wiring.memoryStore.retrieve(
         { limit: 8 },
@@ -5044,10 +5028,9 @@ async function assembleChatCompletion(
   // TASK-032 prototype-test clause "accepting mints one preference whose
   // statement reaches projectToSystemPrompt output" — accepted preferences
   // (the ONLY rows acceptSuggestion mints, Human-gated) project into the
-  // run-context memory slot. Flight-gated and Local-Plane only: the flight
-  // off means learned preferences influence nothing, and the cloud consent
-  // boundary never sees them.
-  const learnedPreferences = isCloud || !ctx.wiring.learningObservationEnabled
+  // run-context memory slot. Flight-gated: the flight off means learned
+  // preferences influence nothing.
+  const learnedPreferences = !ctx.wiring.learningObservationEnabled
     ? []
     : (await retrieveLearnedPreferences(
         ctx.wiring.memoryStore,
@@ -6304,7 +6287,7 @@ export const appRouter = t.router({
             ctx.identity.id,
           );
           const local = await ctx.wiring.managedModel.status();
-          const cloud = resolveChatModel(ctx.wiring, "cloud");
+          const cloud = resolveChatModel(ctx.wiring, { remoteOnly: true });
           // Reuse ModelProviderKeyStore.list's own configured/active bits
           // (ADR-181/AP-104) rather than re-deriving "is a key saved" here —
           // this is the same read Settings -> API Keys shows, just folded
@@ -6537,7 +6520,7 @@ export const appRouter = t.router({
               message: "Cloud consent is available only for a public Cloud Plane thread",
             });
           }
-          const provider = resolveChatModel(ctx.wiring, "cloud");
+          const provider = resolveChatModel(ctx.wiring, { remoteOnly: true });
           if (!provider) {
             throw new TRPCError({
               code: "PRECONDITION_FAILED",
@@ -6748,30 +6731,22 @@ export const appRouter = t.router({
           const controller = new AbortController();
           chatTurnAbortControllers.set(assistantTurnId, controller);
           try {
-            const provider = resolveChatModel(ctx.wiring, thread.plane);
+            // ADR-256/AP-166: one plane-free model preference for every turn.
+            // The thread's plane decides where turns are STORED, never which
+            // model answers; the per-turn cloud grant is retired.
+            const provider = resolveChatModel(ctx.wiring);
             if (!provider) {
               throw new TRPCError({
                 code: "PRECONDITION_FAILED",
-                message: thread.plane === "local"
-                  ? "No local model provider is configured"
-                  : "No authorized cloud model provider is configured",
+                message: "No model provider is configured",
               });
             }
-            if (thread.plane === "local") {
+            if (provider.id === MANAGED_LLAMA_PROVIDER_ID) {
               const status = await ctx.wiring.managedModel.status();
-              if (
-                provider.id === MANAGED_LLAMA_PROVIDER_ID &&
-                status.state !== "ready"
-              ) {
+              if (status.state !== "ready") {
                 throw new TRPCError({
                   code: "PRECONDITION_FAILED",
                   message: `The local model is ${status.state}; finish setup before sending`,
-                });
-              }
-              if (input.cloudGrantId) {
-                throw new TRPCError({
-                  code: "BAD_REQUEST",
-                  message: "A cloud grant cannot be used for a Local Plane thread",
                 });
               }
             }
@@ -6784,29 +6759,11 @@ export const appRouter = t.router({
               provider,
               [userTurnId, assistantTurnId],
             );
-            let cloudEgress: PublicCloudModelEgress | undefined;
-            if (thread.plane === "cloud") {
-              if (!input.cloudGrantId) {
-                throw new TRPCError({
-                  code: "PRECONDITION_FAILED",
-                  message: "This public cloud turn needs fresh exact-context consent",
-                });
-              }
-              await ctx.wiring.chatStore.consumeCloudGrant(scope, {
-                id: input.cloudGrantId,
-                threadId: thread.id,
-                contextDigest: prepared.contextDigest,
-                providerId: provider.id,
-                modelTier: CHAT_MODEL_TIER,
-              });
-              cloudEgress = { dataScope: "public", userConfirmed: true };
-            }
             const governed = createGovernedModelProvider(
               ctx,
               thread.organizationId,
               provider,
               "governed_chat_turn",
-              cloudEgress,
             );
             const completion = await governed.provider.complete({
               ...prepared.request,
@@ -6828,7 +6785,6 @@ export const appRouter = t.router({
             try {
               envelope = parseChatAssistantEnvelope(completion.text);
             } catch (parseError) {
-              if (thread.plane === "cloud") throw parseError;
               const repair = createGovernedModelProvider(
                 ctx,
                 thread.organizationId,
@@ -20668,18 +20624,13 @@ export const appRouter = t.router({
       // FOUNDATIONAL_AGENTS' registry).
       const skillMention = parseSkillMention(input.message);
       if (skillMention.skill === "communications") {
-        const configuredModel = resolveConfiguredModel(
-          ctx.wiring.models,
-          "default",
-          input.cloudModelEgress,
-        );
+        const configuredModel = resolveConfiguredModel(ctx.wiring.models, "default");
         const governedModel = configuredModel
           ? createGovernedModelProvider(
               ctx,
               input.organizationId,
               configuredModel,
               "communications_draft",
-              input.cloudModelEgress,
             )
           : undefined;
         // AI Harness K0 (ADR-211): the Communications turn assembles a real
@@ -20740,18 +20691,13 @@ export const appRouter = t.router({
       const { agentId, rest } = parseMention(input.message);
       if (agentId) {
         const agent = findFoundationalAgent(agentId);
-        const configuredModel = resolveConfiguredModel(
-          ctx.wiring.models,
-          "reasoning",
-          input.cloudModelEgress,
-        );
+        const configuredModel = resolveConfiguredModel(ctx.wiring.models, "reasoning");
         const governedModel = configuredModel
           ? createGovernedModelProvider(
               ctx,
               input.organizationId,
               configuredModel,
               `foundational_agent:${agentId}`,
-              input.cloudModelEgress,
             )
           : undefined;
 
@@ -20841,11 +20787,7 @@ export const appRouter = t.router({
       // In-memory mode exposes only the deterministic echo adapter, which is not
       // a classifier. A configured deployment resolves the explicit cheap tier;
       // no provider is ever selected by registration position.
-      const configuredModel = resolveConfiguredModel(
-        ctx.wiring.models,
-        "cheap",
-        input.cloudModelEgress,
-      );
+      const configuredModel = resolveConfiguredModel(ctx.wiring.models, "cheap");
       const governedModel =
         chainOk && configuredModel
           ? createGovernedModelProvider(
@@ -20853,7 +20795,6 @@ export const appRouter = t.router({
               input.organizationId,
               configuredModel,
               "intent_classification",
-              input.cloudModelEgress,
             )
           : undefined;
 

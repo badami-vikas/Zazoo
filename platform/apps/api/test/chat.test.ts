@@ -154,7 +154,7 @@ test("Chat threads are deterministic and exact send retries do not rerun the mod
   });
 });
 
-test("Chat fails visibly when no eligible local model is configured", async () => {
+test("Chat fails visibly when no eligible model is configured", async () => {
   await withChatWiring([new EchoModelProvider()], async (wiring) => {
     const caller = makeCaller(wiring, 33);
     const { thread } = await caller.chat.thread.create({
@@ -170,7 +170,7 @@ test("Chat fails visibly when no eligible local model is configured", async () =
         clientRequestId: "model-unavailable-turn",
         message: "Do not fake an answer.",
       }),
-      /No local model provider is configured/,
+      /No model provider is configured/,
     );
     const failed = await caller.chat.thread.get({
       organizationId: PILOT_ORGANIZATION,
@@ -378,7 +378,7 @@ test("Chat reconciles a stale in-flight turn after an interrupted API process", 
   });
 });
 
-test("Cloud Chat requires fresh exact-context consent and cannot replay a grant", async () => {
+test("Chat sends directly on synced threads and prefers the same model everywhere — the per-turn grant is retired (ADR-256)", async () => {
   const local = new ChatModel(
     "local",
     () => JSON.stringify({ kind: "answer", text: "Local support." }),
@@ -389,85 +389,38 @@ test("Cloud Chat requires fresh exact-context consent and cannot replay a grant"
   );
   await withChatWiring([local, cloud], async (wiring) => {
     const caller = makeCaller(wiring, 27);
+    // Synced (cloud-STORED) thread: sends go straight through — no
+    // prepareCloud, no grant, no consent interception.
     const { thread } = await caller.chat.thread.create({
       organizationId: PILOT_ORGANIZATION,
       plane: "cloud",
       clientRequestId: "public",
     });
-    await assert.rejects(
-      caller.chat.turn.send({
-        organizationId: PILOT_ORGANIZATION,
-        threadId: thread.id,
-        clientRequestId: "missing-consent",
-        message: "Do not send without consent.",
-      }),
-      /fresh exact-context consent/,
-    );
-    assert.equal(cloud.calls.length, 0);
-    const prepared = await caller.chat.turn.prepareCloud({
-      organizationId: PILOT_ORGANIZATION,
-      threadId: thread.id,
-      message: "This information is public.",
-      surface: { kind: "chief_of_staff_page" },
-    });
-    assert.equal(prepared.disclosure.memory.length, 0);
-    assert.equal(prepared.disclosure.currentMessage, "This information is public.");
-    assert.equal(prepared.disclosure.providerId, cloud.id);
-    assert.ok(prepared.disclosure.system.includes("Output contract"));
-    assert.ok(
-      prepared.disclosure.history.some(
-        (entry) => entry.content === "Do not send without consent.",
-      ),
-    );
-
-    await assert.rejects(
-      caller.chat.turn.send({
-        organizationId: PILOT_ORGANIZATION,
-        threadId: thread.id,
-        clientRequestId: "wrong-context",
-        message: "Different public information.",
-        cloudGrantId: prepared.grantId,
-      }),
-      /exact prepared context/,
-    );
-    assert.equal(cloud.calls.length, 0);
-
-    const refreshed = await caller.chat.turn.prepareCloud({
-      organizationId: PILOT_ORGANIZATION,
-      threadId: thread.id,
-      message: "This information is public.",
-    });
     const sent = await caller.chat.turn.send({
       organizationId: PILOT_ORGANIZATION,
       threadId: thread.id,
-      clientRequestId: "authorized-context",
-      message: "This information is public.",
-      cloudGrantId: refreshed.grantId,
+      clientRequestId: "direct-send",
+      message: "Send without any grant.",
     });
     assert.equal(sent.turns.at(-1)?.content, "Public answer.");
     assert.equal(cloud.calls.length, 1);
-    const publicSchema = cloud.calls[0]?.responseFormat?.schema as
-      | Record<string, unknown>
-      | undefined;
-    assert.equal(publicSchema?.["type"], "object");
-    assert.equal("oneOf" in (publicSchema ?? {}), false);
-    assert.equal(
-      (publicSchema?.["properties"] as { text?: { maxLength?: number } } | undefined)
-        ?.text?.maxLength,
-      2_000,
-    );
 
-    await assert.rejects(
-      caller.chat.turn.send({
-        organizationId: PILOT_ORGANIZATION,
-        threadId: thread.id,
-        clientRequestId: "grant-replay",
-        message: "This information is public.",
-        cloudGrantId: refreshed.grantId,
-      }),
-      /consumed/,
-    );
-    assert.equal(cloud.calls.length, 1);
+    // Private (locally STORED) thread: the SAME plane-free preference picks
+    // the same provider — storage residency never selects the model.
+    const { thread: privateThread } = await caller.chat.thread.create({
+      organizationId: PILOT_ORGANIZATION,
+      plane: "local",
+      clientRequestId: "private",
+    });
+    const privateSent = await caller.chat.turn.send({
+      organizationId: PILOT_ORGANIZATION,
+      threadId: privateThread.id,
+      clientRequestId: "private-direct-send",
+      message: "Same model on a private thread.",
+    });
+    assert.equal(privateSent.turns.at(-1)?.content, "Public answer.");
+    assert.equal(cloud.calls.length, 2);
+    assert.equal(local.calls.length, 0);
   });
 });
 

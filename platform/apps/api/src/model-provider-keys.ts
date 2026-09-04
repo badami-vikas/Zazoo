@@ -46,6 +46,13 @@ export const MODEL_PROVIDER_KEY_SLOTS = [
     description:
       "Low-latency cloud inference (Cloud Plane). Used for intent classification and cheap/default tier completions.",
   },
+  {
+    id: "openrouter",
+    label: "OpenRouter",
+    envVar: "OPENROUTER_API_KEY",
+    description:
+      "OpenRouter (Cloud Plane), default model Ox Alpha. Preferred Chat/Avatar model; Groq is the fallback.",
+  },
 ] as const;
 
 export type ModelProviderKeyId = (typeof MODEL_PROVIDER_KEY_SLOTS)[number]["id"];

@@ -55,7 +55,7 @@ test("list reports existence, age, and activation — never the key or a mask of
     env: {},
     activeProviderIds: new Set<string>(),
   });
-  assert.equal(before.length, 1);
+  assert.equal(before.length, 2); // groq + openrouter slots
   assert.deepEqual(
     { configured: before[0]!.configured, active: before[0]!.active, env: before[0]!.fromEnvironment },
     { configured: false, active: false, env: false },

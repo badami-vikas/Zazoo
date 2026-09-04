@@ -244,6 +244,7 @@ import {
 import {
   AnthropicProvider,
   GroqProvider,
+  OpenRouterProvider,
   OllamaProvider,
   LlamaCppProvider,
   MANAGED_LLAMA_PROVIDER_ID,
@@ -4183,31 +4184,24 @@ const policies: PolicyFn[] = [
     const input = i.inputs as {
       providerPlane?: unknown;
       dataScope?: unknown;
-      cloudEgressConfirmed?: unknown;
     };
-    const cloudAllowed =
-      input.providerPlane === "cloud" &&
-      input.dataScope === "public" &&
-      input.cloudEgressConfirmed === true &&
-      i.actor.type === "agent" &&
-      i.actor.plane === "cloud" &&
-      i.resourceType === "external:fetch" &&
-      i.action === "read" &&
-      i.taint !== "untrusted_external";
-    const localAllowed =
-      input.providerPlane === "local" &&
+    // ADR-256/AP-166: models are plane-free — one uniform authorization for
+    // every provider, attributed to the requesting principal. The single
+    // surviving plane-shaped rule is DATA protection, not model routing:
+    // quarantined untrusted_external content never drives a remote model call.
+    const allowed =
       input.dataScope === "all" &&
       (i.actor.plane ?? "local") === "local" &&
       i.resourceType === "module" &&
-      i.action === "read";
+      i.action === "read" &&
+      !(input.providerPlane === "cloud" && i.taint === "untrusted_external");
     return {
       policyId: "pol-model-execution-plane",
       phase: "pre",
-      effect: cloudAllowed || localAllowed ? "allow" : "block",
-      reason:
-        cloudAllowed || localAllowed
-          ? "model execution matches its Authority-approved Plane and data scope"
-          : "model execution Plane, data scope, actor, or trust provenance is not permitted",
+      effect: allowed ? "allow" : "block",
+      reason: allowed
+        ? "model execution authorized for an attributable principal (ADR-256: models are plane-free)"
+        : "model execution actor, data scope, or trust provenance is not permitted",
     };
   },
   (i) =>
@@ -4686,6 +4680,7 @@ export function buildPersistentPorts(env: {
       new OllamaProvider(),
       ...(process.env.ANTHROPIC_API_KEY ? [new AnthropicProvider()] : []),
       ...(process.env.GROQ_API_KEY ? [new GroqProvider()] : []),
+      ...(process.env.OPENROUTER_API_KEY ? [new OpenRouterProvider()] : []),
     ],
     closeDb: close,
     verifyRlsPosture: () => assertRlsPosture(db, { env: process.env }),
@@ -5853,6 +5848,21 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   // published, so a deployment that never saved a key never prompts the OS
   // keyring. Test-injected provider lists are left alone.
   if (!options.modelProviders && !publicCloudOnly) {
+    // Env-configured cloud keys register in EVERY mode, not just persistent —
+    // .env.example promises "this environment variable still wins when it is
+    // set", and the vault loop below already yields to an id that is present
+    // (its `continue`), which is exactly that precedence. Before this, local
+    // mode honored only vault keys, so a desktop launched with
+    // OPENROUTER_API_KEY/GROQ_API_KEY in the environment silently ignored it.
+    if (process.env.ANTHROPIC_API_KEY && !modelProviders.some((p) => p.id === "anthropic")) {
+      modelProviders.push(new AnthropicProvider());
+    }
+    if (process.env.GROQ_API_KEY && !modelProviders.some((p) => p.id === "groq")) {
+      modelProviders.push(new GroqProvider());
+    }
+    if (process.env.OPENROUTER_API_KEY && !modelProviders.some((p) => p.id === "openrouter")) {
+      modelProviders.push(new OpenRouterProvider());
+    }
     let groqSavedKey: string | null = null;
     for (const slot of MODEL_PROVIDER_KEY_SLOTS) {
       if (modelProviders.some((provider) => provider.id === slot.id)) continue;
@@ -5871,6 +5881,9 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       if (slot.id === "groq") {
         modelProviders.push(new GroqProvider({ apiKey: savedKey }));
         groqSavedKey = savedKey;
+      }
+      if (slot.id === "openrouter") {
+        modelProviders.push(new OpenRouterProvider({ apiKey: savedKey }));
       }
     }
     // Sync the groq key to companion.json so the Rust companion binary can

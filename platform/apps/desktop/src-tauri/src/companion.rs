@@ -45,7 +45,7 @@ pub const COMPANION_PTT_EVENT: &str = "bridge:companion-ptt";
 pub(crate) const GROQ_BASE_URL: &str = "https://api.groq.com/openai/v1";
 /// Vision-capable Groq model for the screen-aware path. Overridable so a
 /// deprecated model id never requires a rebuild.
-const DEFAULT_VISION_MODEL: &str = "meta-llama/llama-4-scout-17b-16e-instruct";
+const DEFAULT_VISION_MODEL: &str = "qwen/qwen3.6-27b";
 /// Model ids Groq has retired. An override — a shell env var, or the
 /// `companion.json` this app wrote itself — outranks the default, so once one
 /// of these is pinned anywhere the screen-aware path 400s on every ask and
@@ -56,6 +56,10 @@ const RETIRED_VISION_MODELS: &[&str] = &[
     "llama-3.2-11b-vision-preview",
     "llama-3.2-90b-vision-preview",
     "llava-v1.5-7b-4096-preview",
+    // Groq deprecated the llama-4 multimodal pair 2026-06-17 (404
+    // model_not_found); qwen/qwen3.6-27b is the surviving vision model.
+    "meta-llama/llama-4-scout-17b-16e-instruct",
+    "meta-llama/llama-4-maverick-17b-128e-instruct",
 ];
 /// Text-only Groq model for the local-model-absent fallback path. Uses a
 /// widely available model so a standard free-tier key always works.
@@ -178,7 +182,7 @@ mod vision_model_tests {
             assert!(is_retired_vision_model(retired));
             assert!(is_retired_vision_model(&format!("  {retired} ")));
         }
-        assert!(!is_retired_vision_model("meta-llama/llama-4-scout-17b-16e-instruct"));
+        assert!(!is_retired_vision_model("qwen/qwen3.6-27b"));
     }
 }
 
