@@ -48,6 +48,13 @@
       "port": 5179
     },
     {
+      "name": "platform-web-clicky",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["node_modules/vite/bin/vite.js", "--port", "5181"],
+      "cwd": "platform/apps/web",
+      "port": 5181
+    },
+    {
       "name": "zazoo-oldplatform-preview",
       "runtimeExecutable": "node",
       "runtimeArgs": [

@@ -222,6 +222,9 @@ pub struct CompanionCapabilities {
     /// macOS `say` — local TTS.
     pub tts: bool,
     pub screen_permission: bool,
+    /// macOS Accessibility granted — required before the companion may move
+    /// the mouse or type (`act.rs`).
+    pub accessibility: bool,
 }
 
 #[tauri::command]
@@ -234,6 +237,7 @@ pub fn companion_capabilities(app: AppHandle) -> CompanionCapabilities {
         cloud_stt: has_key,
         tts: cfg!(target_os = "macos"),
         screen_permission: sensor_bridge::screen_permission_granted(),
+        accessibility: crate::providers::accessibility::ax_permission_status(),
     }
 }
 
@@ -498,6 +502,29 @@ fn draw_number(image: &mut image::RgbImage, x: i64, y: i64, number: usize, scale
 
 /// Overlay a numbered `cols x rows` grid. Cells are numbered row-major from
 /// 1, with the number drawn inside the cell's top-left corner.
+/// A thick red rectangle at the fractional `(x, y, w, h)` — the user's
+/// circled area, visible to the model on top of the grid.
+pub(crate) fn draw_focus_outline(image: &mut image::RgbImage, (fx, fy, fw, fh): (f64, f64, f64, f64)) {
+    let (w, h) = (image.width() as f64, image.height() as f64);
+    let x0 = (fx * w).clamp(0.0, w - 1.0) as u32;
+    let y0 = (fy * h).clamp(0.0, h - 1.0) as u32;
+    let x1 = ((fx + fw) * w).clamp(0.0, w - 1.0) as u32;
+    let y1 = ((fy + fh) * h).clamp(0.0, h - 1.0) as u32;
+    let red = image::Rgb([230u8, 30, 30]);
+    for t in 0..4u32 {
+        for x in x0..=x1 {
+            for y in [y0.saturating_add(t), y1.saturating_sub(t)] {
+                if y < image.height() { image.put_pixel(x, y, red); }
+            }
+        }
+        for y in y0..=y1 {
+            for x in [x0.saturating_add(t), x1.saturating_sub(t)] {
+                if x < image.width() { image.put_pixel(x, y, red); }
+            }
+        }
+    }
+}
+
 fn draw_numbered_grid(image: &mut image::RgbImage, cols: usize, rows: usize) {
     let (width, height) = (image.width() as i64, image.height() as i64);
     let line = (width.min(height) / 600).clamp(1, 3);
@@ -565,6 +592,18 @@ fn provider_jpeg(bytes: &[u8]) -> std::borrow::Cow<'_, [u8]> {
 
 /// Decode, downscale for the provider, draw the numbered grid, re-encode.
 pub(crate) fn gridded_jpeg(bytes: &[u8], cols: usize, rows: usize) -> Option<Vec<u8>> {
+    gridded_jpeg_with_focus(bytes, cols, rows, None)
+}
+
+/// As `gridded_jpeg`, plus an optional red outline around `focus`, given as
+/// a fraction of the frame (0..1 for x, y, width, height) so it survives the
+/// provider downscale.
+pub(crate) fn gridded_jpeg_with_focus(
+    bytes: &[u8],
+    cols: usize,
+    rows: usize,
+    focus: Option<(f64, f64, f64, f64)>,
+) -> Option<Vec<u8>> {
     let image = image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg).ok()?;
     let (width, height) = image::GenericImageView::dimensions(&image);
     let image = if width.max(height) > MAX_PROVIDER_EDGE {
@@ -578,6 +617,9 @@ pub(crate) fn gridded_jpeg(bytes: &[u8], cols: usize, rows: usize) -> Option<Vec
     };
     let mut rgb = image.to_rgb8();
     draw_numbered_grid(&mut rgb, cols, rows);
+    if let Some(f) = focus {
+        draw_focus_outline(&mut rgb, f);
+    }
     let mut out = Vec::new();
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 85)
         .encode_image(&rgb)
@@ -861,6 +903,20 @@ pub struct CompanionAskRequest {
     /// overlay panel. Never persisted here.
     #[serde(default)]
     pub history: Vec<HistoryTurn>,
+    /// The area the user circled on screen (logical monitor coordinates) —
+    /// drawn into the sent image as a red outline and named in the prompt,
+    /// so pointing coordinates stay in the full-frame pipeline.
+    #[serde(default)]
+    pub focus_region: Option<FocusRegion>,
+}
+
+#[derive(Deserialize, Clone, Copy, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FocusRegion {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
 }
 
 #[derive(Serialize)]
@@ -1343,7 +1399,18 @@ fn run_ask(
         // image against 8,000/minute). `unwrap_or_else`, not `unwrap_or` —
         // the fallback re-decodes and re-encodes the full screenshot, so an
         // eager argument would do that work on every ask for nothing.
-        let sent_image = gridded_jpeg(&capture.jpeg_bytes, COARSE_COLS, COARSE_ROWS)
+        // A circled area rides along as a red outline (fractions of the
+        // monitor, so the same numbers fit the downscaled provider image).
+        let focus = request.focus_region.and_then(|f| {
+            let (lw, lh) = monitor_logical_size(app, monitor_index)?;
+            (lw > 0.0 && lh > 0.0).then_some((f.x / lw, f.y / lh, f.width / lw, f.height / lh))
+        });
+        let question = if focus.is_some() {
+            format!("{question}\n\n(The user circled the area outlined in red on the screenshot — focus your answer on what is inside it.)")
+        } else {
+            question.clone()
+        };
+        let sent_image = gridded_jpeg_with_focus(&capture.jpeg_bytes, COARSE_COLS, COARSE_ROWS, focus)
             .unwrap_or_else(|| provider_jpeg(&capture.jpeg_bytes).into_owned());
         eprintln!(
             "[bridge-desktop] companion answer image: {} KiB with {COARSE_COLS}x{COARSE_ROWS} grid",
@@ -1551,6 +1618,13 @@ fn run_ask(
 /// main thread — Tao's monitor enumeration is not safe from worker threads
 /// on macOS. Bounded wait; `None` on any failure (callers degrade).
 pub(crate) fn monitor_logical_size(app: &AppHandle, index: usize) -> Option<(f64, f64)> {
+    monitor_logical_rect(app, index).map(|(_, _, w, h)| (w, h))
+}
+
+/// Logical `(x, y, width, height)` of the monitor at `index` — the origin is
+/// the same global top-left space the annotate window is positioned in and
+/// the actuator posts real pointer events in.
+pub(crate) fn monitor_logical_rect(app: &AppHandle, index: usize) -> Option<(f64, f64, f64, f64)> {
     let (sender, receiver) = std::sync::mpsc::channel();
     let handle = app.clone();
     app.run_on_main_thread(move || {
@@ -1558,6 +1632,8 @@ pub(crate) fn monitor_logical_size(app: &AppHandle, index: usize) -> Option<(f64
         let geometry = monitors.get(index).or_else(|| monitors.first()).map(|m| {
             let scale = m.scale_factor().max(f64::EPSILON);
             (
+                m.position().x as f64 / scale,
+                m.position().y as f64 / scale,
                 m.size().width as f64 / scale,
                 m.size().height as f64 / scale,
             )
@@ -1682,7 +1758,7 @@ pub(crate) fn schedule_marks_clear(app: &AppHandle) {
 // Local TTS (macOS `say`)
 // ---------------------------------------------------------------------------
 
-fn speak(app: &AppHandle, text: &str) {
+pub(crate) fn speak(app: &AppHandle, text: &str) {
     #[cfg(target_os = "macos")]
     {
         let state = app.state::<CompanionState>();
@@ -1748,6 +1824,51 @@ pub fn companion_stop_speaking(state: State<'_, CompanionState>) -> Result<(), C
 
 /// Open a macOS System Settings privacy panel (e.g. `Privacy_ScreenCapture`,
 /// `Privacy_Microphone`). No-op on non-macOS.
+/// Open an https URL in the user's default browser. `window.open` is inert
+/// inside the Tauri webview (WKWebView has no new-window handler here), so
+/// sign-in flows that must leave the app — Claude OAuth — route through the
+/// shell. https only; anything else is refused rather than handed to `open`.
+#[tauri::command]
+pub fn open_external_url(app: AppHandle, url: String) -> Result<(), CompanionError> {
+    let url = url.trim().to_string();
+    if !url.starts_with("https://") || url.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return Err(err("OPEN_URL_REFUSED", "only https URLs can be opened"));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // In-process NSWorkspace, on the main thread: the `open` CLI from a
+        // spawned child hit LaunchServices error -1712 (timeout) live.
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let target = url.clone();
+        app.run_on_main_thread(move || {
+            use objc2_app_kit::NSWorkspace;
+            use objc2_foundation::{NSString, NSURL};
+            let opened = NSURL::URLWithString(&NSString::from_str(&target))
+                .map(|ns_url| NSWorkspace::sharedWorkspace().openURL(&ns_url))
+                .unwrap_or(false);
+            let _ = sender.send(opened);
+        })
+        .map_err(|e| err("OPEN_URL_FAILED", e.to_string()))?;
+        match receiver.recv_timeout(Duration::from_secs(10)) {
+            Ok(true) => Ok(()),
+            Ok(false) => {
+                // Last resort: the CLI, detached.
+                std::process::Command::new("open")
+                    .arg(&url)
+                    .spawn()
+                    .map_err(|e| err("OPEN_URL_FAILED", e.to_string()))?;
+                Ok(())
+            }
+            Err(_) => Err(err("OPEN_URL_TIMEOUT", "the browser did not respond to the open request")),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Err(err("OPEN_URL_UNSUPPORTED", "opening a browser is macOS-only in this slice"))
+    }
+}
+
 #[tauri::command]
 pub fn open_privacy_settings(section: String) -> Result<(), CompanionError> {
     #[cfg(target_os = "macos")]

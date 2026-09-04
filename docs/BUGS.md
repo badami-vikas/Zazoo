@@ -3184,3 +3184,34 @@ The targeted run of the new file was clean, which is why this only surfaced in t
 the next rename does not spend the same twenty minutes.
 
 **Resolved 2026-09-03** for this instance: the stale file was deleted and the suite re-run.
+
+### 2026-09-03 — Do mode refused before its first step because the frontmost app was the one you pressed Do from (FIXED, TASK-095)
+
+User report (screenshot): allowlist "Edge", task "search nifty 50 closing price from yesterday and note
+it" → *"Could not finish · 0 steps — Claude is not in your allowed apps, so I stopped."*
+
+**Root cause:** the per-app allowlist was checked before every LOOK, and the first look happens with
+whatever app the user pressed Do from in front (here the Claude desktop app). The allowlist is meant to
+bound where the hands act, and step 1 is almost always switching INTO the allowed app.
+
+**Fix:** the check moved to just before a click/type/key/scroll lands; planning, `open_app`, `done`
+and `fail` are never gated. The refusal copy now says the app "is in front and is not in your allowed
+apps … stopped before touching it". Rust suite green; app relaunched with the fix.
+
+### 2026-09-03 — "Sign in with Claude" did not open a browser inside the desktop app (FIXED, TASK-090 surface)
+
+User report, verbatim: *"Sign in with claude is not triggering browser for sign in."*
+
+**Evidence:** the sidecar log shows every `chat.model.claudeSignIn.begin` returning 200 with a URL —
+six times in a row, the user pressing again — and no browser. `SettingsPage.begin` called
+`window.open(url, "_blank")`, which is inert in the Tauri WKWebView (no new-window handler), so the
+URL was silently dropped. The same call is fine in a plain browser, which is why it was never seen.
+
+**Fix, in two steps:** new shell command `open_external_url` (https only, refuses anything else);
+Settings uses it when `__TAURI_INTERNALS__` is present and falls back to `window.open` in a browser.
+The first cut spawned the `open` CLI, and the user's very next attempt logged
+`_LSOpenURLsWithCompletionHandler() failed with error -1712` (LaunchServices timeout from the child).
+Second cut opens in-process on the main thread via `NSWorkspace.openURL` (objc2, `NSURL` feature),
+with the CLI only as a fallback when NSWorkspace returns false. App relaunched 14:05; the user's
+retry is the confirmation.
+

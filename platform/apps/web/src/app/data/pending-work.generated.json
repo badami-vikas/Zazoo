@@ -3501,6 +3501,49 @@
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1564,
       "rank": 100
+    },
+    {
+      "id": "TASK-095",
+      "title": "TASK-095 — The Avatar has hands — Hey Clicky parity: a real pointer that glides, clicks, and types, behind explicit control consent",
+      "status": "in-progress",
+      "statusNote": "2026-09-03, AP-182/ADR-277",
+      "priority": "P1",
+      "estimate": "4d",
+      "horizon": "Prototype",
+      "outcome": "The desktop Avatar does what Hey Clicky does: given a task, it looks at the consented screen, decides one action at a time, glides the REAL macOS pointer along a human-looking arc, clicks, types, presses allowlisted keys, scrolls, and opens apps, narrating each step, until the task is done, refused, stopped, or bounded — and its on-screen pointer is a proper arrow glyph that flies (the clicky flight arc) instead of a ring. Control is opt-in per request, Accessibility-gated, privacy-guarded every step, and the user's hand always wins: moving the mouse mid-glide halts the run.",
+      "prototypeTest": "On a real desktop build with Screen Recording + Accessibility granted and a Groq key, open the companion panel → Do, turn on \"Let Zazoo use my mouse and keyboard\", type \"open Notes and write hello\" → the arrow glyph and the real cursor glide to the Notes icon/field, a click ring flashes, text is typed, the step list narrates each step with ✓, and the run ends \"Done\". Move the mouse during a glide → the run stops within a tick and says so. Turn the switch off → `act_start` refuses with `ACT_CONTROL_NOT_ALLOWED` and nothing moves. Revoke Accessibility → refuses with `ACT_NO_ACCESSIBILITY` and prompts. A password-manager window frontmost → the run halts before capture.",
+      "scope": [
+        "`actuator.rs` (CGEvent move/click/type/key/scroll, smoothstep Bézier glide, takeover detection), `act.rs` (bounded look-decide-act loop, closed planner vocabulary, `act_start/act_poll/act_stop`), `AgentPointer.tsx` (arrow glyph + flight), `DoRun.tsx` + Do mode in `CompanionAsk.tsx`, `companion_capabilities.accessibility`, `monitor_logical_rect`. Reuse: TASK-027's capture, two-stage grid locator, typed marks, Groq vision, `say` TTS",
+        "TASK-054's Accessibility permission check/prompt."
+      ],
+      "evidence": [
+        "research 2026-09-03 (Hey Clicky changelog to v1.0.48",
+        "farzaa/clicky, jasonkneen/openclicky, unn-Known1/clickyX, trycua/cua-driver, UI-TARS, self-operating-computer): Clicky's visible cursor is a drawn overlay flying a smoothstep Bézier",
+        "real input goes through a per-window background driver that never moves the real cursor. No clone with a visible cursor moves the real pointer smoothly — Bridge does, on purpose, because a visible real cursor is the honest tell. Behaviors re-derived, no source copied (clicky is MIT Swift",
+        "Bridge is Rust/Tauri). Verification: Rust 195 passed + 1 ignored (11 new",
+        "clippy clean on the new files)",
+        "two guards mutation-checked RED-then-green (⌘Q refusal, click-without-cell refusal)",
+        "web typecheck 0 errors, 117/117 tests, production build, ui-rules and vocabulary gates pass",
+        "browser lab (`annotate.html?lab=1`) proves the arrow renders, the click ring centres on its tip, and a throttled flight still lands on target. No live desktop run — no cloud call and no real input event was posted this session",
+        "the at-keyboard walk is the user's step."
+      ],
+      "requests": [
+        "user directive 2026-09-03, verbatim: *\"I want avatar to be fully functional and be able to do every task hey clicky does. Refer opensource hey clicky alternatives and similar clone repos. I hope implementations of mouse pointer from clicky avatar can be ported. I dont need circular pointers but proper mouse pointer\"*"
+      ],
+      "approval": "AP-182 applied (in-session directive) for building the actuator ahead of TASK-056's separate per-app allowlist design; the allowlist decision stays open there",
+      "dependencies": [
+        "TASK-027 (done)",
+        "TASK-054 (Accessibility permission surface, done part)"
+      ],
+      "isGoal": false,
+      "path": "1.29",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-prototype",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1580,
+      "rank": 101
     }
   ]
 }

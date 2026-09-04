@@ -4379,3 +4379,37 @@ joins with one spec edit and its own `recordEntityType`.
 
 Verified: api `record-metadata` 5/5, web 241/241 with a new gate that fails if a surface makes a
 metadata column writable or the shell stops filling them, tables 21/21, classification 5/5.
+
+## 2026-09-03 — TASK-095: the Avatar has hands
+
+Directive: parity with Hey Clicky, and a proper arrow pointer instead of the ring. Research first:
+Clicky's cursor is an overlay flying a smoothstep Bézier; its real input is a hidden per-window
+driver. Bridge went the other way on purpose (ADR-277): the REAL pointer glides along the same arc the
+glyph draws, so action has a visible tell the way capture has the blink, and the user's hand halts it.
+
+Landed: `actuator.rs` (move/click/type/key/scroll via eleven CoreGraphics externs, no crate),
+`act.rs` (bounded look-decide-act loop, closed JSON vocabulary, `act_start/poll/stop`, `bridge:act-step`
+narration), `AgentPointer.tsx` (arrow glyph, flight on jumps, snap on actuator samples, click ring),
+`DoRun.tsx` + Do mode in the companion panel with the mouse/keyboard switch (default OFF) and the
+Accessibility grant at point of use. Verification: Rust 195 passed + 1 ignored (11 new; clippy clean on the new files); two guards mutation-checked RED-then-green (⌘Q refusal, click-without-cell refusal); web typecheck 0 errors, 117/117 tests, production build, ui-rules and vocabulary gates pass; browser lab (`annotate.html?lab=1`) proves the arrow renders, the click ring centres on its tip, and a throttled flight still lands on target. No live desktop run — no cloud call and no real input event was posted this session; the at-keyboard walk is the user's step.
+
+Not landed, named on the task: walkthrough click-detection, scribble context, dictation-into-app,
+per-app allowlist (TASK-056), skills from the panel (TASK-057). The at-keyboard walk is the user's.
+
+## 2026-09-03 — TASK-095 (same day): the four buildable gaps close
+
+Directive: *"Fix the gaps and then launch the desktop avatar for me to test all the implementations"*.
+Guide mode reuses the Do planner with a teaching voice and swaps the hands for a wait-for-your-click
+(`CGEventSourceButtonState`, permission-free, edge-triggered, padded hit box, one nudge). Circling
+makes the annotate window interactive for exactly one drag and paints the rectangle into the consented
+screenshot rather than cropping it, so the locator's coordinates stay full-frame. Dictation is
+transcription + `act_type_text` behind the same consent, Accessibility, and privacy-guard gates.
+The allowlist is a substring match, empty meaning any (ADR-263's "empty is not default-deny").
+Rust 196 passed; web typecheck 0 errors, 238/238 tests, ui-rules and vocabulary gates pass. App launched for the user's at-keyboard walk.
+
+## 2026-09-03 — Two live defects from the user's first walk
+
+Allowlist gated the look instead of the hands (refused from the Claude app before step 1) — moved to
+right before an action lands, `open_app` exempt. "Sign in with Claude" used `window.open`, inert in
+WKWebView — the shell now opens https URLs via `open_external_url`. Both in BUGS.md; app relaunched.
+
