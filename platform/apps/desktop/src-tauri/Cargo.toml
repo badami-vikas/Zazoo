@@ -84,6 +84,10 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
     # session's `data_store_identifier` (WKWebView custom data stores are
     # macOS >= 14 only). See whatsapp_webview::supports_data_store_identifier.
     "NSProcessInfo",
+    # `open_external_url`: NSURL for NSWorkspace.openURL — the shell opens the
+    # Claude sign-in page in-process (the `open` CLI from a child timed out,
+    # LaunchServices -1712, observed live 2026-09-03).
+    "NSURL",
 ] }
 objc2-app-kit = { version = "0.3", default-features = false, features = [
     "std",

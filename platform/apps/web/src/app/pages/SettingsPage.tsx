@@ -912,7 +912,14 @@ function ClaudeSignInCard() {
       const { url } = await trpc.chat.model.claudeSignIn.begin.mutate({
         organizationId: PILOT_ORGANIZATION,
       });
-      window.open(url, "_blank", "noopener,noreferrer");
+      // Inside the desktop shell `window.open` is inert (no new-window
+      // handler in the webview), so the shell opens the default browser.
+      const shell = typeof window !== "undefined" ? window.__TAURI_INTERNALS__ : undefined;
+      if (shell?.invoke) {
+        await shell.invoke("open_external_url", { url });
+      } else {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
       setAwaitingCode(true);
       setNote("Approve the request in the browser window, then paste the code it shows below.");
     } catch (error) {
