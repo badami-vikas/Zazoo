@@ -605,6 +605,7 @@ export async function buildServer() {
   if (wiring.learningObservationEnabled && !wiring.publicCloudOnly) {
     automationScheduler = startAutomationScheduler({
       registry: wiring.automationRegistry,
+      pipeline: wiring.pipeline,
       runRecorder: wiring.automationRunRecorder,
       executor: wiring.automationExecutor,
       organizationId: PILOT_ORGANIZATION,

@@ -288,3 +288,87 @@ test("a Module reopens its own conversation instead of a blank one", async () =>
     assert.deepEqual(idempotent.thread.attachedModules, ["dealpilot"]);
   });
 });
+
+/** The stub as a Builder: writes a module.yaml where Bridge told it the
+ * Organization folder is, and reports the path the way Claude Code does. */
+class ModuleWritingBackend extends StubAgenticBackend {
+  override async send(args: ChatBackendSendArgs) {
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    const folder = join(args.workingDirectory, "academics-manager");
+    await mkdir(folder, { recursive: true });
+    const path = join(folder, "module.yaml");
+    await writeFile(
+      path,
+      [
+        "module:",
+        "  name: academics-manager",
+        "  version: 0.1.0",
+        "  kind: organization_definition",
+        "  summary: Courses, assignments, and grades",
+        "  description: Built from the user's request in chat",
+        "  dependencies: []",
+        "  capabilities:",
+        "    - id: academics-manager.assignments",
+        "      capability_type: database",
+        "      version: 0.1.0",
+        "      permissions:",
+        "        - { resource_type: record, action: read, data_scope: private, egress: false }",
+        "        - { resource_type: record, action: write, data_scope: private, egress: false }",
+        "      connectors: []",
+        "  module:",
+        "    displayName: Academics",
+        "    route: /module/academics-manager",
+        "    databases:",
+        "      - id: assignments",
+        "        name: Assignments",
+        "        columns:",
+        "          - { id: course, label: Course, kind: text, required: true }",
+        "          - { id: due, label: Due, kind: date }",
+        "    pages:",
+        "      - { id: assignments, name: Assignments, route: /module/academics-manager/assignments, database_id: assignments, capability_id: academics-manager.assignments }",
+        "    agents: []",
+        "    automations: []",
+        "",
+      ].join("\n"),
+    );
+    this.calls.push(args);
+    return { reply: "Created the Academics Module.", backendSessionId: "sdk-session-2", changedPaths: [path] };
+  }
+}
+
+test("the agentic backend is briefed on what a Module is, and a module.yaml it writes is registered (TASK-098)", async () => {
+  const backend = new ModuleWritingBackend();
+  await withBackendWiring([backend], async (wiring) => {
+    const caller = makeCaller(wiring);
+    const created = await caller.chat.thread.create({
+      organizationId: PILOT_ORGANIZATION,
+      backend: "claude_code",
+      plane: "cloud",
+      clientRequestId: "briefed",
+    });
+    const view = await caller.chat.turn.send({
+      organizationId: PILOT_ORGANIZATION,
+      threadId: created.thread.id,
+      clientRequestId: "briefed-turn",
+      message: "Can you build me a new module for managing my academics",
+      surface: { kind: "chat_panel" },
+    });
+
+    // The briefing rides in the backend's system prompt: the definition of a
+    // Module, the standard build process, and the folder it may write in.
+    const system = backend.calls[0]?.system ?? "";
+    assert.match(system, /A Module is a folder/);
+    assert.match(system, /module\.yaml/);
+    assert.match(system, /do not ask what a Module is/);
+    assert.ok(system.includes(backend.calls[0]!.workingDirectory), "the briefing names the Organization folder");
+
+    // What the agent wrote is a pending Module now, and the reply says so.
+    const assistant = view.turns[view.turns.length - 1];
+    assert.match(assistant?.content ?? "", /Registered the Module "academics-manager" \(pending_review\)/);
+    const modules = await caller.modules.list({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 });
+    const mine = modules.items.find((item) => item.moduleName === "academics-manager");
+    assert.equal(mine?.status, "pending_review");
+    assert.equal(mine?.manifest.module?.databases?.[0]?.id, "assignments");
+  });
+});

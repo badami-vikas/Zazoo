@@ -30,6 +30,8 @@ import {
   type AutomationRunRecorder,
   type AutomationScheduleState,
   type RunCtx,
+  type UniversalActionPipeline,
+  automationProposalKey,
 } from "@bridge/core";
 
 export interface AutomationSchedulerDeps {
@@ -37,6 +39,9 @@ export interface AutomationSchedulerDeps {
   runRecorder: AutomationRunRecorder;
   executor: AutomationExecutor;
   organizationId: string;
+  /** When present, every tick first withdraws stale duplicate proposals (see
+   * `supersedeDuplicateProposals`). Optional so isolated tests need no pipeline. */
+  pipeline?: Pick<UniversalActionPipeline, "openAutomationProposals" | "supersede">;
   log: {
     info: (obj: unknown, msg: string) => void;
     warn: (obj: unknown, msg: string) => void;
@@ -126,6 +131,10 @@ export async function runSchedulerTick(
   deps: AutomationSchedulerDeps,
   now: Date = new Date(),
 ): Promise<SchedulerTickResult> {
+  if (deps.pipeline) {
+    const superseded = await supersedeDuplicateProposals(deps.pipeline, deps.organizationId, scheduledRunCtx("sweep"));
+    if (superseded > 0) deps.log.info({ superseded }, "stale duplicate Automation proposals withdrawn");
+  }
   const states = await readScheduleStates(deps);
   const due = dueAutomations(states, now);
   const result: SchedulerTickResult = {
@@ -241,4 +250,35 @@ export function startAutomationScheduler(
       clearInterval(interval);
     },
   };
+}
+
+/**
+ * Collapse every set of identical undecided Automation proposals to its newest
+ * member (ADR 2026-09-04 "Approvals belong to Tasks"). The executor no longer
+ * creates such duplicates; this clears the ones a Local Plane already holds —
+ * on the first tick after upgrade, and again if anything else ever piles up.
+ * Returns how many rows were withdrawn.
+ */
+export async function supersedeDuplicateProposals(
+  pipeline: Pick<UniversalActionPipeline, "openAutomationProposals" | "supersede">,
+  organizationId: string,
+  ctx: RunCtx,
+): Promise<number> {
+  const pending: { id: string; key: string; createdAt: string }[] = [];
+  for (const entry of await pipeline.openAutomationProposals(organizationId)) {
+    const key = automationProposalKey(entry);
+    if (key) pending.push({ id: entry.id, key, createdAt: entry.createdAt });
+  }
+  const newestByKey = new Map<string, string>();
+  for (const row of [...pending].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+    if (!newestByKey.has(row.key)) newestByKey.set(row.key, row.id);
+  }
+  let superseded = 0;
+  for (const row of pending) {
+    const newest = newestByKey.get(row.key);
+    if (!newest || newest === row.id) continue;
+    await pipeline.supersede(row.id, newest, ctx);
+    superseded += 1;
+  }
+  return superseded;
 }

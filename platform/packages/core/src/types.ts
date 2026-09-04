@@ -248,7 +248,10 @@ export interface LedgerEntry {
   inputs: unknown;
   proposedOutput?: unknown;
   /** null until a human decides; then approve|veto|edit|auto. */
-  userDecision: Decision | "auto" | null;
+  /** `superseded`: withdrawn by the machine because a newer identical proposal
+   * from the same Automation replaced it (never a Human decision, never
+   * executed) — ADR 2026-09-04 "Approvals belong to Tasks". */
+  userDecision: Decision | "auto" | "superseded" | null;
   diff?: unknown;
   policyResults: PolicyResult[];
   /** Links a decision row back to the proposal it resolves. */

@@ -1708,33 +1708,15 @@ function SourcesSection() {
   );
 }
 
-type PendingResult = Awaited<ReturnType<typeof trpc.action.listPending.query>>;
-
 function GovernanceSection() {
-  const [pending, setPending] = useState<PendingResult | null>(null);
-
-  useEffect(() => {
-    trpc.action.listPending.query({ organizationId: PILOT_ORGANIZATION, limit: 5, offset: 0 }).then(setPending).catch(() => {});
-  }, []);
 
   return (
     <div className="flex flex-col gap-6">
       <SectionHeader title="Governance" desc="Every consequential action is proposed, reviewed, and ledgered." />
 
-      <Card>
-        <div className="px-4 py-4 sm:px-6 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="text-sm font-semibold text-[var(--color-navy)]">Pending approvals</div>
-            <div className="text-xs text-[var(--color-warm-gray)] mt-0.5">
-              {pending === null ? "Loading…" : `${pending.total} awaiting a human decision`}
-            </div>
-          </div>
-          <Link to="/approvals" className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-steel)] no-underline hover:underline">
-            Open Approvals <ExternalLink className="w-3.5 h-3.5" />
-          </Link>
-        </div>
-      </Card>
-
+      {/* Pending approvals no longer live here (user directive 2026-09-04):
+          each waits under its Task on the Task Page, and Home names the ones
+          waiting. Settings keeps the ledger — history, not a queue. */}
       <ExecutionLedger />
     </div>
   );

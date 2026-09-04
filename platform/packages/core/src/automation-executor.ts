@@ -110,6 +110,22 @@ export class InProcessAutomationExecutor implements AutomationExecutor {
     );
   }
 
+  /** The id of an undecided proposal that would be this step's duplicate. */
+  async #openDuplicate(
+    organizationId: string,
+    automationId: string,
+    step: AutomationStep,
+  ): Promise<string | null> {
+    const key = automationProposalKey({
+      context: { type: "automation", id: automationId },
+      skill: step.skill,
+      resourceId: step.resourceId,
+      inputs: step.inputs,
+    });
+    const open = await this.#pipeline.openAutomationProposals(organizationId);
+    return open.find((entry) => automationProposalKey(entry) === key)?.id ?? null;
+  }
+
   async #execute(
     runId: string,
     organizationId: string,
@@ -147,6 +163,24 @@ export class InProcessAutomationExecutor implements AutomationExecutor {
 
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i]!;
+      // One open proposal per identical step (ADR 2026-09-04 "Approvals belong
+      // to Tasks"): a scheduled Automation that re-proposes the same thing every
+      // tick while the first is still undecided produces a pile nobody asked
+      // for — 254 identical digest proposals in one Local Plane. The run waits
+      // on the earlier decision instead of adding to it.
+      const waitingOn = await this.#openDuplicate(organizationId, automationId, step);
+      if (waitingOn) {
+        await this.#recorder?.finish(
+          {
+            runId,
+            organizationId,
+            status: "halted",
+            output: { waitingOn, step: i, reason: "an identical proposal from this Automation is still awaiting a decision" },
+          },
+          ctx,
+        );
+        return { runId, automationId, status: "halted", proposals, haltedAtStep: i, taintLabel: runTaint };
+      }
       const stepCtx: RunCtx = {
         ...ctx,
         taintLabel: runTaint,
@@ -233,4 +267,20 @@ export class InProcessAutomationExecutor implements AutomationExecutor {
       taintLabel: runTaint,
     };
   }
+}
+
+/**
+ * What makes two Automation proposals "the same": the Automation, the Skill,
+ * the target Record, and the inputs. Scheduled steps have no target and empty
+ * inputs, so every tick's proposal collapses to one key; a manual gate that
+ * proposes per Task keeps one open proposal per Task.
+ */
+export function automationProposalKey(entry: {
+  context?: { type: string; id: string } | undefined;
+  skill?: string | undefined;
+  resourceId?: string | undefined;
+  inputs: unknown;
+}): string | null {
+  if (entry.context?.type !== "automation") return null;
+  return JSON.stringify([entry.context.id, entry.skill ?? null, entry.resourceId ?? null, entry.inputs ?? null]);
 }

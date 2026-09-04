@@ -538,7 +538,7 @@ export type OutreachDraftResult =
   | {
       id: string;
       status: "already_resolved";
-      decision: "approve" | "veto" | "edit" | "auto";
+      decision: "approve" | "veto" | "edit" | "auto" | "superseded";
     };
 export const outreachDraftsInFlight = new Map<string, Promise<OutreachDraftResult>>();
 

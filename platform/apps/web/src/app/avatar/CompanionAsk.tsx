@@ -116,6 +116,7 @@ export function CompanionAsk({
   onAutoQuestionConsumed,
   onAnswered,
   onSpeechStopped,
+  onTaskDone,
 }: {
   name: string;
   /** True while the global push-to-talk shortcut is held. */
@@ -130,6 +131,9 @@ export function CompanionAsk({
   onAnswered?: (text: string, emotion?: string, spoke?: boolean) => void;
   /** Speech was cut short — the mouth has to stop with it. */
   onSpeechStopped?: () => void;
+  /** Dictation has been typed into the app the user was in — the request is
+   * carried out and the panel has nothing more to show. */
+  onTaskDone?: () => void;
 }) {
   const [capabilities, setCapabilities] = useState<CompanionCapabilities | null>(null);
   const [question, setQuestion] = useState("");
@@ -364,6 +368,7 @@ export function CompanionAsk({
                   request: { text: transcript, allowControl: readAllowControl() },
                 })) as string;
                 setDictationNote(`Typed into ${app}: “${transcript.slice(0, 80)}${transcript.length > 80 ? "…" : ""}”`);
+                onTaskDone?.();
               } catch (raised) {
                 setError(toAskError(raised));
               }
@@ -584,7 +589,7 @@ export function CompanionAsk({
       />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
-          {recording ? "● Recording" : dictate ? "Hold Fn to dictate into your app" : "Hold Fn to talk"}
+          {recording ? "● Recording" : dictate ? "Hold Fn or ⌘⇧Space to dictate into your app" : "Hold Fn or ⌘⇧Space to talk"}
         </p>
         <label className="flex items-center gap-1 text-xs text-[var(--color-navy-mid)]">
           <input

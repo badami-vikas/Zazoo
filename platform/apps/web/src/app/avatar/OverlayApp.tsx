@@ -238,6 +238,12 @@ export function OverlayApp() {
   // True while the global push-to-talk shortcut is held (drives CompanionAsk
   // recording).
   const [pttActive, setPttActive] = useState(false);
+  // True while the Ask panel on screen was opened by push-to-talk rather than
+  // a click. Such a panel is a request, not a conversation: once the task is
+  // done (dictation typed, answer delivered and spoken) it dismisses itself so
+  // the companion stops disturbing whatever the user was doing (directive
+  // 2026-09-04: "the avatar should perform the task ... It should disappear").
+  const pttOpened = useRef(false);
   const [hovering, setHovering] = useState(false);
   const [blinking, setBlinking] = useState(false);
   // Zazoo is the companion's face (desktop-companion wiki, Zazoo v1). The
@@ -392,9 +398,14 @@ export function OverlayApp() {
   // Desktop overlay"). One derived flag now drives presentation and rendering
   // alike, so the two can no longer disagree about which surface is live.
   const inNotchHome = home === "notch" && notchGeometry !== null;
-  const notchVisible =
-    inNotchHome &&
-    (notchHover || notchDomHover || notchPose === "chat" || panel === "ask" || panel === "chat");
+  // The companion appears only when summoned (user directive 2026-09-04: "the
+  // avatar should activate only when triggered by shortcut"): the global
+  // push-to-talk shortcut, or a panel it opened. Passing the cursor over the
+  // notch no longer wakes it — that hover contract is what read as the avatar
+  // "activating on its own". `notchHover`/`notchDomHover` still feed the
+  // pose while it is up, so it does not drop mid-interaction.
+  const summoned = pttActive || panel !== "none" || notchPose === "chat";
+  const notchVisible = inNotchHome && summoned;
   useEffect(() => {
     if (!inNotchHome || !sessionReady) return;
     void tauriInvoke(notchVisible ? "overlay_present" : "overlay_conceal");
@@ -474,8 +485,11 @@ export function OverlayApp() {
     // window is concealed at rest so the desktop is untouched). Presenting
     // here too would race that effect for control of one window.
     if (inNotchHome) return;
-    void tauriInvoke(sessionReady ? "overlay_present" : "overlay_conceal");
-  }, [sessionReady, inNotchHome]);
+    // Same rule as the notch home (directive 2026-09-04): concealed at rest,
+    // present only while summoned. Before this the free-floating companion
+    // presented itself the moment the session was ready.
+    void tauriInvoke(sessionReady && summoned ? "overlay_present" : "overlay_conceal");
+  }, [sessionReady, inNotchHome, summoned]);
 
   // Derived companion state (the machine's read model).
   const working =
@@ -593,6 +607,7 @@ export function OverlayApp() {
           setMenuOpen(false);
           setAskSeed(null);
           setPanel("ask");
+          pttOpened.current = true;
           setPttActive(true);
         } else {
           setPttActive(false);
@@ -738,14 +753,28 @@ export function OverlayApp() {
     director.setTalking(false);
   }
 
+  /** A push-to-talk request has been carried out: the panel it opened goes
+   * away and the companion conceals (nothing else keeps it summoned). */
+  function dismissAfterTask() {
+    if (!pttOpened.current) return;
+    pttOpened.current = false;
+    setPanel("none");
+  }
+
   function handleAnswered(text: string, emotion?: string, spoke?: boolean) {
     director.perform(emotionPerformance(emotion));
     stopTalking();
-    if (!spoke) return;
+    if (!spoke) {
+      dismissAfterTask();
+      return;
+    }
     director.setTalking(true);
     const words = text.trim().split(/\s+/).filter(Boolean).length;
     speechTimer.current = setTimeout(
-      () => director.setTalking(false),
+      () => {
+        director.setTalking(false);
+        dismissAfterTask();
+      },
       Math.min(90_000, (words / SPEECH_WORDS_PER_SECOND) * 1000 + 400),
     );
   }
@@ -855,7 +884,11 @@ export function OverlayApp() {
             autoQuestion={askSeed}
             onAutoQuestionConsumed={() => setAskSeed(null)}
             onAnswered={handleAnswered}
-            onSpeechStopped={stopTalking}
+            onSpeechStopped={() => {
+              stopTalking();
+              dismissAfterTask();
+            }}
+            onTaskDone={dismissAfterTask}
           />
         </div>
       );
@@ -1054,7 +1087,11 @@ export function OverlayApp() {
             autoQuestion={askSeed}
             onAutoQuestionConsumed={() => setAskSeed(null)}
             onAnswered={handleAnswered}
-            onSpeechStopped={stopTalking}
+            onSpeechStopped={() => {
+              stopTalking();
+              dismissAfterTask();
+            }}
+            onTaskDone={dismissAfterTask}
           />
         </div>
       )}

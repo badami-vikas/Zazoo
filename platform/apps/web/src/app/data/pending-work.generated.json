@@ -2488,7 +2488,8 @@
     {
       "id": "TASK-055",
       "title": "TASK-055 — Companion trigger and capture parity — Fn hold, double-click listen, on-request recording",
-      "status": "pending",
+      "status": "open",
+      "statusNote": "landed (2026-09-04; the Fn-hold summon shipped under TASK-099 as a sustained-hold poll of the Function flag, no Input Monitoring needed; double-click listen and on-request recording remain open)",
       "priority": "P3",
       "estimate": "3d",
       "horizon": "Convergence",
@@ -2517,7 +2518,7 @@
       "isGoal": false,
       "path": "3.13",
       "level": 1,
-      "canonicalStatus": "ready",
+      "canonicalStatus": "partly",
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
@@ -3584,6 +3585,111 @@
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1597,
       "rank": 102
+    },
+    {
+      "id": "TASK-097",
+      "title": "TASK-097 — Approvals belong to Tasks: one open proposal per Automation, profile-parked Automations, Task Page and Home as the approval surfaces",
+      "status": "in-progress",
+      "statusNote": "2026-09-04; executor rule, scheduler sweep, profile parking, `listPendingForTask`, brief nudges, Task Page section, Home list, Settings card removed — installer rebuild pending",
+      "priority": "P0",
+      "horizon": "Living Software",
+      "outcome": "A launched Egg shows no inherited pile of approvals: an Automation never holds more than one undecided proposal per identical step, stale duplicates are withdrawn as `superseded`, Automations of Modules outside the profile do not tick, and every waiting approval is reachable from its Task (Task Page Approvals section) and named with its Task on Home — never from Settings.",
+      "prototypeTest": "boot the Egg on a Local Plane holding the 371 duplicate rows → the first scheduler tick withdraws all but one per Automation and the DevPilot poll is `draft`; Home lists \"learning.observationDigest · Learning observation digest outcome\" linking to that Task's page, whose Approvals section approves or vetoes it; Settings → Governance shows only the Execution Ledger.",
+      "scope": [
+        "`packages/core/src/{types,pipeline,automation-executor}.ts`, `apps/api/src/{automation-scheduler,server,wiring}.ts`, `apps/api/src/routers/{action,brief}.ts`, `apps/web/src/app/pages/{TaskRecordDetailPage,HomePage,SettingsPage}.tsx`."
+      ],
+      "evidence": [
+        "`automation-scheduler.test.ts` (waits on an undecided twin",
+        "sweep keeps the newest and history reads `superseded`), `egg-profile.test.ts` (full-profile Local Plane booted as Egg parks foreign Automations), `chat-agentic-backend.test.ts`",
+        "Local Plane copy inspected 2026-09-04: 254 × digest, 117 × DevPilot poll undecided."
+      ],
+      "requests": [
+        "user report 2026-09-04 verbatim in BUGS 2026-09-04 \"255 pending approvals\"."
+      ],
+      "approval": "none needed (routine surfaces + a new ledger value; ADR 2026-09-04 \"Approvals belong to Tasks\" records it).",
+      "dependencies": [
+        "TASK-030 (Task Manager",
+        "anchor Tasks still live in kernel `goalTasks`, not Task Manager Records — the Task Page renders their approvals without a Record)."
+      ],
+      "isGoal": false,
+      "path": "8.6",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1611,
+      "rank": 103
+    },
+    {
+      "id": "TASK-098",
+      "title": "TASK-098 — The agentic chat lane knows what a Module is: the Claude Code backend is briefed and registers what it builds",
+      "status": "in-progress",
+      "statusNote": "2026-09-04; briefing + registration landed, installer rebuild pending",
+      "priority": "P0",
+      "horizon": "Living Software",
+      "outcome": "\"Build me a Module for X\" in the desktop chat starts the standard Module build process — the agent knows Bridge, the Module definition, the Organization folder, the process, and Commons prior art — and a `module.yaml` it writes becomes a pending Module the user installs from Modules.",
+      "prototypeTest": "in the installed Egg, a Claude Code thread asked \"Can you build me a new module for managing my academics\" creates `<Organization>/academics-manager/module.yaml`, the reply ends with \"Registered the Module \"academics-manager\" (pending_review)\", and Modules lists it.",
+      "scope": [
+        "`packages/core/src/chat-backend.ts` (`system`), `apps/api/src/chat/claude-code-backend.ts`, `apps/api/src/builder/run.ts` (`moduleBuildBriefing`), `apps/api/src/routers/chat.ts`."
+      ],
+      "evidence": [
+        "`chat-agentic-backend.test.ts` \"the agentic backend is briefed on what a Module is, and a module.yaml it writes is registered\"."
+      ],
+      "requests": [
+        "user report 2026-09-04 verbatim in BUGS 2026-09-04 \"the desktop chat asked what a module is\"."
+      ],
+      "approval": "none needed.",
+      "dependencies": [
+        "TASK-096 (Module manifest databases, `registerModuleManifest`)."
+      ],
+      "isGoal": false,
+      "path": "8.7",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1625,
+      "rank": 104
+    },
+    {
+      "id": "TASK-099",
+      "title": "TASK-099 — The companion appears only when summoned: shortcut or open panel, never hover or launch",
+      "status": "in-progress",
+      "statusNote": "2026-09-04; gate landed, installer rebuild pending",
+      "priority": "P0",
+      "horizon": "Living Software",
+      "outcome": "The desktop companion is concealed at rest in both homes and appears only on ⌘⇧Space or while a panel it opened is up; moving the cursor over the notch, finishing launch, or an arrow/Home/End/F-key while typing never presents it; a held Fn (≈0.4 s) still does, and a push-to-talk request dismisses itself once the dictation is typed or the answer is delivered and spoken.",
+      "prototypeTest": "launch the installed Egg and wait — no avatar; pass the cursor over the notch — no avatar; press ⌘⇧Space — the avatar and Ask panel appear; close the panel — it conceals.",
+      "scope": [
+        "`apps/web/src/app/avatar/OverlayApp.tsx` (`summoned`)",
+        "`apps/desktop/src-tauri/src/notch.rs` (Fn push-to-talk is a HOLD of `FN_HOLD_TICKS` polls with NumericPad-flagged keys excluded — macOS sets the Function flag for arrow, Home/End, Page, forward-delete and F-keys, which is how typing summoned it with Fn untouched)",
+        "`OverlayApp.tsx` `pttOpened` + `dismissAfterTask`",
+        "`CompanionAsk.tsx` `onTaskDone` after dictation, hint copy names Fn and ⌘⇧Space."
+      ],
+      "evidence": [
+        "typecheck + `cargo check`",
+        "the two presentation effects share the `summoned` gate and `bridge:companion-ptt` is emitted only by the ⌘⇧Space global shortcut (`lib.rs`) and a sustained Fn hold (`notch.rs`). Second and third user reports 2026-09-04 (\"Even now, as I type, the avatar is getting activated\"",
+        "\"I didnt even press Fn and it was triggered\") root-caused to the raw Function-flag poll — the `summoned` gate alone kept `pttActive` as a summon, so it would not have stopped this. No automated test drives the macOS flag poll",
+        "verified by reasoning on NSEvent flag semantics, to be confirmed on the rebuilt installer. A UI-rules doc gate for the companion is not in place."
+      ],
+      "requests": [
+        "user report 2026-09-04 verbatim in BUGS 2026-09-04 \"the companion avatar activated on its own\"."
+      ],
+      "approval": "none needed (supersedes the 2026-08-05 readiness-only rule; recorded in ADR 2026-09-04 \"Approvals belong to Tasks\", decision 4).",
+      "dependencies": [
+        "none."
+      ],
+      "isGoal": false,
+      "path": "8.8",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1639,
+      "rank": 105
     }
   ]
 }

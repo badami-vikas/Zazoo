@@ -33,6 +33,9 @@ use tauri::{AppHandle, Emitter, Manager, State};
 /// Cursor poll cadence. 60ms reads as instant for a hover affordance while
 /// leaving the poll far below the roadmap's "< 1% CPU hidden" exit criterion.
 const HOVER_POLL_INTERVAL: Duration = Duration::from_millis(60);
+/// Fn must be held this many hover-poll ticks (~420 ms at 60 ms) before it is a
+/// push-to-talk press; a tap, or a Home/End/F-key press, never reaches it.
+const FN_HOLD_TICKS: u32 = 7;
 /// The hot zone extends this far below the cutout's bottom edge...
 const HOT_ZONE_PAD_BELOW: f64 = 14.0;
 /// ...and this far past each side. Aiming at a 179pt target with no visible
@@ -116,6 +119,8 @@ pub struct NotchState {
     // Tracks the Fn key state so the hover-watcher loop can emit PTT events
     // without a CGEventTap (which would need Input Monitoring permission).
     fn_key_pressed: AtomicBool,
+    // Poll ticks the Function flag has been continuously set (see FN_HOLD_TICKS).
+    fn_held_ticks: std::sync::atomic::AtomicU32,
 }
 
 #[cfg(target_os = "macos")]
@@ -357,12 +362,25 @@ pub fn start_hover_watcher(app: AppHandle) {
 
             // Fn key PTT: poll NSEvent.modifierFlags (class method, no TCC
             // permission needed — same pattern as mouseLocation above).
+            //
+            // A HOLD, not a touch (user directive 2026-09-04: "No long press of Fn
+            // should trigger avatar but I didnt even press Fn and it was
+            // triggered"). macOS sets the Function flag for arrow, Home/End,
+            // Page, forward-delete and F-keys too — that is how typing summoned
+            // the companion with Fn untouched. Arrows also carry NumericPad, so
+            // they are excluded outright; everything else must stay set for
+            // FN_HOLD_TICKS before it counts as a press.
             #[cfg(target_os = "macos")]
             {
                 use objc2_app_kit::{NSEvent, NSEventModifierFlags};
+                use std::sync::atomic::AtomicU32;
                 let flags = NSEvent::modifierFlags_class();
-                let fn_now = flags.contains(NSEventModifierFlags::Function);
+                let fn_flag = flags.contains(NSEventModifierFlags::Function)
+                    && !flags.contains(NSEventModifierFlags::NumericPad);
                 let fn_state = app.state::<NotchState>();
+                let ticks: &AtomicU32 = &fn_state.fn_held_ticks;
+                let held = if fn_flag { ticks.fetch_add(1, Ordering::Relaxed) + 1 } else { ticks.swap(0, Ordering::Relaxed); 0 };
+                let fn_now = held >= FN_HOLD_TICKS;
                 let fn_was = fn_state.fn_key_pressed.swap(fn_now, Ordering::Relaxed);
                 if fn_now != fn_was {
                     let ptt_state = if fn_now { "pressed" } else { "released" };

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { listSuggestions as listLearningSuggestions, listCommitmentSuggestions, listClaimSuggestions } from "@bridge/core";
 import { authenticatedProcedure, organizationGuard, t } from "../router-shared.js";
+import { pendingProposalTask } from "./action.js";
 
 /**
  * Organization + team-member management — plain authenticated CRUD (direct DB
@@ -101,7 +102,11 @@ export const briefRouter = t.router({
       const pendingApprovals = await ctx.wiring.pipeline.listPending(input.organizationId, {
         limit: 5, offset: 0, privateOwnerUserId: ctx.identity.id,
       });
-      const approvalNudges = pendingApprovals.items.map((item) => {
+      const approvalTasks = await Promise.all(
+        pendingApprovals.items.map((item) => pendingProposalTask(ctx.wiring, item)),
+      );
+      const approvalNudges = pendingApprovals.items.map((item, index) => {
+        const task = approvalTasks[index] ?? null;
         const inputs = item.request.inputs;
         const display =
           typeof inputs === "object" && inputs !== null && !Array.isArray(inputs) &&
@@ -114,6 +119,11 @@ export const briefRouter = t.router({
           resourceType: item.request.resourceType,
           resource: typeof display?.resource === "string" ? display.resource : null,
           createdAt: item.createdAt,
+          // ADR 2026-09-04 "Approvals belong to Tasks": Home names the Task an
+          // approval waits under and links there, never to Settings.
+          skill: item.request.skill ?? null,
+          action: item.request.action,
+          task,
         };
       });
 

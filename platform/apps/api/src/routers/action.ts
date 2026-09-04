@@ -4,7 +4,7 @@ import { databaseUuidSchema } from "@bridge/db";
 import { applyApprovedRelationshipMaterialization, isRelationshipSignalEvidence, proposalFromResolvedRelationshipLedger, relationshipOwnerFromLedger, relationshipSignalEvidencePayloadSchema } from "../relationship-materializer.js";
 import { isRelationshipMutation, validateRelationshipMutationEdit } from "../relationship-record-materializer.js";
 import { isGoogleLinkedInteractionIntake, parseGoogleLinkedInteractionIntake, validateGoogleInteractionEdit } from "../relationship-intake-materializer.js";
-import { OUTREACH_AGENT, PILOT_ORGANIZATION } from "../wiring.js";
+import { OUTREACH_AGENT, PILOT_ORGANIZATION, type Wiring } from "../wiring.js";
 import type { Action, DataScope, ResourceType } from "@bridge/core";
 import { AgentFloorDeniedError, AlreadyResolvedError, KERNEL_PASSTHROUGH_SKILL, NotPendingProposalError, labelFromLegacyTrustOrigin, declassifyTaintLabel, deriveDeclassifiedLabel, hashTaintValue, labelAtSource, type Proposal, type LedgerEntry } from "@bridge/core";
 import { activateApprovedModuleInstallation, assertCultureProposalBindingValid, assertMembership, assertPilotOrganization, assertPrivateProposalOwner, authenticatedProcedure, captureProposalInputSchema, captureProposalOutputSchema, chatCreateTaskOutputSchema, chatOwnerScope, cleanContext, decideInput, emitGoogleCaptureSignals, entryClaimsChatTaskProposal, finishChatTaskDecision, isCaptureProposal, isPrivateProposalInputs, materializeApprovedCapture, materializeDealPilotApproval, moduleInstallIdFromProposal, organizationGuard, outreachDraftInput, outreachDraftsInFlight, procedure, proposeInput, provisionOutreachDraftTask, reconcileApprovedExternalEffect, recordChatTaskResult, recordRejectedCapture, requireChatTaskProposalBinding, resolveClientOnBehalfOf, stableOutreachProposalId, t, validateDealPilotDecision, type OutreachDraftResult } from "../router-shared.js";
@@ -223,6 +223,26 @@ export const actionRouter = t.router({
         privateOwnerUserId: ctx.identity.id,
       });
       return { items, total, hasMore: input.offset + items.length < total };
+    }),
+
+  /** Every undecided proposal that belongs to one Task (ADR 2026-09-04
+   * "Approvals belong to Tasks"): an Automation Run is anchored to a Task, and
+   * a proposal remembers its Run, so the Task Page can show and decide what
+   * waits on it. Bounded by the same pending list Approvals reads. */
+  listPendingForTask: authenticatedProcedure
+    .input(z.object({ organizationId: z.string().min(1), taskId: z.string().min(1) }))
+    .use(organizationGuard).query(async ({ input, ctx }) => {
+      const { items } = await ctx.wiring.pipeline.listPending(input.organizationId, {
+        limit: 200,
+        offset: 0,
+        privateOwnerUserId: ctx.identity.id,
+      });
+      const located = await Promise.all(items.map((entry) => pendingProposalTask(ctx.wiring, entry)));
+      return {
+        items: items
+          .map((entry, index) => ({ ...entry, task: located[index] }))
+          .filter((entry) => entry.task?.taskId === input.taskId),
+      };
     }),
 
   /** Bounded Execution Ledger history through the authenticated server seam.
@@ -1113,3 +1133,19 @@ export const actionRouter = t.router({
       return reconcileApprovedExternalEffect(ctx, input.proposalId);
     }),
 });
+
+/** The Task a pending proposal waits under, through the Automation Run that
+ * proposed it. Null for proposals with no Run (a direct Human action) or a Run
+ * with no anchor Task. */
+export async function pendingProposalTask(
+  wiring: Wiring,
+  entry: Pick<Proposal, "request">,
+): Promise<{ taskId: string; title: string; automationId: string } | null> {
+  const { organizationId, context } = entry.request;
+  if (!context || context.type !== "automation" || !context.runId) return null;
+  const run = await wiring.automationRunRecorder.get(organizationId, context.runId);
+  if (!run?.taskId) return null;
+  const task = await wiring.goalTasks.getTask(organizationId, run.taskId);
+  const goal = task ? await wiring.goalTasks.getGoal(organizationId, task.goalId) : null;
+  return { taskId: run.taskId, title: goal?.title ?? task?.type ?? run.taskId, automationId: context.id };
+}

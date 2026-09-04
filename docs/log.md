@@ -1,5 +1,16 @@
 # Change Log
 
+- **2026-09-04 — first-launch reports: approvals belong to Tasks, the chat lane is briefed, the companion is summoned-only (TASK-097/098/099)**:
+  the Egg's first launch showed 255 inherited approvals (254 identical learning-digest proposals
+  and 117 DevPilot polls still ticking, from a Local Plane that once ran the full profile), the
+  Claude Code chat asked what a "module" is, and the companion appeared on notch hover and at
+  launch. Fixes: `automationProposalKey` — the executor halts on an identical undecided proposal;
+  the scheduler tick withdraws stale duplicates as `superseded` (`pipeline.supersede`); boot parks
+  Automations of non-profile Modules as draft; `action.listPendingForTask` + brief nudges carry the
+  anchor Task; Task Page Approvals section, Home lists approvals by Task, Settings keeps only the
+  ledger; `ChatBackendSendArgs.system` carries `moduleBuildBriefing` and a written module.yaml is
+  registered; `OverlayApp` presents only when `summoned`. BUGS 2026-09-04 ×3 (verbatim), ADR
+  2026-09-04 "Approvals belong to Tasks". Amended the same day after two more companion reports: Fn push-to-talk is a ≈0.4 s hold with NumericPad-flagged keys excluded (a raw Function-flag poll fired on arrows/Home/End/F-keys while typing), and a push-to-talk panel dismisses itself once the task is done (`pttOpened`, `dismissAfterTask`, `onTaskDone`). Evidence: `turbo build` 26/26; api + web typecheck clean; targeted api (scheduler, egg-profile, chat-agentic-backend, egg-boot, router-decide) 35/35; web 241/241; full api suite green except two culture-research cancel timeouts that pass 57/57 in isolation (orphaned test runs from a wiped worktree were holding the socket); vocabulary OK; ui-rules 3/3 doc gates; agent-context 9963 always-loaded bytes; `cargo check` clean. Mid-slice the whole `.claude/worktrees` tree and `.git/worktrees` registry vanished (cause unknown); api/docs were salvaged from disk and the web/core/desktop edits replayed from the session transcript, then re-verified above.
 - **2026-09-04 — the Egg's primary Agents work and Builder-built Modules get a standard Page (AP-183, TASK-096, second half)**:
   Task Manager 1.10.0 binds `task-manager.skill.web-research` to its Learning Agent and the
   web-research gate accepts that binding when Relationship is absent, so the Egg's Research Agent

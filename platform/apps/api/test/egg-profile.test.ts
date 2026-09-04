@@ -12,6 +12,7 @@ import {
   bridgeProfileFromEnv,
   builtInModulesForProfile,
 } from "@bridge/module-manifests";
+import { buildWiring, PILOT_ORGANIZATION } from "../src/wiring.js";
 
 import { COMMONS_MODULE_NAMESPACES, appRouter, eggRouter } from "../src/router.js";
 import { builderSystemPrompt, commonsPriorArt } from "../src/builder/run.js";
@@ -129,4 +130,46 @@ test("an unreachable Commons never blocks a Builder Run — it is reported, and 
   const prompt = builderSystemPrompt({ isNewModule: false, priorArt: items, priorArtUnavailable: unavailable });
   assert.match(prompt, /registry unreachable/);
   assert.match(prompt, /read its module\.yaml before changing anything/);
+});
+
+test("a Local Plane that once ran the full profile parks the other Modules' Automations when booted as the Egg", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { BUILT_IN_MODULES, EGG_MODULES, resolveModuleAutomationRuntimeId } = await import("@bridge/module-manifests");
+  const root = await mkdtemp(join(tmpdir(), "bridge-egg-park-"));
+  const localDir = join(root, "local");
+  // Every scheduled Automation a non-Egg Module declares — DevPilot's GitHub
+  // poll among them — is what kept proposing inside the Egg (BUGS 2026-09-04).
+  const foreign = BUILT_IN_MODULES.flatMap((pkg) =>
+    EGG_MODULES.has(pkg.manifest.name)
+      ? []
+      : (pkg.manifest.module?.automations ?? []).flatMap((automation) => {
+          const id = automation.automationId
+            ? resolveModuleAutomationRuntimeId(pkg.manifest.name, automation.automationId)
+            : undefined;
+          return id ? [id] : [];
+        }),
+  );
+  assert.ok(foreign.length > 0, "the full profile declares Automations the Egg does not");
+  try {
+    const full = await buildWiring({ localDir });
+    const activeBefore = (await full.automationRegistry.listByStatus(PILOT_ORGANIZATION, "active")).map((row) => row.id);
+    await full.close();
+    assert.ok(foreign.some((id) => activeBefore.includes(id)), "the full profile activated a foreign Automation");
+
+    const egg = await buildWiring({ profile: "egg", localDir });
+    try {
+      const active = (await egg.automationRegistry.listByStatus(PILOT_ORGANIZATION, "active")).map((row) => row.id);
+      for (const id of foreign) assert.ok(!active.includes(id), `${id} must not tick in the Egg`);
+      const parked = (await egg.automationRegistry.listByStatus(PILOT_ORGANIZATION, "draft")).map((row) => row.id);
+      assert.ok(foreign.some((id) => parked.includes(id)), "parked as draft, not deleted");
+      // Task Manager's own Automations are the Egg's and stay active.
+      assert.ok(active.some((id) => activeBefore.includes(id)), "the Egg's own Automations still tick");
+    } finally {
+      await egg.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

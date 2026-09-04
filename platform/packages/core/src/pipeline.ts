@@ -710,6 +710,65 @@ export class UniversalActionPipeline {
    * (never client-asserted) so the gate is meaningful. Agents DRAFT, humans APPROVE:
    * the non-removable agent-floor denies any agent from resolving a proposal, so an
    * in-platform agent can never reach the Approvals decision even with grants. */
+  /**
+   * Every undecided ledger entry an Automation Run proposed, as the ledger
+   * holds it (Skill, target, inputs, Run context intact — `listPending`'s
+   * replayed Proposals do not keep the Skill). What `automationProposalKey`
+   * reads for the one-open-proposal rule.
+   */
+  async openAutomationProposals(organizationId: string): Promise<LedgerEntry[]> {
+    const PAGE = 200;
+    const open: LedgerEntry[] = [];
+    for (let offset = 0; ; offset += PAGE) {
+      const { items } = await this.#deps.ledger.listPending(organizationId, { limit: PAGE, offset });
+      for (const entry of items) if (entry.context?.type === "automation") open.push(entry);
+      if (items.length < PAGE) break;
+    }
+    return open;
+  }
+
+  /**
+   * Withdraw a pending proposal because a newer identical one from the same
+   * Automation replaced it (ADR 2026-09-04 "Approvals belong to Tasks"). Not a
+   * decision: nothing executes and no Human is implied. The resolving row is
+   * attributed to the original actor and marked `superseded`, so the ledger
+   * still says why the older row stopped waiting.
+   */
+  async supersede(proposalId: string, replacedBy: string, ctx: RunCtx): Promise<void> {
+    const { ledger } = this.#deps;
+    const original = await ledger.get(proposalId);
+    if (!original) throw new Error(`supersede: no ledger entry ${proposalId}`);
+    if (original.refLedgerId !== undefined || original.userDecision !== null) {
+      throw new NotPendingProposalError(proposalId);
+    }
+    const existing = await ledger.decisionFor(proposalId);
+    if (existing) throw new AlreadyResolvedError(proposalId, existing.userDecision ?? undefined);
+    await ledger.append({
+      id: ctx.ids.next(),
+      organizationId: original.organizationId,
+      actorType: original.actorType,
+      actorId: original.actorId,
+      ...(original.onBehalfOfType ? { onBehalfOfType: original.onBehalfOfType } : {}),
+      ...(original.onBehalfOfId ? { onBehalfOfId: original.onBehalfOfId } : {}),
+      ...(original.delegationId ? { delegationId: original.delegationId } : {}),
+      action: original.action,
+      resourceType: original.resourceType,
+      ...(original.resourceId ? { resourceId: original.resourceId } : {}),
+      ...(original.skill ? { skill: original.skill } : {}),
+      inputs: original.inputs,
+      userDecision: "superseded",
+      diff: { superseded: { by: replacedBy } },
+      policyResults: [],
+      refLedgerId: original.id,
+      ...(original.dataScope ? { dataScope: original.dataScope } : {}),
+      ...(original.context ? { context: original.context } : {}),
+      createdAt: ctx.clock.nowISO(),
+      taintLabel:
+        original.taintLabel ??
+        labelFromLegacyTrustOrigin(original.trustOrigin, `ledger:${original.id}`),
+    });
+  }
+
   async decide(
     proposalId: string,
     decision: Decision,

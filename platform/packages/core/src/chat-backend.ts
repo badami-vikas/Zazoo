@@ -62,6 +62,10 @@ export interface ChatBackendSendArgs {
   workingDirectory: string;
   organizationId: string;
   signal?: AbortSignal;
+  /** Bridge's own briefing for an agentic backend — what Bridge is, what a
+   * Module is and how one is built — appended to the backend's system prompt.
+   * Without it the agent sees only a folder and the user's sentence. */
+  system?: string;
 }
 
 /**

@@ -3229,3 +3229,74 @@ named an actor nobody could look up or stop.
 **Fix (2026-09-04):** `BUILDER_AGENT_RUNTIME_ID` is …d5, and `resolveModuleAgentRuntimeId` maps
 Task Manager's `capability-builder` (and `learning-agent`) to their runtime ids. No test pinned …d7.
 Resolved in ADR 2026-09-04 "The Egg ships the kernel; Modules live in Commons", addendum item 2.
+
+### 2026-09-04 — 255 pending approvals the moment the Egg launched (FIXED, TASK-097)
+
+User report, verbatim: *"Why am I seeing 255 pending approvals the moment I launch, clear them. Also All
+approvals should be associated witht hte taska nd should appear under inside the task page. If really
+important, with task name, they should dynamically appear inhome page, not inside settings"*
+
+**Evidence:** a read-only copy of the app's Local Plane (`~/Library/Application Support/ai.bridge.desktop/bridge/local-plane`)
+held 372 undecided ledger rows: 254 × `learning.observationDigest` (write signal, Automation …0201,
+every 15 minutes since 2026-08-10) and 117 × `devpilot.syncGithub` (read external:fetch, Automation
+…010a) — the last of each stamped 22:28 UTC on 2026-09-04, i.e. still ticking inside the Egg. Two
+causes: (1) `InProcessAutomationExecutor` proposed on every scheduled tick with no regard for an
+identical proposal still awaiting a decision, so an undecided digest accumulated one row per tick;
+(2) the scheduler reads Automation rows, not installed Modules, and a Local Plane that once ran the
+full profile keeps every row it saved — DevPilot's poll stayed `active` in an Egg that never installed
+DevPilot. The Settings Governance card was the only place the pile showed, with no Task attached.
+
+**Fix (2026-09-04):** the executor waits on an identical undecided proposal instead of adding one
+(`automationProposalKey`); the scheduler tick first withdraws stale duplicates (`supersedeDuplicateProposals`
+→ `pipeline.supersede`, decision value `superseded`, never executed, never a Human decision);
+boot parks Automations of Modules outside the profile as `draft`; `action.listPendingForTask` and the
+brief's approval nudges carry the anchor Task; the Task Page has an Approvals section, Home lists
+waiting approvals by Task, Settings keeps only the ledger. ADR 2026-09-04 "Approvals belong to Tasks".
+
+### 2026-09-04 — the desktop chat asked what a "module" is (FIXED, TASK-098)
+
+User report, verbatim: *"Also why am I seeing: [Claude Code reply asking whether "module" means an app,
+a folder, or something else, after `Can you build me a new module for my managing my academics`] Isnt
+the module well defined and doesnt the agent know what a module is and how to build it?"*
+
+**Evidence:** `claude-code-backend.ts` passed the SDK only `prompt: args.text` and `cwd`; no system
+prompt at all. `builderSystemPrompt` and `MODULE_BUILD_PROCESS` existed but only the primitive-loop
+`builder.run` lane used them, so the agentic chat lane — the one the desktop app actually routes
+"build me a module" through — saw a folder with a resume and a CSV and a sentence.
+
+**Fix (2026-09-04):** `ChatBackendSendArgs.system` carries `moduleBuildBriefing()` (what Bridge is,
+what a Module is, the standard build process, the Organization folder, Commons prior art, the
+attached Module's state); the Claude Code backend appends it to its preset system prompt; a
+`<module>/module.yaml` the agent writes is registered pending review and the reply says so.
+
+### 2026-09-04 — the companion avatar activated on its own (FIXED, TASK-099)
+
+User report, verbatim: *"The avatar should activate only when triggered by shortcut, why is it getting
+activated on its own?"*
+
+**Evidence:** `OverlayApp.tsx` presented the companion on two non-shortcut paths: in the notch home
+whenever the cursor hovered the notch (`notchHover || notchDomHover`), and in the free-floating home
+the moment the session was ready (`sessionReady ? overlay_present : overlay_conceal`, user directive
+2026-08-05). Both read as "activating on its own".
+
+**Fix (2026-09-04):** one gate, `summoned = pttActive || panel !== "none" || notchPose === "chat"`:
+the companion is concealed at rest in both homes and appears only on the global push-to-talk
+shortcut (⌘⇧Space) or while a panel it opened is up. Supersedes the 2026-08-05 readiness-only rule.
+
+**Second and third reports (2026-09-04), verbatim:** *"Even now, as I type, the avatar is getting
+activated. DO we have proper hooks in place?"* and *"No long press of Fn should trigger avatar but I
+didnt even press Fn and it was triggered. Also when fn isnt pressed, the avatar should performt he task
+and not disturb my regular activities. It should disappear"*
+
+**Evidence:** the `summoned` gate above still counted `pttActive` as a summon, and `notch.rs` raised
+push-to-talk from a raw poll of `NSEvent.modifierFlags` `Function`. macOS sets that flag while an
+arrow, Home/End, Page, forward-delete or F-key is down — so ordinary typing pressed the companion's
+push-to-talk with Fn untouched, and every such keystroke opened the Ask panel. The panel then stayed
+up after the request, because only a click elsewhere (window blur) closed it.
+
+**Fix (2026-09-04):** Fn is a HOLD — the flag must stay set for `FN_HOLD_TICKS` polls (≈0.4 s) with
+the NumericPad flag clear (arrows carry both) before it counts as a press, so a keystroke never
+reaches it and a deliberate Fn hold still does. A panel opened by push-to-talk (`pttOpened`) dismisses
+itself once the dictation is typed (`onTaskDone`) or the answer is delivered and spoken
+(`dismissAfterTask`), and the companion conceals with it. Not automated: the flag poll is macOS-only
+runtime behaviour; confirmed on the rebuilt installer or reopened.

@@ -134,8 +134,8 @@ test("A Module with no declared Page lands on Home, never a dead /module/:id lin
   // Module Detail was removed 2026-08-10; Layout.tsx's moduleNavTarget fallback
   // must route to Home, not to the deleted page's route shape.
   const layout = readFileSync(new URL("../src/app/Layout.tsx", import.meta.url), "utf8");
-  assert.match(layout, /to: nav\?\.landing \?\? "\/home"/);
-  assert.match(layout, /base: nav\?\.base \?\? "\/home"/);
+  assert.match(layout, /to: nav\?\.landing \?\? mod\.landing \?\? "\/home"/);
+  assert.match(layout, /base: nav\?\.base \?\? mod\.base \?\? "\/home"/);
   assert.doesNotMatch(layout, /`\/module\/\$\{mod\.moduleName\}`/);
 });
 
@@ -146,7 +146,7 @@ test("no trace of the Module Detail PAGE remains — the bare module path only r
   // surface. Deleting it outright stranded every "/module/<name>" back-link
   // in the app on a router miss.
   assert.match(routes, /path: "module\/:moduleId", Component: ModuleRootRedirect/);
-  assert.match(routes, /function ModuleRootRedirect[\s\S]{0,320}<Navigate/);
+  assert.match(routes, /function ModuleRootRedirect[\s\S]{0,1200}<Navigate/);
 });
 
 test("Commons discovery stays Module-scoped; Intelligence stays manifest-sourced (ADR-154)", () => {

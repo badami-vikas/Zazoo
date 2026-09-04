@@ -6774,6 +6774,30 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     }
   }
 
+  // An Automation whose Module is not part of this profile must not tick (ADR
+  // 2026-09-04 addendum): a Local Plane that once ran the full profile keeps
+  // every Automation row it saved, and the scheduler reads rows, not Modules —
+  // which is how DevPilot's GitHub poll kept proposing inside an Egg. Parked
+  // as draft, not deleted: installing the Module again reactivates it.
+  const profileModules = new Set(builtInModulesForProfile(profile).map((pkg) => pkg.manifest.name));
+  const foreignAutomationIds = new Set<string>();
+  for (const pkg of BUILT_IN_MODULES) {
+    if (profileModules.has(pkg.manifest.name)) continue;
+    for (const automation of pkg.manifest.module?.automations ?? []) {
+      const id = automation.automationId
+        ? resolveModuleAutomationRuntimeId(pkg.manifest.name, automation.automationId)
+        : undefined;
+      if (id) foreignAutomationIds.add(id);
+    }
+  }
+  if (foreignAutomationIds.size > 0) {
+    for (const definition of await automationRegistry.listByStatus(PILOT_ORGANIZATION, "active")) {
+      if (!foreignAutomationIds.has(definition.id)) continue;
+      await automationRegistry.save({ ...definition, status: "draft" });
+    }
+  }
+
+
   // K7 (TASK-051) — the app-focus sensor lane: @bridge/sensors' SensorHub,
   // wired into the composition root at last (it shipped kernel-side with a
   // fake provider and no host). One hub per capturing user, built lazily on
