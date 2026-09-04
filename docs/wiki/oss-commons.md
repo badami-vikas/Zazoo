@@ -37,3 +37,7 @@ break: embed only **MIT/Apache/BSD/MPL-2.0/ISC**; **REJECT GPL/AGPL/SSPL/BUSL** 
 Cal.com/Nextcloud/Radicale rejections), gate on TRANSITIVE deps too. Modularize first: calendar render +
 RFC-5545 math · identity resolution (Splink) · scaffolding (Refine/Dyad) · then document/RAG + connector
 bundles.
+
+**Addendum (2026-07-09)**: other "list of lists" of example agent apps (e.g. `Shubhamsaboo/awesome-llm-apps`)
+= Plan-2-shaped (mine as catalog, not hosted skills) — folded into Plan 2 §2.4, decision rule for future
+submissions in the raw doc's addendum.

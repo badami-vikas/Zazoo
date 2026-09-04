@@ -8,6 +8,16 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+- **OPEN 2026-07-09 — ADR-026 P2 deliverables Docling DocumentProvider + Nango ConnectorProvider: zero code exists.**
+  Listed as Consolidation-sprint P2 additions (roadmap.md / execution-plan-2026-07.md); grep across
+  `platform/` finds no matches for either. Either build them or formally descope from ADR-026 —
+  right now the sprint doc overclaims. Found in 2026-07-09 deep-dive audit
+  ([../docs/output/2026-07-09-deep-dive-audit.md](output/2026-07-09-deep-dive-audit.md)).
+
+- **RESOLVED 2026-07-09 — stale gap claim: "in-memory package store".** `DrizzlePackageStore`
+  (`platform/packages/db/src/package-store.ts`) is Postgres-backed. roadmap.md corrected. If an
+  older OPEN row below still asserts this, treat it as superseded by this entry.
+
 - **OPEN 2026-07-08 — SECURITY H1: no auth enforced by default; every tRPC procedure runs as the pilot user.**
   `apps/api/src/identity.ts:84-91` — with no `SUPABASE_JWT_SECRET`/`SUPABASE_URL` set, or no `Authorization`
   header, `resolve()` silently returns the pilot identity. No `protectedProcedure` in `router.ts`; the only

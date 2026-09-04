@@ -1,5 +1,7 @@
 # Universal Commons
 
+full: [../raw/roadmap-v2-universal-commons.md](../raw/roadmap-v2-universal-commons.md) · [../raw/decisions-log.md](../raw/decisions-log.md) ADR-030 (R-004, 2026-07-07).
+
 Commons = registry of GENERALIZED capability knowledge. NEVER user data. v1 = curated Module registry (Module = user-facing word for installable package; code types stay `PackageManifest`).
 
 ## Shape (R-004, ADR-030)

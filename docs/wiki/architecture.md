@@ -1,6 +1,6 @@
 # Architecture (wiki)
 
-full: [../raw/ARCHITECTURE.md](../raw/ARCHITECTURE.md)
+full: [../raw/ARCHITECTURE.md](../raw/ARCHITECTURE.md) · **end-to-end Kernel→Compiler→Runtime→Generated-Workspace walkthrough (2026-07-09)**: [../raw/architecture-end-to-end-2026-07.md](../raw/architecture-end-to-end-2026-07.md)
 
 Platform-first: substrate + governance spine + capability registries. Pages/Rituals/Tools = config instances, not bespoke code.
 

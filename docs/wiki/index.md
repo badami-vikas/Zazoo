@@ -40,12 +40,65 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - **Token-efficient dev** → [../raw/token-efficient-development-2026-07.md](../raw/token-efficient-development-2026-07.md): codemaps/diagrams/nav-index to add + token best practices + roadmap. Skills diluting the project (CSV) → [../skills-diluting-project.csv](../skills-diluting-project.csv).
 - [BUGS](../BUGS.md) — live bug/gap/abnormality ledger across sessions. Agents log here unprompted.
 - [testing](testing.md) — real coverage numbers (no CI/vitest), priority test list tied to known P0 bugs.
+- [entity-disambiguation](entity-disambiguation.md) — Recon OSINT name-collision handling: entity IDs, auto-assignment heuristics, analyst override, crowd-merge threshold. Source lives in Tools/recon, not docs/raw.
+- [brd](brd.md) — **2026-07-09**: Business Requirements Doc — product/users/problem/scope-by-phase/non-goals/success-criteria/risks; pricing+GTM flagged UNOWNED (prior invented pricing removed).
 
 ## Decisions + rationale
 Locked one-liners → [decisions](decisions.md). Full why + alternatives rejected (ADR) → [../raw/decisions-log.md](../raw/decisions-log.md).
+
+## Nav files (2026-07-09)
+- [INDEX](index.md) — this file, map o' wiki.
+- [CHANGELOG](CHANGELOG.md) — pointer to [../log.md](../log.md), da real trail, dated, append-only.
+- [QUESTIONS](QUESTIONS.md) — open thread pile, future page seed not grown yet.
+- [../raw/_INGESTED.md](../raw/_INGESTED.md) — source registry: every raw doc, promoted/orphan/historical status.
+
+## Default behaviour (caveman triggers)
+Say word, get act. No essay, no ask-permission-first unless act touch code or delete thing.
+- **"compile"** → walk raw/_INGESTED.md orphan list. Any orphan cited 2+ place now (wiki OR asked
+  twice this session)? Promote it — new wiki page, full: line, add to Pages list here, log it. Skip
+  requirement-kind docs (verbatim, never promote per CLAUDE.md).
+- **"ask a question"** (or any genuinely open/unresolved thing found mid-work) → add row to
+  [QUESTIONS](QUESTIONS.md), don't stop work to resolve unless it blocks current task.
+- **"health check"** → re-run: (1) every wiki page has full:/source line or is flagged meta-exempt,
+  (2) every raw doc has a row in [_INGESTED.md](../raw/_INGESTED.md), (3) index.md Pages list matches
+  actual files in docs/wiki/ 1:1, (4) no wiki page cites a raw file that doesn't exist. Report drift,
+  fix small stuff (missing line, missing index entry) inline, flag big stuff (orphan pile grown,
+  contradiction found) to QUESTIONS.md.
+
+## Plans + progress
+Present/past/future plan docs indexed once, not scattered: [../plan/INDEX.md](../plan/INDEX.md).
+Only the ACTIVE plan is tracked live → [../plan/PROGRESS.md](../plan/PROGRESS.md) (so "in progress"
+never gets confused with "planned" or "done").
+
+## Non-permanent outputs
+Answers/analysis that don't change code or add durable knowledge (status checks, gap audits,
+one-off Q&A) → [../output/](../output/), not the wiki. Promoted to wiki ONLY if it adds genuinely
+new synthesized knowledge AND gets asked first (see Article standard below).
 
 ## Depth
 Full insight: [../raw/](../raw/). Each wiki page links its raw source.
 
 ## Protocol
-Wiki = caveman, key takeaways. Raw = full depth. Wiki page >1000 lines → compact + summarize. New/changed raw → update matching wiki + append [../log.md](../log.md).
+Wiki = caveman-dense telegraphic shorthand (established house style, not literal caveman grammar —
+see any existing page for the pattern), key takeaways only. Raw = full depth. Wiki page >1000 lines →
+compact + summarize.
+
+**Article standard** (every wiki page should carry, retrofitted opportunistically on next touch, not
+a batch rewrite): confidence flag per non-obvious claim (**established** = shipped+tested,
+**emerging** = designed/decided not built, **speculative** = proposed/unconfirmed) · a `full:` line
+pointing at the raw source(s) · related-pages links · nothing stated without a raw citation or an
+explicit `[SPECULATIVE]` flag.
+
+**Source provenance rule** (non-negotiable): every factual claim in a wiki page either traces to a
+raw file (via the page's `full:` line or an inline link) or is marked speculative inline. No
+uncited claims.
+
+**Promotion pattern** (confirmed by auditing existing wiki, 2026-07-09): a raw doc earns a wiki page
+when it's referenced repeatedly across OTHER wiki pages' `related`/companion links — e.g.
+decisions-log.md, roadmap docs, capability-package-format.md, oss-commons-integration-plan all hit
+this bar and are already promoted ([decisions](decisions.md), [roadmap](roadmap.md),
+[packages](packages.md), [oss-commons](oss-commons.md)). Apply the same bar going forward: a raw doc
+that gets cross-referenced from 2+ other wiki pages, or gets asked about again in a session, is a
+promotion candidate — log it in [QUESTIONS](QUESTIONS.md) first, promote after confirming.
+
+New/changed raw → update matching wiki + append [../log.md](../log.md).

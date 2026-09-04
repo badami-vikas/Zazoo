@@ -452,3 +452,26 @@ contract and trust model:
 Nothing bypasses the gate, the risk model, or human review. The moat Bridge is building — computed
 risk, agent-floor, draft-then-approve, provenance/taint — becomes the very thing that makes ingesting
 5000+ community skills *safe*, which is the competitive edge over ungoverned skill marketplaces.
+
+---
+
+## Addendum (2026-07-09) — additional catalog-of-catalogs sources for Plan 2
+
+The user flagged `Shubhamsaboo/awesome-llm-apps` (MIT-licensed, ~300+ example agent/RAG/workflow
+apps organized by use-case: starter agents, MCP agents, RAG, multi-agent teams, voice agents, memory,
+autonomous games) as a candidate feeder. It is the **same shape as Plan 2's anchor catalog**
+(ashishpatel26/500-AI-Agents-Projects — an index of example projects, not hosted skills) and should be
+folded into Plan 2 §2.4, not treated as a fourth plan:
+
+- **Taxonomy fit**: apply the exact §2.2 mapping table. Its "starter_ai_agents" / "rag_tutorials" /
+  "mcp_ai_agents" categories → Learning-Agent-shaped read/advisory patterns (GOOD fit). Its
+  "autonomous_game_playing_agent_apps" and any autonomous-execution examples → REJECT per §2.2 same
+  as trading/offensive-cyber/robotics.
+- **License caveat applies identically to §1.4**: repo license (MIT) covers the *tutorial code*, not
+  necessarily every embedded third-party API/service each example wires up — S2 per-artifact license
+  gate still runs.
+- **Not ranked yet in §2.4's phasing** — file as a P1-adjacent addition once Plan 2's `agent-project`
+  source type ships (§2.3), mined alongside 500-AI-Agents-Projects rather than as a separate pipeline.
+- **General rule for future "list of lists" submissions**: any awesome-list of full agent/app examples
+  (not hosted skills) is Plan-2-shaped by default; any awesome-list of hosted skill/prompt files is
+  Plan-1-shaped (§1.1-§1.6). Route new candidates through this decision before opening a new plan.

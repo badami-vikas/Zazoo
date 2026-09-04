@@ -1,5 +1,7 @@
 # Entity Disambiguation
 
+full: [Tools/recon/data/README.md](../../Tools/recon/data/README.md) — source lives in the Recon tool itself, not docs/raw (Recon = standalone tool, not yet a kernel/raw-doc-tracked capability, see [tools](tools.md)).
+
 ## Problem
 OSINT sources use name-only matching. Same name → multiple real people.
 e.g. "Brian Armstrong" = Coinbase CEO + Wells Fargo broker + UCLA medical researcher.
