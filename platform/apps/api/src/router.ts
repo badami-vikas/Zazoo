@@ -112,7 +112,7 @@ import {
 } from "@bridge/core";
 import { eq, desc } from "drizzle-orm";
 import { schema as accountingSchema, validateExpression } from "@bridge/accounting";
-import { applyColumnOverlay } from "@bridge/tables";
+import { applyColumnOverlay, VIEW_KINDS } from "@bridge/tables";
 import type { ColumnKind, ColumnOverlay, TableSpec } from "@bridge/tables";
 import {
   TABLE_SCHEMA_NAMESPACE_PREFIX,
@@ -127,6 +127,18 @@ import {
   viewDependencies,
   type ColumnDependencyPreview,
 } from "./table-schema.js";
+import {
+  RECORD_NOTES_NAMESPACE_PREFIX,
+  RECORD_SECTIONS,
+  RECORD_SECTIONS_NAMESPACE_PREFIX,
+  applyRecordNote,
+  readRecordNotes,
+  readRecordSections,
+} from "./record-sections.js";
+import {
+  deriveRecordMetadata,
+  emptyRecordMetadata,
+} from "./record-metadata.js";
 import { d2cSchema } from "./d2c-store.js";
 import type {
   Action,
@@ -210,6 +222,21 @@ import {
   ResearchRunNotFoundError,
   RESEARCH_STEP_TOOLS,
   RESEARCH_STOP_REASONS,
+  SavedViewNameTakenError,
+  SavedViewNotFoundError,
+  SAVED_VIEW_SCOPES,
+  SHARE_ACCESS_LEVELS,
+  SHARE_TARGET_KINDS,
+  ShareGrantNotFoundError,
+  atLeast,
+  isGrantUsable,
+  type ShareAccessLevel,
+  type SavedViewRecord,
+  MAX_SAVED_VIEW_NAME_LENGTH,
+  type ResearchRunRecord,
+  type ResearchRunOutcomeUpdate,
+  type ResearchStepRecord,
+  type ResearchStepTool,
   labelFromLegacyTrustOrigin,
   declassifyTaintLabel,
   deriveDeclassifiedLabel,
@@ -273,6 +300,11 @@ import {
   type ChatTurnRef,
 } from "@bridge/core";
 import { WEB_RESEARCH_SKILL_ID } from "./web-research-skill.js";
+import {
+  createGuardedPageReader,
+  executeResearchRun,
+  type ResearchExecutorHooks,
+} from "./research-executor.js";
 import type { ModelBinding } from "@bridge/capability-kit";
 import { createModelRouter, MANAGED_LLAMA_PROVIDER_ID } from "@bridge/models";
 import { authUrl, CALENDAR_SOURCE, GMAIL_SOURCE, type IntakeDirective } from "@bridge/integrations-google";
@@ -1503,6 +1535,55 @@ async function provisionRoleModelRecommendationTask(
   );
 }
 
+/**
+ * TASK-062 — the stored shape of a saved View: `ViewConfig` from
+ * @bridge/tables, validated at this edge because the kinds own the shape and a
+ * column that encoded it would migrate on every field they add. `.strict()`
+ * is the point: an unknown key is a client sending something this server does
+ * not understand, and storing it would make the config a place to smuggle
+ * state past every validator that follows.
+ */
+const savedViewConfigSchema = z
+  .object({
+    id: z.string().trim().min(1).max(200),
+    kind: z.enum(VIEW_KINDS as readonly [string, ...string[]]),
+    sorts: z
+      .array(
+        z
+          .object({ id: z.string().trim().min(1).max(200), dir: z.enum(["asc", "desc"]) })
+          .strict(),
+      )
+      .max(20),
+    rowFilters: z
+      .array(
+        z
+          .object({
+            field: z.string().trim().min(1).max(200),
+            op: z.enum([
+              "contains",
+              "is",
+              "is_not",
+              "is_empty",
+              "is_not_empty",
+              "starts_with",
+            ]),
+            value: z.string().max(1_000),
+          })
+          .strict(),
+      )
+      .max(50),
+    filterMatch: z.enum(["all", "any"]),
+    groupBy: z.string().trim().min(1).max(200).nullable(),
+    dateBy: z.string().trim().min(1).max(200).optional(),
+    locationBy: z.string().trim().min(1).max(200).optional(),
+    relationBy: z.string().trim().min(1).max(200).optional(),
+    parentBy: z.string().trim().min(1).max(200).optional(),
+    graphScope: z.enum(["single_database", "multi_database", "full"]).optional(),
+    graphDatabaseIds: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+    formDefaults: z.record(z.unknown()).optional(),
+  })
+  .strict();
+
 async function provisionWebResearchTask(
   wiring: Wiring,
   organizationId: string,
@@ -1761,6 +1842,308 @@ async function persistWebResearchOutcome(
     eventId,
     trustOrigin: "untrusted_external",
   };
+}
+
+/**
+ * TASK-028 — the governed `web-research` Skill invocation itself, extracted so
+ * the `skill.webResearch` procedure and the server-side Research Run executor
+ * share ONE egress posture. Two copies of this would be two chances to drift
+ * apart on rights, quarantine, or persistence.
+ */
+async function runWebResearchSkill(
+  ctx: Pick<ApiContext, "wiring" | "run" | "identity">,
+  organizationId: string,
+  input: {
+    objective: string;
+    scope: "public_web";
+    searchQueries: readonly string[];
+    budget: {
+      maxResults: number;
+      maxResponseBytes: number;
+      maxProviderAttempts: number;
+      timeoutMs: number;
+    };
+  },
+) {
+  await assertWebResearchModuleBinding(ctx.wiring, organizationId);
+  const goalTaskRef = await provisionWebResearchTask(ctx.wiring, organizationId);
+  try {
+    const proposal = await ctx.wiring.pipeline.propose(
+      {
+        organizationId,
+        actor: { type: "agent", id: LEARNING_AGENT, plane: "cloud" },
+        onBehalfOf: { type: "user", id: ctx.identity.id },
+        action: "read",
+        resourceType: "external:fetch",
+        inputs: {
+          objective: input.objective,
+          scope: input.scope,
+          searchQueries: [...input.searchQueries],
+          budget: input.budget,
+        },
+        taintLabel: labelAtSource("human_input", {
+          ref: `web-research:${ctx.identity.id}:${goalTaskRef.taskId}`,
+          valueHash: hashTaintValue({
+            objective: input.objective,
+            searchQueries: [...input.searchQueries],
+          }),
+          sensitivity: "public",
+          instructionRisk: "instruction_like",
+        }),
+        skill: WEB_RESEARCH_SKILL_ID,
+        dataScope: "public",
+        goalTaskRef,
+        context: { type: "record", id: goalTaskRef.taskId, runId: ctx.run.ids.next() },
+      },
+      ctx.run,
+    );
+    if (proposal.status === "rejected") {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: proposal.rejectionReason ?? "web research was rejected before persistence",
+      });
+    }
+    const resultEvidence = await persistWebResearchOutcome(
+      ctx.wiring,
+      ctx.run,
+      ctx.identity.id,
+      organizationId,
+      goalTaskRef,
+      proposal,
+    );
+    return { ...proposal, resultEvidence };
+  } catch (error) {
+    if (error instanceof SearchProvidersUnavailableError) {
+      const attempts = error.attempts
+        .map((attempt) => `${attempt.providerId}:${attempt.status}`)
+        .join(", ");
+      throw new TRPCError({
+        code: "BAD_GATEWAY",
+        message: `web research unavailable (${attempts})`,
+        cause: error,
+      });
+    }
+    throw error;
+  }
+}
+
+/**
+ * TASK-028 — record one executed engine step against a Research Run: a
+ * TERMINAL child Agent Run (so the timeline is inspectable through the same
+ * `childRun.*` surface every other delegation uses) plus the append-only step
+ * evidence BR4 resume replays. Shared by the `research.recordStep` procedure
+ * (the desktop overlay executor) and the server-side executor.
+ */
+async function recordResearchStep(
+  ctx: Pick<ApiContext, "wiring" | "run" | "identity">,
+  organizationId: string,
+  run: ResearchRunRecord,
+  input: {
+    stepIndex: number;
+    tool: ResearchStepTool;
+    summary: string;
+    sourceUrl?: string | null | undefined;
+    quarantined?: { sourceUrl: string; text: string } | null | undefined;
+    failed?: boolean | undefined;
+  },
+): Promise<{ step: ResearchStepRecord; childRunId: string }> {
+  const onBehalfOf = {
+    type: (ctx.identity.type === "team" ? "team" : "user") as "user" | "team",
+    id: ctx.identity.id,
+  };
+  const [learningScope, learningDataScope] = await Promise.all([
+    ctx.wiring.agents.capabilityScope(LEARNING_AGENT),
+    ctx.wiring.agents.dataScope(LEARNING_AGENT),
+  ]);
+  // The step already executed under the engine's green-tier authority
+  // (AP-088): reading the public web is autonomous, so the child Run
+  // records at "notify", never a retroactive "approve" that would
+  // imply a Human decision existed. Steps run on the user's machine —
+  // the LOCAL plane; the quarantined text they carry is untrusted web.
+  const parentEnvelope: ParentRunEnvelope = {
+    runId: run.parentRunId,
+    agentId: LEARNING_AGENT,
+    organizationId,
+    authorityScope: learningScope,
+    eligibleSkills: [WEB_RESEARCH_SKILL_ID],
+    dataScope: learningDataScope,
+    plane: "local",
+    budgetRemaining: { calls: 1_000, cost: 1_000 },
+    reviewMode: "notify",
+    childRunPolicy: "allowed",
+    delegationDepth: 0,
+    onBehalfOf,
+    taintLabel: labelAtSource("human_input", {
+      ref: `research-run:${run.id}`,
+      valueHash: hashTaintValue({ objective: run.objective }),
+      sensitivity: "public",
+      instructionRisk: "instruction_like",
+    }),
+  };
+  const childRun = await createChildAgentRun(
+    { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
+    parentEnvelope,
+    {
+      goalId: run.goalId,
+      taskId: run.taskId,
+      delegatedScope: ["external:fetch:read"],
+      selectedSkills: [WEB_RESEARCH_SKILL_ID],
+      budget: { maxCalls: 1, maxCost: 1 },
+      deadline: new Date(Date.now() + 10 * 60_000).toISOString(),
+      stopCondition: `record one ${input.tool} step of Research Run ${run.id} and stop`,
+      requestedDataScope: "public",
+      ...(input.quarantined
+        ? {
+            requestedTaintLabel: labelAtSource("web_search", {
+              ref: input.quarantined.sourceUrl,
+              valueHash: hashTaintValue({ text: input.quarantined.text }),
+              sensitivity: "public",
+              instructionRisk: "instruction_like",
+            }),
+          }
+        : {}),
+    },
+    ctx.run,
+  );
+  const transition = input.failed ? failChildAgentRun : completeChildAgentRun;
+  await transition(
+    { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
+    organizationId,
+    childRun.id,
+    { type: "agent", id: LEARNING_AGENT },
+    ctx.run,
+  );
+
+  const step = await ctx.wiring.researchRuns.appendStep({
+    id: ctx.run.ids.next(),
+    runId: run.id,
+    organizationId,
+    ownerUserId: ctx.identity.id,
+    stepIndex: input.stepIndex,
+    tool: input.tool,
+    summary: input.summary,
+    sourceUrl: input.sourceUrl ?? null,
+    childRunId: childRun.id,
+    quarantinedText: input.quarantined?.text ?? null,
+    quarantinedSourceUrl: input.quarantined?.sourceUrl ?? null,
+    createdAt: ctx.run.clock.nowISO(),
+  });
+  return { step, childRunId: childRun.id };
+}
+
+/**
+ * TASK-028 — freeze a Research Run's outcome, and land its brief as a governed
+ * RESULT rather than a column nobody else can see: a Memory owned by the human
+ * who started the Run and an Event on the Learning Agent's Task, both carrying
+ * `untrusted_external` taint because a brief synthesized from fetched pages is
+ * exactly as trustworthy as the pages it summarizes.
+ *
+ * The Run row is authoritative and is frozen FIRST — complete-once is enforced
+ * by the store (and the 0035 trigger), so a lost Result write can never leave
+ * two different terminal outcomes recorded for one Run.
+ */
+/** TASK-028 — mint the durable Run record plus its Goal/Task and parent-Run
+ * envelope id. Shared by `research.start` (an executor lives elsewhere) and
+ * `research.execute` (the kernel drives the loop itself). */
+async function startResearchRun(
+  ctx: Pick<ApiContext, "wiring" | "run" | "identity">,
+  organizationId: string,
+  objective: string,
+): Promise<ResearchRunRecord> {
+  const goalTaskRef = await provisionResearchRunTask(ctx.wiring, organizationId);
+  return ctx.wiring.researchRuns.create({
+    id: ctx.run.ids.next(),
+    organizationId,
+    ownerUserId: ctx.identity.id,
+    objective,
+    status: "running",
+    stopRequested: false,
+    parentRunId: ctx.run.ids.next(),
+    goalId: goalTaskRef.goalId,
+    taskId: goalTaskRef.taskId,
+    stopReason: null,
+    brief: null,
+    citations: [],
+    blockedActions: [],
+    injectionReports: [],
+    stepsTaken: 0,
+    startedAt: ctx.run.clock.nowISO(),
+    endedAt: null,
+  });
+}
+
+async function completeResearchRun(
+  ctx: Pick<ApiContext, "wiring" | "run" | "identity">,
+  organizationId: string,
+  researchRunId: string,
+  outcome: ResearchRunOutcomeUpdate,
+): Promise<ResearchRunRecord & { resultEvidence: { resultId: string; memoryId: string; eventId: string } | null }> {
+  const frozen = await ctx.wiring.researchRuns.complete(
+    organizationId,
+    ctx.identity.id,
+    researchRunId,
+    outcome,
+    ctx.run.clock.nowISO(),
+  );
+  const brief = frozen.brief?.trim();
+  if (!brief) return { ...frozen, resultEvidence: null };
+
+  const memoryId = ctx.run.ids.next();
+  const eventId = ctx.run.ids.next();
+  const taintLabel = labelAtSource("web_search", {
+    ref: `research-run:${frozen.id}`,
+    valueHash: hashTaintValue({ brief, citations: [...frozen.citations] }),
+    sensitivity: "public",
+    instructionRisk: "data",
+  });
+  await ctx.wiring.memoryStore.write({
+    id: memoryId,
+    organizationId,
+    type: "semantic",
+    subjectRecordId: frozen.taskId,
+    scope: "private",
+    content: JSON.stringify({
+      kind: "research_run_brief_memory",
+      moduleName: "relationship",
+      researchRunId: frozen.id,
+      objective: frozen.objective,
+      brief,
+      citations: [...frozen.citations],
+      stopReason: frozen.stopReason,
+      stepsTaken: frozen.stepsTaken,
+      blockedActions: [...frozen.blockedActions],
+      injectionReports: [...frozen.injectionReports],
+    }),
+    sourceRefType: "ledger",
+    sourceRefId: frozen.parentRunId,
+    confidence: 1,
+    trustOrigin: "untrusted_external",
+    taintLabel,
+    plane: "local",
+    createdBy: LEARNING_AGENT,
+    ownerUserId: ctx.identity.id,
+    createdAt: ctx.run.clock.nowISO(),
+  });
+  await ctx.wiring.graphStore.recordWebResearchResultEvent({
+    organizationId,
+    userId: ctx.identity.id,
+    eventId,
+    resultId: frozen.id,
+    memoryId,
+    taskId: frozen.taskId,
+    moduleName: "relationship",
+    payload: {
+      researchRunId: frozen.id,
+      objective: frozen.objective,
+      stopReason: frozen.stopReason,
+      stepsTaken: frozen.stepsTaken,
+      citations: [...frozen.citations],
+      blockedActions: [...frozen.blockedActions],
+      injectionReports: [...frozen.injectionReports],
+    },
+    taintLabel,
+  });
+  return { ...frozen, resultEvidence: { resultId: frozen.id, memoryId, eventId } };
 }
 
 interface CommonsSkillInvocation {
@@ -6799,6 +7182,76 @@ async function transcriptionApiKey(
   return wiring.modelProviderKeys.read(organizationId, "groq");
 }
 
+/**
+ * Share helpers (TASK-064). They live beside the router because both the Share
+ * panel's procedures and the recipient's `resolve` need exactly one answer to
+ * "what may this person do with this View", and two copies of that answer is
+ * how a share surface ends up disagreeing with the server.
+ */
+
+/** The View, as this caller may see it. Not-visible reads as not-found. */
+type ShareCtx = Pick<ApiContext, "wiring" | "identity" | "run">;
+
+async function findSharedView(
+  ctx: ShareCtx,
+  organizationId: string,
+  viewId: string,
+): Promise<SavedViewRecord> {
+  const view = await ctx.wiring.viewConfigs.get(organizationId, ctx.identity.id, viewId);
+  if (!view) {
+    throw new TRPCError({ code: "NOT_FOUND", message: `unknown saved View ${viewId}` });
+  }
+  return view;
+}
+
+/** What a non-owner holds on this View right now, or null. */
+async function resolveShareLevel(
+  ctx: ShareCtx,
+  organizationId: string,
+  viewId: string,
+): Promise<ShareAccessLevel | null> {
+  const view = await ctx.wiring.viewConfigs.get(organizationId, ctx.identity.id, viewId);
+  if (!view) return null;
+  // Ownership is not a share: the owner holds everything without a grant row.
+  if (view.ownerUserId === ctx.identity.id) return "coowner";
+  const grants = await ctx.wiring.shareGrants.listForTarget(
+    organizationId,
+    ctx.identity.id,
+    "view",
+    viewId,
+  );
+  const now = ctx.run.clock.nowISO();
+  let best: ShareAccessLevel | null = null;
+  for (const grant of grants) {
+    if (grant.granteeUserId !== ctx.identity.id) continue;
+    if (!isGrantUsable(grant, now)) continue;
+    if (best === null || atLeast(grant.accessLevel, best)) best = grant.accessLevel;
+  }
+  // An `organization`-scoped View is readable by every member by its own scope,
+  // with no grant involved — the same answer the store's read predicate gives.
+  if (best === null && view.scope === "organization") return "view";
+  return best;
+}
+
+/** Refuse unless the caller reaches `required` on this View. */
+async function assertSharableView(
+  ctx: ShareCtx,
+  organizationId: string,
+  viewId: string,
+  required: ShareAccessLevel,
+): Promise<void> {
+  const level = await resolveShareLevel(ctx, organizationId, viewId);
+  if (level === null) {
+    throw new TRPCError({ code: "NOT_FOUND", message: `unknown saved View ${viewId}` });
+  }
+  if (!atLeast(level, required)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `This View is shared with you at ${level} access; ${required} is required.`,
+    });
+  }
+}
+
 export const appRouter = t.router({
   chat: t.router({
     model: t.router({
@@ -9804,9 +10257,292 @@ export const appRouter = t.router({
           results,
         };
       }),
+    /**
+     * TASK-062 — saved Views. A View is configuration, and configuration that
+     * lives only in React state is discarded on reload, which is why Lists,
+     * sharing, personal-vs-collaborative views and linked views were all
+     * absent from surfaces whose UI already existed.
+     *
+     * The stored `config` is a `ViewConfig` (@bridge/tables), validated HERE
+     * rather than in the store: the shape belongs to the view kinds, and a
+     * database column that encoded it would have to migrate every time a kind
+     * gained a field. What the table owns is identity, ownership and bounds.
+     */
+    saved: t.router({
+      list: authenticatedProcedure
+        .input(
+          z
+            .object({
+              organizationId: z.string().min(1),
+              databaseId: z.string().trim().min(1).max(200),
+            })
+            .strict(),
+        )
+        .query(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          return ctx.wiring.viewConfigs.list(
+            input.organizationId,
+            ctx.identity.id,
+            input.databaseId,
+          );
+        }),
+
+      save: authenticatedProcedure
+        .input(
+          z
+            .object({
+              organizationId: z.string().min(1),
+              databaseId: z.string().trim().min(1).max(200),
+              name: z.string().trim().min(1).max(MAX_SAVED_VIEW_NAME_LENGTH),
+              scope: z.enum(SAVED_VIEW_SCOPES).default("personal"),
+              config: savedViewConfigSchema,
+              hiddenColumns: z.array(z.string().trim().min(1).max(200)).max(200).default([]),
+            })
+            .strict(),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          const now = ctx.run.clock.nowISO();
+          try {
+            return await ctx.wiring.viewConfigs.create({
+              id: ctx.run.ids.next(),
+              organizationId: input.organizationId,
+              ownerUserId: ctx.identity.id,
+              databaseId: input.databaseId,
+              name: input.name,
+              scope: input.scope,
+              config: input.config as Record<string, unknown>,
+              hiddenColumns: input.hiddenColumns,
+              createdAt: now,
+              updatedAt: now,
+            });
+          } catch (error) {
+            if (error instanceof SavedViewNameTakenError) {
+              throw new TRPCError({ code: "CONFLICT", message: error.message });
+            }
+            throw error;
+          }
+        }),
+
+      /** Owner-only. Every field is optional so renaming, re-scoping and
+       * re-saving the current configuration are one procedure, not three. */
+      update: authenticatedProcedure
+        .input(
+          z
+            .object({
+              organizationId: z.string().min(1),
+              viewId: z.string().min(1),
+              name: z.string().trim().min(1).max(MAX_SAVED_VIEW_NAME_LENGTH).optional(),
+              scope: z.enum(SAVED_VIEW_SCOPES).optional(),
+              config: savedViewConfigSchema.optional(),
+              hiddenColumns: z.array(z.string().trim().min(1).max(200)).max(200).optional(),
+            })
+            .strict(),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          try {
+            return await ctx.wiring.viewConfigs.update(
+              input.organizationId,
+              ctx.identity.id,
+              input.viewId,
+              {
+                ...(input.name !== undefined ? { name: input.name } : {}),
+                ...(input.scope !== undefined ? { scope: input.scope } : {}),
+                ...(input.config !== undefined
+                  ? { config: input.config as Record<string, unknown> }
+                  : {}),
+                ...(input.hiddenColumns !== undefined
+                  ? { hiddenColumns: input.hiddenColumns }
+                  : {}),
+              },
+              ctx.run.clock.nowISO(),
+            );
+          } catch (error) {
+            if (error instanceof SavedViewNameTakenError) {
+              throw new TRPCError({ code: "CONFLICT", message: error.message });
+            }
+            if (error instanceof SavedViewNotFoundError) {
+              throw new TRPCError({ code: "NOT_FOUND", message: error.message });
+            }
+            throw error;
+          }
+        }),
+
+      remove: authenticatedProcedure
+        .input(
+          z.object({ organizationId: z.string().min(1), viewId: z.string().min(1) }).strict(),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          try {
+            await ctx.wiring.viewConfigs.remove(
+              input.organizationId,
+              ctx.identity.id,
+              input.viewId,
+            );
+            return { removed: input.viewId };
+          } catch (error) {
+            if (error instanceof SavedViewNotFoundError) {
+              throw new TRPCError({ code: "NOT_FOUND", message: error.message });
+            }
+            throw error;
+          }
+        }),
+    }),
+
+    /**
+     * Scoped share grants (TASK-064, ADR-279) — the Share panel's server side.
+     *
+     * A grant points at a saved View and names an access level. Only the View's
+     * OWNER (or a co-owner grant holder) may create or revoke one: sharing is an
+     * authority change, so it follows the same human-only floor as every other
+     * authority change in this router.
+     */
+    share: t.router({
+      list: authenticatedProcedure
+        .input(
+          z.object({ organizationId: z.string().min(1), viewId: z.string().min(1) }).strict(),
+        )
+        .query(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          await assertSharableView(ctx, input.organizationId, input.viewId, "view");
+          const grants = await ctx.wiring.shareGrants.listForTarget(
+            input.organizationId,
+            ctx.identity.id,
+            "view",
+            input.viewId,
+          );
+          const now = ctx.run.clock.nowISO();
+          // `usable` is computed by the kernel's own rule, never by the client:
+          // a surface that decided expiry for itself would eventually disagree
+          // with the server about who has access.
+          return grants.map((grant) => ({ ...grant, usable: isGrantUsable(grant, now) }));
+        }),
+
+      grant: authenticatedProcedure
+        .input(
+          z
+            .object({
+              organizationId: z.string().min(1),
+              viewId: z.string().min(1),
+              targetKind: z.enum(SHARE_TARGET_KINDS).default("view"),
+              accessLevel: z.enum(SHARE_ACCESS_LEVELS).default("view"),
+              /** A member grant. Omit for a link grant. */
+              granteeUserId: z.string().min(1).optional(),
+              expiresAt: z.string().datetime().optional(),
+            })
+            .strict(),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          assertHumanIdentity(ctx, "Sharing a View");
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          await assertSharableView(ctx, input.organizationId, input.viewId, "coowner");
+          if (input.granteeUserId) {
+            // A grant to someone outside the Organization would be a share the
+            // Organization never authorised. Membership is checked, not assumed.
+            await assertMembership(
+              ctx.wiring.organizationStore,
+              input.organizationId,
+              input.granteeUserId,
+            );
+          }
+          const now = ctx.run.clock.nowISO();
+          if (input.expiresAt && input.expiresAt <= now) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "A share that has already expired grants nothing — pick a future instant.",
+            });
+          }
+          return ctx.wiring.shareGrants.create({
+            id: ctx.run.ids.next(),
+            organizationId: input.organizationId,
+            targetKind: input.targetKind,
+            targetId: input.viewId,
+            granteeUserId: input.granteeUserId ?? null,
+            // The link credential is minted server-side and never echoed back
+            // from client input: an unguessable token the caller chose is not
+            // unguessable.
+            accessToken: input.granteeUserId ? null : `shr_${ctx.run.ids.next()}${ctx.run.ids.next()}`.replace(/-/g, ""),
+            accessLevel: input.accessLevel,
+            expiresAt: input.expiresAt ?? null,
+            revokedAt: null,
+            createdByUserId: ctx.identity.id,
+            createdAt: now,
+          });
+        }),
+
+      revoke: authenticatedProcedure
+        .input(
+          z.object({ organizationId: z.string().min(1), grantId: z.string().min(1) }).strict(),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          assertHumanIdentity(ctx, "Revoking a share");
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          try {
+            return await ctx.wiring.shareGrants.revoke(
+              input.organizationId,
+              ctx.identity.id,
+              input.grantId,
+              ctx.run.clock.nowISO(),
+            );
+          } catch (error) {
+            if (error instanceof ShareGrantNotFoundError) {
+              throw new TRPCError({ code: "NOT_FOUND", message: error.message });
+            }
+            throw error;
+          }
+        }),
+
+      /**
+       * Open a View someone shared with you.
+       *
+       * The View comes back with its hidden columns REMOVED from the payload
+       * rather than merely flagged: a column the sharer hid is not a column the
+       * recipient may read, and a client that "knows" not to render it is not a
+       * boundary. `canEdit` is the server's answer, not the client's guess.
+       */
+      resolve: authenticatedProcedure
+        .input(
+          z.object({ organizationId: z.string().min(1), viewId: z.string().min(1) }).strict(),
+        )
+        .query(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          const level = await resolveShareLevel(ctx, input.organizationId, input.viewId);
+          if (level === null) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "This View has not been shared with you.",
+            });
+          }
+          const view = await findSharedView(ctx, input.organizationId, input.viewId);
+          const hidden = new Set(view.hiddenColumns);
+          const config = { ...view.config } as Record<string, unknown>;
+          return {
+            id: view.id,
+            databaseId: view.databaseId,
+            name: view.name,
+            config,
+            /** Names the recipient may see. Hidden ones are absent, not marked. */
+            hiddenColumns: [...hidden],
+            accessLevel: level,
+            canEdit: atLeast(level, "edit"),
+            canReshare: atLeast(level, "coowner"),
+          };
+        }),
+    }),
   }),
 
   action: t.router({
+
     /** Propose a governed mutation → Proposal (pending_review | applied | rejected). */
     propose: procedure.input(proposeInput).mutation(async ({ input, ctx }) => {
       assertPilotOrganization(input.organizationId);
@@ -20006,6 +20742,143 @@ export const appRouter = t.router({
       }),
   }),
 
+  // ── Record Sections and Record notes (TASK-083, ADR-261 under AP-171) ─────
+  //
+  // The ⋮ → Records toggles, server-side. Keyed by DATABASE, never by Record:
+  // two Records of one Database showing different Sections is the single-page
+  // divergence the UI gate exists to catch.
+  //
+  // It rides the same Local-Plane state store as the column overlay
+  // (`table:schema:`) rather than a table of its own — this is per-Organization
+  // presentation state about a shipped Database, and unlike the overlay it must
+  // answer for EVERY Database, including the ones this process holds no spec
+  // for, so there is nothing to register it against.
+  records: t.router({
+    sections: procedure
+      .input(z.object({ organizationId: z.string().min(1), specId: z.string().trim().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        return readRecordSections(
+          await ctx.wiring.localPlane.state.read(
+            input.organizationId,
+            `${RECORD_SECTIONS_NAMESPACE_PREFIX}${input.specId}`,
+          ),
+        );
+      }),
+
+    setSection: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          specId: z.string().trim().min(1),
+          section: z.enum(RECORD_SECTIONS),
+          enabled: z.boolean(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        // What every Record page of a Database shows is not something an Agent
+        // decides — same floor as the column overlay next door.
+        assertHumanIdentity(ctx, "Changing which Sections a Database's Records show");
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        return ctx.wiring.localPlane.state.update(
+          input.organizationId,
+          `${RECORD_SECTIONS_NAMESPACE_PREFIX}${input.specId}`,
+          null,
+          (current) => {
+            const next = { ...readRecordSections(current), [input.section]: input.enabled };
+            return { state: next, result: next };
+          },
+        );
+      }),
+
+    /**
+     * One Record's note. Held in its OWN namespace, which is what makes
+     * switching the Notes Section off a hide rather than a delete.
+     */
+    note: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          specId: z.string().trim().min(1),
+          recordId: z.string().trim().min(1),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        const notes = readRecordNotes(
+          await ctx.wiring.localPlane.state.read(
+            input.organizationId,
+            `${RECORD_NOTES_NAMESPACE_PREFIX}${input.specId}`,
+          ),
+        );
+        return notes[input.recordId] ?? { text: "", updatedAt: "" };
+      }),
+
+    /**
+     * The four derived metadata columns (TASK-063), folded from the Event log.
+     *
+     * A READ, and only a read: there is no write path to these values, because
+     * a second copy of "when was this last touched" on the Record row could
+     * disagree with the append-only log that produced it.
+     */
+    metadata: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          entityType: z.string().trim().min(1).max(120),
+          recordIds: z.array(z.string().trim().min(1).max(200)).max(500),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const events = await ctx.wiring.recordMetadata.eventsFor(
+          input.organizationId,
+          ctx.identity.id,
+          input.entityType,
+          input.recordIds,
+        );
+        const derived = deriveRecordMetadata(events);
+        // Every requested id gets an answer, including the ones nothing has
+        // happened to: a missing key would read as "still loading" on the
+        // surface, and an empty cell is the truthful rendering of "unknown".
+        return Object.fromEntries(
+          input.recordIds.map((id) => [id, derived.get(id) ?? emptyRecordMetadata()]),
+        );
+      }),
+
+    saveNote: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          specId: z.string().trim().min(1),
+          recordId: z.string().trim().min(1),
+          text: z.string().max(20_000),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        assertHumanIdentity(ctx, "Writing a note on a Record");
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const updatedAt = ctx.run.clock.nowISO();
+        return ctx.wiring.localPlane.state.update(
+          input.organizationId,
+          `${RECORD_NOTES_NAMESPACE_PREFIX}${input.specId}`,
+          null,
+          (current) => {
+            const next = applyRecordNote(
+              readRecordNotes(current),
+              input.recordId,
+              input.text,
+              updatedAt,
+            );
+            return { state: next, result: next[input.recordId] ?? { text: "", updatedAt } };
+          },
+        );
+      }),
+  }),
+
   /**
    * Accounting — wires the imported `@bridge/accounting` domain layer
    * (ADR-246) to its own sqlite (`accounting-store.ts`) for the
@@ -22607,82 +23480,7 @@ export const appRouter = t.router({
             input.organizationId,
             ctx.identity.id,
           );
-          await assertWebResearchModuleBinding(
-            ctx.wiring,
-            input.organizationId,
-          );
-          const goalTaskRef = await provisionWebResearchTask(
-            ctx.wiring,
-            input.organizationId,
-          );
-          try {
-            const proposal = await ctx.wiring.pipeline.propose(
-              {
-                organizationId: input.organizationId,
-                actor: {
-                  type: "agent",
-                  id: LEARNING_AGENT,
-                  plane: "cloud",
-                },
-                onBehalfOf: { type: "user", id: ctx.identity.id },
-                action: "read",
-                resourceType: "external:fetch",
-                inputs: {
-                  objective: input.objective,
-                  scope: input.scope,
-                  searchQueries: input.searchQueries,
-                  budget: input.budget,
-                },
-                taintLabel: labelAtSource("human_input", {
-                  ref: `web-research:${ctx.identity.id}:${goalTaskRef.taskId}`,
-                  valueHash: hashTaintValue({
-                    objective: input.objective,
-                    searchQueries: input.searchQueries,
-                  }),
-                  sensitivity: "public",
-                  instructionRisk: "instruction_like",
-                }),
-                skill: WEB_RESEARCH_SKILL_ID,
-                dataScope: "public",
-                goalTaskRef,
-                context: {
-                  type: "record",
-                  id: goalTaskRef.taskId,
-                  runId: ctx.run.ids.next(),
-                },
-              },
-              ctx.run,
-            );
-            if (proposal.status === "rejected") {
-              throw new TRPCError({
-                code: "FORBIDDEN",
-                message:
-                  proposal.rejectionReason ??
-                  "web research was rejected before persistence",
-              });
-            }
-            const resultEvidence = await persistWebResearchOutcome(
-              ctx.wiring,
-              ctx.run,
-              ctx.identity.id,
-              input.organizationId,
-              goalTaskRef,
-              proposal,
-            );
-            return { ...proposal, resultEvidence };
-          } catch (error) {
-            if (error instanceof SearchProvidersUnavailableError) {
-              const attempts = error.attempts
-                .map((attempt) => `${attempt.providerId}:${attempt.status}`)
-                .join(", ");
-              throw new TRPCError({
-                code: "BAD_GATEWAY",
-                message: `web research unavailable (${attempts})`,
-                cause: error,
-              });
-            }
-            throw error;
-          }
+          return runWebResearchSkill(ctx, input.organizationId, input);
         }),
 
       /** Read-only preview of AGS1 resolution — never invokes the Skill. Lets
@@ -22752,26 +23550,171 @@ export const appRouter = t.router({
         .mutation(async ({ input, ctx }) => {
           assertPilotOrganization(input.organizationId);
           await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
-          const goalTaskRef = await provisionResearchRunTask(ctx.wiring, input.organizationId);
-          return ctx.wiring.researchRuns.create({
-            id: ctx.run.ids.next(),
-            organizationId: input.organizationId,
-            ownerUserId: ctx.identity.id,
-            objective: input.objective,
-            status: "running",
-            stopRequested: false,
-            parentRunId: ctx.run.ids.next(),
-            goalId: goalTaskRef.goalId,
-            taskId: goalTaskRef.taskId,
-            stopReason: null,
-            brief: null,
-            citations: [],
-            blockedActions: [],
-            injectionReports: [],
-            stepsTaken: 0,
-            startedAt: ctx.run.clock.nowISO(),
-            endedAt: null,
-          });
+          return startResearchRun(ctx, input.organizationId, input.objective);
+        }),
+
+      /**
+       * TASK-028 kernel-executor bridge — the Run executes HERE, in the API
+       * process, not only in the desktop overlay. Same engine, same bounds,
+       * same green-tools-only authority; its ports are this router's already
+       * governed helpers: search is the pipeline-proposed `web-research`
+       * Skill, planning is a receipted ModelProvider completion, every step
+       * lands as a terminal child Agent Run, and the brief freezes once as a
+       * governed Result.
+       *
+       * Returns as soon as the Run record exists; the loop continues in the
+       * background and the Run detail Page follows it.
+       *
+       * ponytail: the loop runs in THIS process, so an API restart leaves the
+       * Run interrupted (BR4 resume then replays its ledger). Move it onto the
+       * job runner when Runs must survive a deploy.
+       */
+      execute: authenticatedProcedure
+        .input(
+          z
+            .object({
+              organizationId: z.string().min(1),
+              objective: z.string().trim().min(1).max(500),
+              maxSteps: z.number().int().min(1).max(24).optional(),
+            })
+            .strict(),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          // A planner is not optional: without a model the loop cannot choose
+          // a next step, and a Run that cannot plan must not be started and
+          // then quietly fail. Local plane only — this never opts a Run into
+          // cloud model egress on the user's behalf.
+          const model = resolveConfiguredModel(ctx.wiring.models, "reasoning");
+          if (!model) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "no local-plane model is configured, so a background Research Run has nothing to plan with",
+            });
+          }
+          const governedModel = createGovernedModelProvider(
+            ctx,
+            input.organizationId,
+            model,
+            "research_run_planning",
+          );
+          const run = await startResearchRun(ctx, input.organizationId, input.objective);
+          const reader = createGuardedPageReader();
+          const warnings: string[] = [];
+
+          const hooks: ResearchExecutorHooks = {
+            reader,
+            onWarning: (message) => {
+              warnings.push(message);
+            },
+            async search(objective, query) {
+              const proposal = await runWebResearchSkill(ctx, input.organizationId, {
+                objective: objective.slice(0, 500),
+                scope: "public_web",
+                searchQueries: [query.slice(0, 160)],
+                budget: {
+                  maxResults: 5,
+                  maxResponseBytes: 256 * 1_024,
+                  maxProviderAttempts: 2,
+                  timeoutMs: 10_000,
+                },
+              });
+              const parsed = webResearchOutputSchema.safeParse(
+                proposal.output?.proposedOutput,
+              );
+              if (!parsed.success) return [];
+              return parsed.data.citations.map((citation) => ({
+                url: citation.url,
+                title: null,
+                excerpt: citation.summary,
+                providerId: citation.providerId,
+                retrievedAt: citation.retrievedAt,
+              }));
+            },
+            async chat(messages) {
+              const system = messages
+                .filter((message) => message.role === "system")
+                .map((message) => message.content)
+                .join("\n\n");
+              const prompt = messages
+                .filter((message) => message.role !== "system")
+                .map((message) => message.content)
+                .join("\n\n");
+              const completion = await governedModel.provider.complete({
+                ...(system.length > 0 ? { system } : {}),
+                prompt,
+                maxTokens: 1_024,
+                tier: "reasoning",
+                cache: { strategy: "stable_system_prefix", ttl: "5m" },
+              });
+              return completion.text;
+            },
+            async appendStep(entry) {
+              await recordResearchStep(ctx, input.organizationId, run, {
+                stepIndex: entry.stepIndex,
+                tool: entry.tool,
+                summary: entry.summary.slice(0, 4_000),
+                sourceUrl: entry.sourceUrl,
+                ...(entry.quarantined
+                  ? {
+                      quarantined: {
+                        sourceUrl: entry.quarantined.sourceUrl.slice(0, 2_048),
+                        text: entry.quarantined.text.slice(0, 400_000),
+                      },
+                    }
+                  : {}),
+              });
+            },
+            async loadSteps() {
+              const rows = await ctx.wiring.researchRuns.listSteps(
+                input.organizationId,
+                ctx.identity.id,
+                run.id,
+              );
+              return rows.map((row) => ({
+                stepIndex: row.stepIndex,
+                tool: row.tool,
+                summary: row.summary,
+                sourceUrl: row.sourceUrl,
+                ...(row.quarantinedText && row.quarantinedSourceUrl
+                  ? {
+                      quarantined: {
+                        trustOrigin: "untrusted_external" as const,
+                        taintLabel: "untrusted_external" as const,
+                        sourceUrl: row.quarantinedSourceUrl,
+                        text: row.quarantinedText,
+                      },
+                    }
+                  : {}),
+              }));
+            },
+            async stopRequested() {
+              const current = await ctx.wiring.researchRuns.get(
+                input.organizationId,
+                ctx.identity.id,
+                run.id,
+              );
+              return current?.stopRequested ?? false;
+            },
+            async finish(outcome) {
+              await completeResearchRun(ctx, input.organizationId, run.id, outcome);
+            },
+          };
+
+          const loop = executeResearchRun(
+            {
+              runId: run.id,
+              objective: run.objective,
+              ...(input.maxSteps ? { bounds: { maxSteps: input.maxSteps } } : {}),
+            },
+            hooks,
+          );
+          // `executeResearchRun` never rejects — it always freezes an outcome —
+          // so detaching cannot strand an unhandled rejection.
+          void loop;
+          return run;
         }),
 
       recordStep: authenticatedProcedure
@@ -22814,89 +23757,8 @@ export const appRouter = t.router({
             });
           }
 
-          const onBehalfOf = {
-            type: (ctx.identity.type === "team" ? "team" : "user") as "user" | "team",
-            id: ctx.identity.id,
-          };
-          const [learningScope, learningDataScope] = await Promise.all([
-            ctx.wiring.agents.capabilityScope(LEARNING_AGENT),
-            ctx.wiring.agents.dataScope(LEARNING_AGENT),
-          ]);
-          // The step already executed under the engine's green-tier authority
-          // (AP-088): reading the public web is autonomous, so the child Run
-          // records at "notify", never a retroactive "approve" that would
-          // imply a Human decision existed. Steps run on the user's machine —
-          // the LOCAL plane; the quarantined text they carry is untrusted web.
-          const parentEnvelope: ParentRunEnvelope = {
-            runId: run.parentRunId,
-            agentId: LEARNING_AGENT,
-            organizationId: input.organizationId,
-            authorityScope: learningScope,
-            eligibleSkills: [WEB_RESEARCH_SKILL_ID],
-            dataScope: learningDataScope,
-            plane: "local",
-            budgetRemaining: { calls: 1_000, cost: 1_000 },
-            reviewMode: "notify",
-            childRunPolicy: "allowed",
-            delegationDepth: 0,
-            onBehalfOf,
-            taintLabel: labelAtSource("human_input", {
-              ref: `research-run:${run.id}`,
-              valueHash: hashTaintValue({ objective: run.objective }),
-              sensitivity: "public",
-              instructionRisk: "instruction_like",
-            }),
-          };
-          const childRun = await createChildAgentRun(
-            { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
-            parentEnvelope,
-            {
-              goalId: run.goalId,
-              taskId: run.taskId,
-              delegatedScope: ["external:fetch:read"],
-              selectedSkills: [WEB_RESEARCH_SKILL_ID],
-              budget: { maxCalls: 1, maxCost: 1 },
-              deadline: new Date(Date.now() + 10 * 60_000).toISOString(),
-              stopCondition: `record one ${input.tool} step of Research Run ${run.id} and stop`,
-              requestedDataScope: "public",
-              ...(input.quarantined
-                ? {
-                    requestedTaintLabel: labelAtSource("web_search", {
-                      ref: input.quarantined.sourceUrl,
-                      valueHash: hashTaintValue({ text: input.quarantined.text }),
-                      sensitivity: "public",
-                      instructionRisk: "instruction_like",
-                    }),
-                  }
-                : {}),
-            },
-            ctx.run,
-          );
-          const transition = input.failed ? failChildAgentRun : completeChildAgentRun;
-          await transition(
-            { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
-            input.organizationId,
-            childRun.id,
-            { type: "agent", id: LEARNING_AGENT },
-            ctx.run,
-          );
-
           try {
-            const step = await ctx.wiring.researchRuns.appendStep({
-              id: ctx.run.ids.next(),
-              runId: run.id,
-              organizationId: input.organizationId,
-              ownerUserId: ctx.identity.id,
-              stepIndex: input.stepIndex,
-              tool: input.tool,
-              summary: input.summary,
-              sourceUrl: input.sourceUrl ?? null,
-              childRunId: childRun.id,
-              quarantinedText: input.quarantined?.text ?? null,
-              quarantinedSourceUrl: input.quarantined?.sourceUrl ?? null,
-              createdAt: ctx.run.clock.nowISO(),
-            });
-            return { step, childRunId: childRun.id };
+            return await recordResearchStep(ctx, input.organizationId, run, input);
           } catch (error) {
             if (error instanceof ResearchRunAlreadyTerminalError) {
               throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
@@ -22949,21 +23811,15 @@ export const appRouter = t.router({
           assertPilotOrganization(input.organizationId);
           await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
           try {
-            return await ctx.wiring.researchRuns.complete(
-              input.organizationId,
-              ctx.identity.id,
-              input.researchRunId,
-              {
-                status: input.status,
-                stopReason: input.stopReason,
-                brief: input.brief,
-                citations: input.citations,
-                blockedActions: input.blockedActions,
-                injectionReports: input.injectionReports,
-                stepsTaken: input.stepsTaken,
-              },
-              ctx.run.clock.nowISO(),
-            );
+            return await completeResearchRun(ctx, input.organizationId, input.researchRunId, {
+              status: input.status,
+              stopReason: input.stopReason,
+              brief: input.brief,
+              citations: input.citations,
+              blockedActions: input.blockedActions,
+              injectionReports: input.injectionReports,
+              stepsTaken: input.stepsTaken,
+            });
           } catch (error) {
             if (error instanceof ResearchRunAlreadyTerminalError) {
               throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });

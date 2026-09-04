@@ -28,6 +28,7 @@ import {
   SEED_DENYLIST_APPS,
   inputCaptureSignal,
   keyCountBucket,
+  timeOfDayBucket,
   type RawInputBurst,
   type FieldRole,
 } from "../src/index.js";
@@ -322,7 +323,16 @@ test("suppressed bursts signal the reason and never the text", () => {
   assert.ok(signal);
   assert.equal(signal.attributes["suppressionReason"], "secure_field");
   assert.equal(signal.attributes["disposition"], "suppressed");
-  assert.equal(signal.attributes["timeOfDay"], "night");
+  // TIMEZONE: `timeOfDayBucket` reads the LOCAL hour, so a fixed UTC instant
+  // buckets differently per machine — this line asserted "night" and failed on
+  // any host west of UTC ("evening" in CDT), blaming whatever branch happened
+  // to run the suite. What this test is for is that a suppressed burst still
+  // carries a COARSE time facet; the bucket boundaries themselves are pinned
+  // timezone-free by learning-capture.test.ts's `hourOverride` cases.
+  assert.equal(
+    signal.attributes["timeOfDay"],
+    timeOfDayBucket("2026-08-16T22:00:00.000Z"),
+  );
   // No volume facet at all for a suppressed burst — not even a coarse band,
   // since any volume signal about a password field is a length hint.
   assert.equal(signal.attributes["keyCount"], undefined);

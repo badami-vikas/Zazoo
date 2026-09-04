@@ -463,6 +463,12 @@ export function ChatView({
   const [openSession, setOpenSession] = useState<
     { kind: "research" | "ask"; id: string } | null
   >(null);
+  // TASK-093: one conversation can span several Modules. The thread already
+  // carries them server-side (`moduleName` + `attachedModules`); this is the
+  // control that puts a second one on, and the list that shows which are on.
+  const [installedModules, setInstalledModules] = useState<
+    readonly { moduleName: string; displayName: string }[]
+  >([]);
   const listRef = useRef<HTMLDivElement>(null);
   const nearBottomRef = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -470,6 +476,56 @@ export function ChatView({
   const restoreComposerFocusRef = useRef(false);
   const autoSentRef = useRef(false);
   const lastTurn = chat.view?.turns.at(-1);
+
+  // Installed Modules, for the attach control. Same filter the nav uses, so
+  // the list offered here is exactly the list of Modules a user can open.
+  useEffect(() => {
+    let active = true;
+    trpc.modules.list
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
+      .then((result) => {
+        if (!active) return;
+        setInstalledModules(
+          result.items
+            .filter(
+              (item) =>
+                item.state === "available" &&
+                item.status === "installed" &&
+                item.manifest?.module !== undefined &&
+                item.moduleAttachment === undefined,
+            )
+            .map((item) => ({
+              moduleName: item.moduleName,
+              displayName:
+                item.displayNameOverride ??
+                item.manifest?.module?.displayName ??
+                item.manifest?.name ??
+                item.moduleName,
+            })),
+        );
+      })
+      .catch(() => {
+        // The attach control simply has nothing to offer; the Chat still works.
+        if (active) setInstalledModules([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  /** Modules currently on this conversation — the Module that owns the thread
+   * first, then everything attached to it. */
+  const threadModules = useMemo(() => {
+    const thread = chat.view?.thread;
+    if (!thread) return [] as string[];
+    return [
+      ...(thread.moduleName ? [thread.moduleName] : []),
+      ...(thread.attachedModules ?? []),
+    ];
+  }, [chat.view?.thread]);
+
+  const moduleLabel = (name: string) =>
+    installedModules.find((module) => module.moduleName === name)?.displayName ?? name;
 
   // ---- voice input (every surface — `chat.voice.transcribe` is a server
   // procedure, so there is no desktop-only branch left; TASK-082) --------
@@ -1074,6 +1130,34 @@ export function ChatView({
                   </option>
                 ))}
               </select>
+              {/* TASK-093 — attach another Module to THIS conversation. The
+                  thread keeps its own Module; this adds others so one session
+                  can span several, the way a coding session spans projects. */}
+              <select
+                aria-label="Attach a Module"
+                className="min-w-0 max-w-[9rem] truncate rounded-full border bg-background px-2 py-1 text-xs disabled:opacity-50"
+                value=""
+                disabled={chat.sending || !chat.view}
+                onChange={(event) => {
+                  const chosen = event.target.value;
+                  event.target.value = "";
+                  if (chosen) void chat.attachModule(chosen);
+                }}
+                title="Adds a Module to this conversation — nothing is removed"
+              >
+                <option value="">
+                  {threadModules.length > 0
+                    ? `Modules · ${threadModules.length}`
+                    : "Add a Module"}
+                </option>
+                {installedModules
+                  .filter((module) => !threadModules.includes(module.moduleName))
+                  .map((module) => (
+                    <option key={module.moduleName} value={module.moduleName}>
+                      {module.displayName}
+                    </option>
+                  ))}
+              </select>
             </div>
             <div className="flex items-center gap-1">
               <Button
@@ -1110,6 +1194,16 @@ export function ChatView({
             </div>
           </div>
         </div>
+        {threadModules.length > 0 && (
+          <p className="mt-1 flex flex-wrap items-center gap-1 px-1 text-xs text-[var(--color-navy-mid)]">
+            <span>On this conversation:</span>
+            {threadModules.map((name) => (
+              <Badge key={name} variant="secondary" className="text-[0.7rem]">
+                {moduleLabel(name)}
+              </Badge>
+            ))}
+          </p>
+        )}
         {composerNote && (
           <p className="mt-1 px-1 text-xs text-[var(--color-navy-mid)]" role="status">
             {composerNote}

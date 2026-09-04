@@ -16,7 +16,7 @@ const dbRoot = resolve(here, "../..");
 const migrationsFolder = resolve(dbRoot, "migrations");
 const drizzleKitBin = resolve(dbRoot, "node_modules/drizzle-kit/bin.cjs");
 
-test("Drizzle metadata is rebased through 0046 and generate is a deterministic no-op", () => {
+test("Drizzle metadata is rebased through 0048 and generate is a deterministic no-op", () => {
   const probe = mkdtempSync(resolve(dbRoot, ".drizzle-noop-"));
   const probeMigrations = join(probe, "migrations");
   try {
@@ -28,10 +28,10 @@ test("Drizzle metadata is rebased through 0046 and generate is a deterministic n
     };
     const last = journal.entries.at(-1);
     assert.deepEqual(last, {
-      idx: 46,
+      idx: 48,
       version: "7",
-      when: 1788394656841,
-      tag: "0046_merged_task_anchor_estimate_display_name",
+      when: 1788474371856,
+      tag: "0048_task064_share_grants",
       breakpoints: true,
     });
     assert.ok(
@@ -102,6 +102,14 @@ test("Drizzle metadata is rebased through 0046 and generate is a deterministic n
       readdirSync(join(probeMigrations, "meta")).includes("0046_snapshot.json"),
       "Run Task-anchor + Task estimate + Module display-name snapshot must be tracked (ADR-269/272, TASK-081)",
     );
+    assert.ok(
+      readdirSync(join(probeMigrations, "meta")).includes("0047_snapshot.json"),
+      "saved-View snapshot must be tracked (TASK-062)",
+    );
+    assert.ok(
+      readdirSync(join(probeMigrations, "meta")).includes("0048_snapshot.json"),
+      "share-grant snapshot must be tracked (TASK-064)",
+    );
 
     const generated = spawnSync(
       process.execPath,
@@ -129,7 +137,7 @@ test("Drizzle metadata is rebased through 0046 and generate is a deterministic n
     assert.match(output, /No schema changes, nothing to migrate/);
     assert.equal(readFileSync(journalPath, "utf8"), journalBefore);
     assert.ok(
-      // The NEXT index after the current head (0046). If `generate` allocates
+      // The NEXT index after the current head (0048). If `generate` allocates
       // this, schema.ts and the committed migrations have drifted apart.
       // 0038 is a pure DATA migration (capability_type 'view' -> 'database'),
       // so it has no snapshot and cannot make generate produce one — the
@@ -140,12 +148,12 @@ test("Drizzle metadata is rebased through 0046 and generate is a deterministic n
       // backend columns (TASK-090); 0045 adds its
       // Module-session columns (TASK-093); 0046 adds `automation_runs.task_id`
       // (ADR-269), `tasks.estimate` (ADR-272) and
-      // `module_installations.display_name_override` (TASK-081) — all real
-      // shape changes. 0046's composite FK to `tasks` is deliberately NOT in
+      // `module_installations.display_name_override` (TASK-081); 0047 adds
+      // `view_configs` (TASK-062); 0048 adds `share_grants` (TASK-064) — all real shape changes. 0046's composite FK to `tasks` is deliberately NOT in
       // schema.ts (LAYER 4 is defined before LAYER 8, so naming `tasks` there
       // is a TDZ crash) and so is absent from its snapshot too — which is why
       // generate stays a no-op.
-      !readdirSync(probeMigrations).some((name) => /^0047_.*\.sql$/.test(name)),
+      !readdirSync(probeMigrations).some((name) => /^0049_.*\.sql$/.test(name)),
       "no-op generation must not allocate another migration",
     );
   } finally {

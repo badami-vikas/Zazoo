@@ -28,13 +28,10 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-058 | ready | P3 | Companion as Bridge's universal expression surface (convergence) | TASK-056, TASK-057 |
 | TASK-059 | ready | P3 | Avatar text replacement | TASK-027 |
 | TASK-060 | ready | P3 | opensrc-backed code research for Builder Agent and Learning Agent | TASK-023 |
-| TASK-061 | ready | P1 | UI standardization convergence — one toolbar, one shell, one dropdown | none |
-| TASK-062 | ready | P1 | Persist ViewConfig — the unlock behind saved views, lists, sharing and linked views | none |
-| TASK-063 | ready | P2 | Record metadata columns from the Event log | none |
-| TASK-064 | ready | P1 | Scoped share grants — wire the built Share panel to Views and Forms | TASK-062 |
+| TASK-062 | in_progress | P1 | Persist ViewConfig — the unlock behind saved views, lists, sharing and linked views | none |
+| TASK-064 | in_progress | P1 | Scoped share grants — wire the built Share panel to Views and Forms | TASK-062 |
 | TASK-065 | ready | P2 | Notes and Governance Sections on every Record | none |
 | TASK-082 | in_progress | P2 | Chat composer — the paperclip uploads, and the mic works everywhere | none |
-| TASK-083 | ready | P1 | Creation is one gesture — New opens an element page, and ⋮ gains per-element sections | none |
 | TASK-084 | in_progress | P2 | A governed schema-mutation capability, so the column menu stops lying | non-task gate (see TASKS.md) |
 | TASK-086 | in_progress | P2 | Multi-select on every table, entered by long-press on touch | none |
 | TASK-087 | ready | P2 | Grouping on every table, and Databases that link by column | none |

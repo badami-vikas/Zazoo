@@ -57,6 +57,22 @@ const PUBLIC_CLOUD_PROCEDURES = new Set([
   "chat.turn.cancel",
   "health",
   "modules.list",
+  // TASK-062 saved Views: `view_configs` is a Cloud-Plane Drizzle store read
+  // and written under the caller's identity and FORCE RLS, exactly like
+  // chat_threads. Every Module page renders through <DataViews>, so closing
+  // these here would leave the public shell with a List control that cannot
+  // load — a dead control, not a smaller boundary.
+  "view.saved.list",
+  "view.saved.save",
+  "view.saved.update",
+  "view.saved.remove",
+  // TASK-064 — share grants over a saved View. Same reasoning as the Views
+  // themselves: Cloud-Plane rows under the caller's identity and RLS, with the
+  // grant predicate enforced by the database rather than by this shell.
+  "view.share.list",
+  "view.share.grant",
+  "view.share.revoke",
+  "view.share.resolve",
   "organization.activateSession",
   "organization.list",
 
@@ -189,6 +205,7 @@ const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["commons.", "Commons publication is an External-band action"],
   ["moduleGovernance.", "the per-Module governance overlay (TASK-088) is Local-Plane state, and editing what a Module is allowed to do moves the trust boundary"],
   ["tableSchema.", "the column overlay (TASK-084) is Local-Plane state, and reshaping a Database — or editing a formula that every client's dashboard reads — is a governed, desktop-only authoring action"],
+  ["records.", "which Sections a Database's Records show (TASK-083) is Local-Plane state, and a Record note is user content the Local Plane holds — neither has a Cloud-Plane store to serve from"],
   ["organization.create", "Organization lifecycle is not a public-shell action"],
   ["organization.rename", "Organization lifecycle is not a public-shell action"],
   ["organization.inviteMember", "membership changes are not a public-shell action"],

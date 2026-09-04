@@ -290,3 +290,102 @@ test("research: input validation fails closed — unknown tool, unknown stop rea
     await wiring.close();
   }
 });
+
+test("research: a completed Run's brief lands as a governed Result — Memory + Event, tainted untrusted", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    const run = await caller.agentOrchestration.research.start({
+      organizationId: PILOT_ORGANIZATION,
+      objective: "who maintains the CRDT libraries in common use",
+    });
+    await caller.agentOrchestration.research.recordStep({
+      organizationId: PILOT_ORGANIZATION,
+      researchRunId: run.id,
+      stepIndex: 0,
+      tool: "read",
+      summary: "Read the maintainers page",
+      sourceUrl: "https://example.com/maintainers",
+    });
+    const frozen = await caller.agentOrchestration.research.complete({
+      organizationId: PILOT_ORGANIZATION,
+      researchRunId: run.id,
+      status: "completed",
+      stopReason: "planner_finished",
+      brief: "Two maintainers are named (https://example.com/maintainers).",
+      citations: ["https://example.com/maintainers"],
+      blockedActions: [],
+      injectionReports: [],
+      stepsTaken: 1,
+    });
+
+    assert.ok(frozen.resultEvidence, "a Run with a brief must produce Result evidence");
+    assert.equal(frozen.resultEvidence.resultId, run.id);
+
+    const memories = await wiring.memoryStore.retrieve(
+      { limit: 200 },
+      { organizationId: PILOT_ORGANIZATION, userId: PILOT_USER },
+    );
+    const briefMemory = memories.find((row) => {
+      try {
+        const value = JSON.parse(row.content) as { kind?: string; researchRunId?: string };
+        return value.kind === "research_run_brief_memory" && value.researchRunId === run.id;
+      } catch {
+        return false;
+      }
+    });
+    assert.ok(briefMemory, "the brief must be readable as a Memory, not only a Run column");
+    assert.equal(briefMemory.id, frozen.resultEvidence.memoryId);
+    // A brief synthesized from fetched pages is exactly as trustworthy as they are.
+    assert.equal(briefMemory.trustOrigin, "untrusted_external");
+    assert.equal(briefMemory.taintLabel?.trust, "untrusted");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("research: a Run that stopped without a brief records no Result — nothing is fabricated", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    const run = await caller.agentOrchestration.research.start({
+      organizationId: PILOT_ORGANIZATION,
+      objective: "an objective nothing could answer",
+    });
+    const frozen = await caller.agentOrchestration.research.complete({
+      organizationId: PILOT_ORGANIZATION,
+      researchRunId: run.id,
+      status: "cancelled",
+      stopReason: "cancelled",
+      brief: null,
+      citations: [],
+      blockedActions: [],
+      injectionReports: [],
+      stepsTaken: 0,
+    });
+    assert.equal(frozen.resultEvidence, null);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("research: execute refuses honestly when no model is configured to plan with", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    await assert.rejects(
+      caller.agentOrchestration.research.execute({
+        organizationId: PILOT_ORGANIZATION,
+        objective: "run yourself in the background",
+      }),
+      /nothing to plan with/,
+    );
+    // And it refused BEFORE minting a Run — no orphan "running" record.
+    const runs = await caller.agentOrchestration.research.list({
+      organizationId: PILOT_ORGANIZATION,
+    });
+    assert.equal(runs.length, 0);
+  } finally {
+    await wiring.close();
+  }
+});

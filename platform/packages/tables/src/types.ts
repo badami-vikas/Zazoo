@@ -20,7 +20,30 @@ export type ColumnKind =
   // MapView.tsx — see docs/BUGS.md "@bridge/tables ColumnKind missing
   // location" row, 2026-07-06). Mirrors `@bridge/core`'s
   // `BlueprintColumnKind`, which added this member first.
-  | "location";
+  | "location"
+  // Record metadata (TASK-063). DERIVED, never stored twice: the values come
+  // from the Event log, so a Form or an inline edit has nothing to write to
+  // them. Notion and Airtable both ship these as built-ins, and staleness
+  // Automations, activity feeds and "recently edited" Views all need them.
+  | "createdTime"
+  | "createdBy"
+  | "lastEditedTime"
+  | "lastEditedBy";
+
+/** The derived-metadata kinds, in one place so no surface re-lists them. */
+export const METADATA_COLUMN_KINDS = [
+  "createdTime",
+  "createdBy",
+  "lastEditedTime",
+  "lastEditedBy",
+] as const satisfies readonly ColumnKind[];
+
+export type MetadataColumnKind = (typeof METADATA_COLUMN_KINDS)[number];
+
+/** Is this column filled by the Event log rather than by anyone typing? */
+export function isMetadataColumn(kind: ColumnKind): kind is MetadataColumnKind {
+  return (METADATA_COLUMN_KINDS as readonly ColumnKind[]).includes(kind);
+}
 
 export type ViewKind =
   | "table"

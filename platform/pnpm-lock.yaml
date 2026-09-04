@@ -77,6 +77,9 @@ importers:
       '@bridge/net-guard':
         specifier: workspace:*
         version: link:../../packages/net-guard
+      '@bridge/research':
+        specifier: workspace:*
+        version: link:../../packages/research
       '@bridge/sensors':
         specifier: workspace:*
         version: link:../../packages/sensors

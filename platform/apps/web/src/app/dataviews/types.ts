@@ -81,6 +81,13 @@ export interface DataViewProps {
    * `onInsert` the row renders disabled and states this reason.
    */
   insertDisabledReason?: string;
+  /**
+   * Open the new-Record page (TASK-083). Supplied by <DataViews>, which owns
+   * the page — a view raises the intent, it does not build a create surface of
+   * its own, which is how the table came to have one shape and the Form view
+   * another.
+   */
+  onRequestCreate?: () => void;
   onUpdate?: (rowId: string, patch: Partial<DataRow>) => void | Promise<void>;
   canUpdateRow?: (row: DataRow) => boolean;
   /**
