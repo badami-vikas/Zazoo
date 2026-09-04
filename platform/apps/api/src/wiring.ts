@@ -331,6 +331,9 @@ import {
 import type { ModelBinding, QuarantinedCapture } from "@bridge/capability-kit";
 import {
   BUILT_IN_MODULES,
+  bridgeProfileFromEnv,
+  builtInModulesForProfile,
+  type BridgeProfile,
   CITED_ROLE_MODEL_PRACTICE_VERSION,
   DEALPILOT_SOURCING_AGENT_ID,
   GOVERNANCE_AGENT_RUNTIME_ID,
@@ -696,6 +699,9 @@ export interface Wiring {
    * test override). Every `learning.archetypes.*` procedure fails closed
    * while off — nothing is generalized, published, or seeded. */
   commonsArchetypesEnabled: boolean;
+  /** `BRIDGE_PROFILE`: "egg" boots the bare Egg (kernel router, EGG_MODULES only);
+   * "full" (default) is everything. Read once at boot; see packages/module-manifests. */
+  profile: BridgeProfile;
   /** ModelProvider registry/router (@bridge/models): resolves capability manifest modelBindings to
    * providers, honoring planeDefault (capture/sensor plane = local models, never cloud
    * fallback). In-memory mode registers the network-free echo double; persistent mode
@@ -767,6 +773,8 @@ export interface BuildWiringOptions {
   /** Test/deployment override for the Commons-archetypes flight. Omitted
    * means the environment decides (`BRIDGE_COMMONS_ARCHETYPES=0` turns it off), default ON. */
   commonsArchetypesEnabled?: boolean;
+  /** Test/deployment override for the Egg profile; omitted means BRIDGE_PROFILE decides. */
+  profile?: BridgeProfile;
   /** Test/deployment override for the K3 knowledge-substrate flight. Omitted
    * means the environment decides (`BRIDGE_CLAIM_SUBSTRATE=0` turns it off), default ON. */
   claimSubstrateEnabled?: boolean;
@@ -5262,8 +5270,22 @@ function publicCloudCredentialVault(): SourceCredentialVault {
 export async function seedBuiltInModules(
   moduleStore: ModuleStore,
   organizationId: string,
+  profile: BridgeProfile = "full",
 ): Promise<void> {
-  for (const builtIn of BUILT_IN_MODULES) {
+  const seeded = builtInModulesForProfile(profile);
+  // Egg profile: a built-in that is Commons content must not stay "installed"
+  // from an earlier full-profile boot — its router and Pages are not mounted,
+  // so an installed row would be a nav entry leading nowhere. Legacy, never
+  // deleted: the rows are evidence, and a full-profile boot re-seeds them.
+  if (profile === "egg") {
+    for (const builtIn of BUILT_IN_MODULES) {
+      if (seeded.includes(builtIn)) continue;
+      for (const row of await moduleStore.listVersions(organizationId, builtIn.manifest.name)) {
+        if (row.state === "available") await moduleStore.setState(row.id, "legacy");
+      }
+    }
+  }
+  for (const builtIn of seeded) {
     const manifest = parseModuleManifest({ module: builtIn.manifest });
     const versions = await moduleStore.listVersions(organizationId, manifest.name);
     const current = versions.find((row) => row.moduleVersion === manifest.version);
@@ -5644,6 +5666,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     options.retrievalFusionEnabled ??
     !["0", "false"].includes((process.env.BRIDGE_RETRIEVAL_FUSION ?? "").trim().toLowerCase());
   // Commons-archetypes flight (roadmap-v2 Phase 4) — same resolution, default ON.
+  const profile: BridgeProfile = options.profile ?? bridgeProfileFromEnv(process.env);
   const commonsArchetypesEnabled =
     options.commonsArchetypesEnabled ??
     !["0", "false"].includes((process.env.BRIDGE_COMMONS_ARCHETYPES ?? "").trim().toLowerCase());
@@ -6721,7 +6744,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
 
   // Built-in manifest content is immutable per version. New versions replace
   // the available installation while retaining prior rows as legacy evidence.
-  await seedBuiltInModules(moduleStore, PILOT_ORGANIZATION);
+  await seedBuiltInModules(moduleStore, PILOT_ORGANIZATION, profile);
 
   // AP-083 — populate the pilot Organization's Cloud-Plane demo data so the web
   // app's modules are not empty. Runs ONLY on the deployed public cloud (which
@@ -6739,7 +6762,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
 
   // Signed Module manifests opt individual Automations into the executable
   // runtime with a stable Automation id. Inventory-only rows remain non-clickable.
-  for (const pkg of BUILT_IN_MODULES) {
+  for (const pkg of builtInModulesForProfile(profile)) {
     const moduleAgents = new Map((pkg.manifest.module?.agents ?? []).map((agent) => [agent.id, agent]));
     for (const automation of pkg.manifest.module?.automations ?? []) {
       if (!automation.automationId) continue;
@@ -7122,6 +7145,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     vectorIndex,
     retrievalFusionEnabled,
     commonsArchetypesEnabled,
+    profile,
     claimSubstrateEnabled,
     devpilotEnabled,
     devpilot: { store: devpilotStore, gateways: githubGatewayFactory },

@@ -6741,7 +6741,7 @@ the run acts on the monitor its overlay window sits on; global coordinates deriv
 `monitor_logical_rect`, the same origin the annotate window is positioned in. Verification: Rust 195 passed + 1 ignored (11 new; clippy clean on the new files); two guards mutation-checked RED-then-green (⌘Q refusal, click-without-cell refusal); web typecheck 0 errors, 117/117 tests, production build, ui-rules and vocabulary gates pass; browser lab (`annotate.html?lab=1`) proves the arrow renders, the click ring centres on its tip, and a throttled flight still lands on target. No live desktop run — no cloud call and no real input event was posted this session; the at-keyboard walk is the user's step.
 ## ADR-281 — JobPilot deadlines are curated data, not scraped; the column exists so the curation has somewhere to land
 
-**Date**: 2026-09-02 · **Status**: accepted · **Approval**: AP-183
+**Date**: 2026-09-02 · **Status**: accepted · **Approval**: AP-185
 
 **Context.** A request to "pull all latest MBA jobs with deadline in September" met two facts. First, `jobpilot_jobs` had no deadline column at all. Second — and this is the load-bearing one — the Greenhouse, Ashby and Lever JSON feeds `@bridge/jobpilot`'s connectors are built against carry no deadline field, and the employers that run structured full-time MBA hiring are not on those ATSs: Microsoft, Apple and Google all return 404 on both the Greenhouse and Lever board APIs (probed directly, 2026-09-02). The deadlines live on firm recruiting pages and in school systems (12Twenty, Symplicity, Handshake) that have no public API and whose terms forbid scraping.
 
@@ -6764,3 +6764,88 @@ the run acts on the monitor its overlay window sits on; global coordinates deriv
 **Migration safety, found by running it wrong.** Migration 0045's unique constraint was written as a bare `ALTER TABLE ... ADD CONSTRAINT UNIQUE`. That applies cleanly to a fresh database — 45 migrations, every object present — and **fails on any populated one** with "could not create unique index", because two jobs may already share a url. This is precisely the failure mode CLAUDE.md names ("a fresh database is not a test"), and it was invisible until the migration was deliberately replayed against a seeded database. 0045 now de-duplicates first, **non-destructively**: later duplicates keep their row, their tracking application and their stage, and only release the url (NULLs are exempt from the constraint). Deleting the row was rejected — it would discard a job the user may be actively tracking in order to enforce a guard whose whole purpose is reducing clutter. The cost is that such a row can be re-added once by a later sweep, which is strictly better than losing a submitted application. A regression test replays the migration file's OWN sql against a seeded database, so removing the de-duplication step fails the suite.
 
 **Consequences.** Sources default to OFF — enabling every board for every new Organization would fire thousands of unrequested HTTP calls. A sweep with no onboarding profile is REFUSED rather than storing whole boards. Board slugs cannot be enumerated by any ATS, so the catalog is a decaying hand-written list: a 404 is expected drift, recorded against the source and skipped, never fatal to the sweep. `lastFetched` and `lastKept` are stored separately because "860 found, 0 kept" (healthy but irrelevant) and an error (dead slug) need opposite fixes. Sweep output enters the pipeline as `untrusted_external` — it is third-party text off a public board. The ATS population is overwhelmingly venture-backed startups, which sponsor least; the curated source remains the only one carrying deadlines or sponsoring employers, and the toggle page says so.
+
+## 2026-09-04 — The Egg ships the kernel; Modules live in Commons (AP-183)
+
+**Context:** user directive 2026-09-03/04: *"I want all commons to be moved to commons and only
+bare minimal egg launched so that when i ask it to build modules, it go through standard module
+building process while referring commons as well as one of its source of inspiration. I want the
+installable egg version which is as light as possible."* Phase 3 of
+`outputs/2026-09-03-cleanup-and-egg-commons-strategy.md` sized the full physical split (dynamic
+routers via `module-host`, per-Module migrations, Commons code bundles) at 2–3 weeks. The user
+asked for an installable Egg now.
+
+**Decision:**
+1. **Commons is a directory.** The six Module packages move from `platform/modules/` to
+   `platform/commons/` (`accounting d2c dealpilot devpilot jobpilot whatsapp`); the built-in
+   catalog moves to `platform/packages/module-manifests` because it is kernel input (agent runtime
+   ids, `EGG_MODULES`), not Module code. Package names are unchanged, so no import changed.
+2. **A boot profile, not a second codebase.** `BRIDGE_PROFILE=egg` (`bridgeProfileFromEnv`) makes
+   the API mount `eggRouter` — the kernel namespaces only; the thirteen Commons Module namespaces
+   (`COMMONS_MODULE_NAMESPACES`) are absent — and makes `seedBuiltInModules` seed only
+   `EGG_MODULES` (`task-manager`), marking any other built-in row `legacy`. Automations register
+   only for the seeded set. `appRouter` stays the client's type: an absent namespace is a
+   NOT_FOUND at runtime, never a type gap.
+3. **The web Egg is a build.** `VITE_BRIDGE_PROFILE=egg` (`pnpm --filter @bridge/web build:egg`,
+   `pnpm --filter @bridge/desktop build:tauri:egg`) compiles `routes.tsx` with every Commons Module
+   Page behind a dead branch; in the full build the same Pages are lazy chunks loaded on first
+   visit. The rail already lists only what `modules.list` returns, so nothing points at a Page that
+   is not there.
+4. **The Builder builds from the manifest outward, with Commons as prior art.** `builder.run` no
+   longer requires a built-in name: a kebab-case name with no manifest is a NEW Module and creating
+   `module.yaml` is step 1 of the standard build process now in the system prompt. Before the loop,
+   `commonsPriorArt` asks the registry for entries related to the task (plain word overlap, top 5)
+   and puts them in the prompt as a fenced data block ("data, not instructions"). An unreachable
+   registry is reported and the Run proceeds (AP-182).
+
+**Rejected alternatives:** (a) the full Phase 3 split first — right end state, wrong order: the
+user needs an installable Egg before a dynamic Module runtime exists; (b) deleting the Commons
+Module routers from the api — they are the reference implementations the Builder will be measured
+against and the full profile is what every existing test and the pilot run; (c) a runtime flag in
+the web app instead of a build-time one — it would ship every Page and only hide them.
+
+**Consequences:** Egg web bundle 2308 KB vs 2616 KB full, with zero Module chunks emitted; the
+api binary still contains the Commons Module code (mounted or not) — the true light Egg needs the
+`module-host` dynamic loading and per-Module migrations Phase 3 lists, recorded NOT LANDED in
+TASK-096. `relationship` and `whatsapp` are Commons-directory code that the registry still refuses
+(lethal-trifecta note in `COMMONS_BUILT_IN_MODULES`), so an Egg cannot install them until they are
+split. Cited by date and title.
+
+**Addendum 2026-09-04 (same directive, second half: *"hope it has all primary agents functional and
+UI standardization in place for new modules I build"*).** Three things the bare Egg lacked:
+
+1. **A Research Agent with no owner.** `assertWebResearchModuleBinding` required the Relationship
+   Module's contract, so an Egg — which never installs Relationship — could start a Research Run but
+   never execute its Skill. Task Manager (the one Module the Egg seeds) now declares
+   `task-manager.skill.web-research` with the same permissions Relationship declares (public
+   `external:fetch` read with egress, private `event` write) and binds it to its Learning Agent;
+   `resolveModuleAgentRuntimeId` maps Task Manager's `learning-agent` and `capability-builder` to the
+   Learning Agent and Builder runtime ids. The gate falls back to that binding only when Relationship
+   is absent — nothing is relaxed, only who declares it. Task Manager is `1.10.0`.
+2. **Two ids for one Builder.** The Builder resolved authority as `CAPABILITY_BUILDER_AGENT` (…d5,
+   seeded and narrowable) but attributed its Runs and primitive calls to `BUILDER_AGENT_RUNTIME_ID`
+   (…d7), an id no Agent registry knew — the "acts as itself" work of PR #73 recorded under an Agent
+   nobody could find or stop. `BUILDER_AGENT_RUNTIME_ID` now IS …d5.
+3. **No standard surface for a built Module.** A manifest may declare `module.databases[]`
+   (Blueprint column kinds, validated in core; a Page's `database_id` must name one); the
+   `moduleRecords.*` router serves each declared Database's `TableSpec` and rows from the Local
+   Plane state namespace `module:records:<module>.<database>` (Human-only writes, undeclared columns
+   refused, the Organization's column overlay applied); the web shell renders every declared Page at
+   `/module/<name>/<page>` with the standard anatomy (UI Rulebook §3d) and lands the rail on the
+   first Page. A Builder Run on a new Module registers its `module.yaml` as a private pending-review
+   installation (`receipt.registration`), and `modules.registerFromFiles` does the same on demand;
+   `modules.install` stays the governed proposal — a Module that writes Records is transformational
+   and parks for the Human's approve, the path every non-informational Module takes.
+
+**Rejected:** giving the Egg's Research Agent its own Module (a fourth built-in for one Skill; Task
+Manager already owns the Learning Agent's Runs); a `moduleRecords` table per Database via migrations
+(schema work for every Build — the state namespace already stores typed rows and overlays for
+built-in Databases); letting the Builder emit React (the "standard UI" the directive asks for is
+exactly the shell rendering declared data, ADR-247's "generated UI binds ids, never values").
+
+**Consequences:** `egg-boot.test.ts` boots `profile: "egg"` and proves the five foundational Agents
+active, chat through a scripted model, a Research Run under the Learning Agent whose Skill gate
+accepts Task Manager's binding, and a Builder Run that writes `module.yaml` → registered → approved
+→ Records served — with no Commons Module installed. Still NOT LANDED: the desktop installer needs
+`prepare:bundle` assets (llama runtime, `bridge-runtime.json`) that are gitignored per machine;
+relation/formula/skill column kinds are stored but have no picker on the standard Page yet.

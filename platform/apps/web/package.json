@@ -8,6 +8,7 @@
     "generate:pending-work": "node ../../scripts/generate-pending-work.mjs",
     "prebuild": "pnpm generate:pending-work",
     "build": "vite build",
+    "build:egg": "VITE_BRIDGE_PROFILE=egg vite build",
     "predev": "pnpm generate:pending-work",
     "dev": "vite",
     "preview": "vite preview",

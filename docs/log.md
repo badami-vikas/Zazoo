@@ -1,5 +1,32 @@
 # Change Log
 
+- **2026-09-04 — the Egg's primary Agents work and Builder-built Modules get a standard Page (AP-183, TASK-096, second half)**:
+  Task Manager 1.10.0 binds `task-manager.skill.web-research` to its Learning Agent and the
+  web-research gate accepts that binding when Relationship is absent, so the Egg's Research Agent
+  runs; `resolveModuleAgentRuntimeId` maps Task Manager's `learning-agent`/`capability-builder`;
+  `BUILDER_AGENT_RUNTIME_ID` is the seeded …d5 (the …d7 split is BUGS 2026-09-04). Manifests
+  declare `module.databases[]` (Blueprint column kinds, validated in core; Pages name a declared
+  `database_id`); `moduleRecords.*` serves definition/rows from `module:records:<module>.<db>`
+  (Local Plane, Human-first guard, undeclared columns refused, column overlay applied); the shell
+  renders every declared Page at `/module/<name>/<page>` (`ModulePage.tsx`, UI Rulebook §3d) and
+  the rail lands on the first Page. A Builder Run on a new Module registers its `module.yaml`
+  (`receipt.registration`; `modules.registerFromFiles` on demand); install stays the governed
+  proposal (Record-writing Modules park for approve). Verified: `egg-boot.test.ts` 3/3 (bare Egg:
+  five Agents active, chat, Research Run, Builder → register → approve → Records),
+  `module-records.test.ts` 3/3, `egg-profile.test.ts` 4/4, full api suite green once its single-owner gate test (`agent-orchestration`) learned the second owner (24/24); api+web
+  typecheck, `build:egg` green (12 JS assets, no Module Page chunk), vocabulary scan, `cargo check` on the sidecar.
+  Desktop installer NOT built: `build:tauri:egg` is wired and the crate compiles, but `prepare:bundle` + the Tauri release build need several GB and the machine had 365 MB free (24 worktrees = 26 GB); the …d7/…d5 Builder id split is BUGS 2026-09-04 (FIXED).
+
+- **2026-09-04 — the installable Egg: Commons directory, `BRIDGE_PROFILE=egg`, Builder prior art (AP-183, TASK-096)**:
+  `platform/modules/*` → `platform/commons/*`, manifests → `platform/packages/module-manifests`
+  (package names unchanged; lockfile importer paths rewritten). `BRIDGE_PROFILE=egg` mounts
+  `eggRouter` (kernel only) and seeds `EGG_MODULES` = task-manager; `VITE_BRIDGE_PROFILE=egg`
+  builds the web shell without Module Pages (2616→2308 KB, 16→0 Module chunks; full build now
+  lazy-loads them). `builder.run` accepts a new kebab-case Module and prompts the standard build
+  process with Commons prior art (`commonsPriorArt`, top-5 word overlap; registry down → Run
+  proceeds). Verified: `egg-profile.test.ts` 4/4, builder-run/modules/commons suites green, api+web
+  typecheck, vocabulary/ui-rules/agent-context checks. ADR 2026-09-04 "The Egg ships the kernel".
+
 - **2026-09-02 (later the same session) — the chat stops forgetting who it was talking to (user report)**:
   *"When i change AI models in left hand chat, the chat should remain consistent since Bridge is
   managing context and should direct the chat to a given model … Currently the chat clears when I

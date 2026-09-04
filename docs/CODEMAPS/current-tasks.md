@@ -42,3 +42,4 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-092 | in_progress | P1 | BA0 completion: governed Builder Runs, ledger receipts, and the container sandbox for untrusted bodies | TASK-091 |
 | TASK-093 | in_progress | P1 | The conversation survives a model switch, and each Module reopens its own session | TASK-090 |
 | TASK-095 | in_progress | P1 | The Avatar has hands — Hey Clicky parity: a real pointer that glides, clicks, and types, behind explicit control consent | TASK-027, TASK-054 |
+| TASK-096 | in_progress | P1 | The installable Egg: kernel-only profile, Commons directory, and the Builder's standard build process | TASK-092, TASK-031 |

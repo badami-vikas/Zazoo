@@ -83,7 +83,7 @@ Never weaken a safety boundary to save tokens.
   tests. Domain Record labels never become kernel primitives. Legacy names need a time-boxed
   [migration](docs/raw/vocabulary-code-migration-plan-2026-07-14.md) with deletion criteria.
 - Every Module shows a **Governance Section** below Intelligence: the manifest's `governance`
-  `allow`/`deny` (`platform/modules/manifests`), engine-read, edited as an Organization overlay
+  `allow`/`deny` (`platform/packages/module-manifests`), engine-read, edited as an Organization overlay
   replacing it (ADR-263); an empty policy is not a default-deny. Accounting and D2C are Local-Plane
   sqlite (ADR-246/248).
 - Every installed Module is clickable. Skills stay under consuming

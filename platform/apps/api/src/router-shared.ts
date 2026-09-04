@@ -1672,6 +1672,14 @@ export async function assertWebResearchModuleBinding(
     organizationId,
     "relationship",
   );
+  // The Egg (ADR 2026-09-04) ships no Relationship Module; its Research Agent
+  // is bound by Task Manager instead. Same contract, different owner: the
+  // Learning Agent must list the Skill and the Skill must hold public
+  // external:fetch read with egress — nothing is relaxed, only who declares it.
+  if (!installed) {
+    await assertTaskManagerWebResearchBinding(wiring, organizationId);
+    return;
+  }
   const manifest = installed
     ? parseModuleManifest({ module: installed.manifest })
     : null;
@@ -7249,6 +7257,39 @@ export async function assertSharableView(
     throw new TRPCError({
       code: "FORBIDDEN",
       message: `This View is shared with you at ${level} access; ${required} is required.`,
+    });
+  }
+}
+
+/** The Egg-profile owner of the web-research Skill: Task Manager's Learning Agent. */
+async function assertTaskManagerWebResearchBinding(
+  wiring: Wiring,
+  organizationId: string,
+): Promise<void> {
+  const installed = await wiring.moduleStore.getAvailable(organizationId, "task-manager");
+  const manifest = installed ? parseModuleManifest({ module: installed.manifest }) : null;
+  const learningAgent = manifest?.module?.agents.find(
+    (agent) => resolveModuleAgentRuntimeId(manifest.name, agent.id) === LEARNING_AGENT,
+  );
+  const skillId = `task-manager.skill.${WEB_RESEARCH_SKILL_ID}`;
+  const skill = manifest?.capabilities.find(
+    (capability) => capability.id === skillId && capability.capabilityType === "skill",
+  );
+  if (
+    installed?.status !== "installed" ||
+    !learningAgent?.skillIds.includes(skillId) ||
+    !skill ||
+    !skill.permissions.some(
+      (permission) =>
+        permission.resourceType === "external:fetch" &&
+        permission.action === "read" &&
+        permission.dataScope === "public" &&
+        permission.egress,
+    )
+  ) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "No installed Module binds web-research to the Learning Agent",
     });
   }
 }

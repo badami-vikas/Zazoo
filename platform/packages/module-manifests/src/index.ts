@@ -26,7 +26,11 @@ export const GOVERNANCE_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d4
 /** The Builder Agent's runtime identity (BA0). Every primitive call and every
  * Run receipt is attributed to it, and the ledger's actor column is a uuid —
  * an actor named "builder:<module>" is not an actor the ledger can hold. */
-export const BUILDER_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d7";
+// One Agent, one id: this is the same identity `CAPABILITY_BUILDER_AGENT` in
+// the api wiring seeds and resolves authority for. Until 2026-09-04 the Builder
+// acted under a second id (…d7) that no Agent registry knew, so its Runs were
+// attributed to an Agent nobody could find or narrow.
+export const BUILDER_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d5";
 /**
  * Chief of Staff's governed runtime identity (ADR-201).
  *
@@ -239,6 +243,14 @@ export function resolveModuleAgentRuntimeId(moduleName: string, manifestAgentId:
   }
   if (moduleName === "relationship" && manifestAgentId === "learning-agent") {
     return LEARNING_AGENT_RUNTIME_ID;
+  }
+  // The Egg (ADR 2026-09-04): Task Manager's Learning Agent IS the Learning
+  // Agent — the same runtime identity Relationship binds in the full profile.
+  if (moduleName === "task-manager" && manifestAgentId === "learning-agent") {
+    return LEARNING_AGENT_RUNTIME_ID;
+  }
+  if (moduleName === "task-manager" && manifestAgentId === "capability-builder") {
+    return BUILDER_AGENT_RUNTIME_ID;
   }
   if (moduleName === "task-manager" && manifestAgentId === "internal-strategist") {
     return INTERNAL_STRATEGIST_AGENT_RUNTIME_ID;
@@ -861,6 +873,11 @@ const devpilotCapabilities = [
 
 const taskManagerCapabilities = [
   capability("task-manager.tasks", "Tasks Database and Views", "database", [readAll("record"), writeAll("record")]),
+  // The Egg's Research Agent (ADR 2026-09-04): with no Relationship Module
+  // installed, Task Manager's Learning Agent owns the `web-research` Skill.
+  // Same permissions Relationship declares for it; the Skill is the kernel's
+  // (GOVERNED_SKILL_MANIFEST_CATALOG), only its Module owner changes.
+  capability("task-manager.skill.web-research", "Skill: web research", "skill", [readPublic("external:fetch"), writePrivate("event")]),
   ...taskManagerSkills.map(([id]) =>
     capability(`task-manager.skill.${id}`, `Skill: ${id.replaceAll("-", " ")}`, "skill", [readAll("record"), writeAll("record")])
   ),
@@ -1384,7 +1401,7 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
       // Automation with no runtime id — and the routing DECISION surface that
       // is why it stayed unbound: `route` becomes a stageable proposal kind,
       // so an eligible-Agent answer can now be accepted.
-      version: "1.9.0",
+      version: "1.10.0",
       kind: "organization_definition",
       summary: "One governed execution queue over a recursive Task Database.",
       description:
@@ -1426,9 +1443,12 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
           ...agent,
           capabilityId: `task-manager.agent.${agent.id}`,
           plane: "local" as const,
-          skillIds: taskManagerSkills
-            .filter(([, owner]) => owner === agent.name)
-            .map(([skillId]) => `task-manager.skill.${skillId}`),
+          skillIds: [
+            ...taskManagerSkills
+              .filter(([, owner]) => owner === agent.name)
+              .map(([skillId]) => `task-manager.skill.${skillId}`),
+            ...(agent.id === "learning-agent" ? ["task-manager.skill.web-research"] : []),
+          ],
         })),
         automations: taskManagerAutomations.map(([id, agentName]) => {
           const agent = taskManagerAgents.find((candidate) => candidate.name === agentName)!;
@@ -2021,3 +2041,32 @@ export const COMMONS_BUILT_IN_MODULES: readonly CommonsBuiltInModule[] = [
     },
   },
 ];
+
+// ── Egg profile (ADR 2026-09-04 "The Egg ships the kernel; Modules live in Commons") ──
+//
+// `BRIDGE_PROFILE=egg` boots the bare Egg: kernel + Builder + Research Agent
+// + primitives, with ONLY the Modules named here seeded as installed. Every
+// other built-in is Commons content — it lives under `platform/commons/`,
+// `commons.publishBuiltins` pushes it to the registry, and the Egg installs
+// it from there like any other Module. The full profile (default, and what
+// every existing test runs under) seeds all of BUILT_IN_MODULES as before.
+export type BridgeProfile = "egg" | "full";
+
+/** The Modules the bare Egg ships with. Task Manager is the Egg's own
+ * default surface (Layout's DEFAULT_MODULES); nothing else is kernel. */
+export const EGG_MODULES: ReadonlySet<string> = new Set(["task-manager"]);
+
+/** Read the profile from an environment map. Anything but "egg" is full —
+ * a misspelt value must not silently strip Modules from a running install. */
+export function bridgeProfileFromEnv(
+  env: Readonly<Record<string, string | undefined>>,
+): BridgeProfile {
+  return (env.BRIDGE_PROFILE ?? "").trim().toLowerCase() === "egg" ? "egg" : "full";
+}
+
+/** The built-ins a boot under `profile` seeds and registers Automations for. */
+export function builtInModulesForProfile(profile: BridgeProfile): readonly BuiltInModule[] {
+  return profile === "egg"
+    ? BUILT_IN_MODULES.filter((pkg) => EGG_MODULES.has(pkg.manifest.name))
+    : BUILT_IN_MODULES;
+}

@@ -43,9 +43,11 @@ test("built-in Task Manager publishes create-task as a new immutable version", a
   // gives its Commons entry real discovery tags.
   // 1.9.0: ADR-207 binds `agent-task-routing-on-assign`, the last declared
   // Automation with no runtime id, and the `route` decision surface behind it.
+  // 1.10.0: ADR 2026-09-04 (the Egg) binds `web-research` to the Learning Agent
+  // so a Research Run has an owner when no Relationship Module is installed.
   // Pinned deliberately so a manifest change cannot land without someone
   // choosing its version.
-  assert.equal(builtIn.manifest.version, "1.9.0");
+  assert.equal(builtIn.manifest.version, "1.10.0");
   const createTaskCapability = "task-manager.skill.create-task";
   const previousManifest = parseModuleManifest({
     module: {
@@ -84,7 +86,7 @@ test("built-in Task Manager publishes create-task as a new immutable version", a
 
   assert.equal((await store.get(previous.id))?.state, "legacy");
   const upgraded = await store.getAvailable(PILOT_ORGANIZATION, "task-manager");
-  assert.equal(upgraded?.moduleVersion, "1.9.0");
+  assert.equal(upgraded?.moduleVersion, "1.10.0");
   assert.ok(
     upgraded?.manifest.capabilities.some(
       (capability) => capability.id === createTaskCapability,

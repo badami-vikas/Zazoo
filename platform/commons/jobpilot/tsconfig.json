@@ -10,13 +10,12 @@
     { "path": "../../packages/capability-kit" },
     { "path": "../../tools/company-sourcing" },
     { "path": "../../tools/people-sourcing" },
+    { "path": "../../tools/jobpilot" },
     { "path": "../../packages/dedupe" },
     { "path": "../../packages/facts" },
-    { "path": "../../tools/recorder" },
     { "path": "../../packages/sourcing" },
-    { "path": "../../packages/tables" },
-    { "path": "../../packages/integrations-google" }
-    ,{ "path": "../manifests" }
+    { "path": "../../packages/tables" }
+    ,{ "path": "../../packages/module-manifests" }
   ],
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

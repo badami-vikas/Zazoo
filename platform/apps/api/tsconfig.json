@@ -37,13 +37,13 @@
       "path": "../../packages/research"
     },
     {
-      "path": "../../modules/dealpilot"
+      "path": "../../commons/dealpilot"
     },
     {
-      "path": "../../modules/jobpilot"
+      "path": "../../commons/jobpilot"
     },
     {
-      "path": "../../modules/manifests"
+      "path": "../../packages/module-manifests"
     },
     {
       "path": "../../tools/company-sourcing"
@@ -52,22 +52,22 @@
       "path": "../../packages/models"
     },
     {
-      "path": "../../modules/whatsapp"
+      "path": "../../commons/whatsapp"
     },
     {
-      "path": "../../modules/devpilot"
+      "path": "../../commons/devpilot"
     },
     {
       "path": "../../packages/integrations-github"
     },
     {
-      "path": "../../modules/accounting"
+      "path": "../../commons/accounting"
     },
     {
       "path": "../../packages/tables"
     },
     {
-      "path": "../../modules/d2c"
+      "path": "../../commons/d2c"
     }
   ],
   "include": [
