@@ -16,7 +16,7 @@ const dbRoot = resolve(here, "../..");
 const migrationsFolder = resolve(dbRoot, "migrations");
 const drizzleKitBin = resolve(dbRoot, "node_modules/drizzle-kit/bin.cjs");
 
-test("Drizzle metadata is rebased through 0043 and generate is a deterministic no-op", () => {
+test("Drizzle metadata is rebased through 0044 and generate is a deterministic no-op", () => {
   const probe = mkdtempSync(resolve(dbRoot, ".drizzle-noop-"));
   const probeMigrations = join(probe, "migrations");
   try {
@@ -28,10 +28,10 @@ test("Drizzle metadata is rebased through 0043 and generate is a deterministic n
     };
     const last = journal.entries.at(-1);
     assert.deepEqual(last, {
-      idx: 43,
+      idx: 44,
       version: "7",
-      when: 1786657547968,
-      tag: "0043_events_speaker_extraction",
+      when: 1786660135045,
+      tag: "0044_task071_chat_module_sessions",
       breakpoints: true,
     });
     assert.ok(
@@ -90,6 +90,10 @@ test("Drizzle metadata is rebased through 0043 and generate is a deterministic n
       readdirSync(join(probeMigrations, "meta")).includes("0043_snapshot.json"),
       "Speaker-extraction + outreach-draft queue snapshot must be tracked (TASK-070 follow-on)",
     );
+    assert.ok(
+      readdirSync(join(probeMigrations, "meta")).includes("0044_snapshot.json"),
+      "Module-scoped chat sessions snapshot must be tracked (TASK-071)",
+    );
 
     const generated = spawnSync(
       process.execPath,
@@ -117,16 +121,17 @@ test("Drizzle metadata is rebased through 0043 and generate is a deterministic n
     assert.match(output, /No schema changes, nothing to migrate/);
     assert.equal(readFileSync(journalPath, "utf8"), journalBefore);
     assert.ok(
-      // The NEXT index after the current head (0043). If `generate` allocates
+      // The NEXT index after the current head (0044). If `generate` allocates
       // this, schema.ts and the committed migrations have drifted apart.
       // 0038 is a pure DATA migration (capability_type 'view' -> 'database'),
       // so it has no snapshot and cannot make generate produce one — the
       // schema shape is byte-identical either side of it. 0041 adds
       // `devpilot_repos`/`devpilot_pulls`/`devpilot_issues` (TASK-068); 0042
       // adds the Academics/Events tables (TASK-069/070); 0043 adds the
-      // speaker-extraction/outreach-draft queue tables (TASK-070 follow-on)
-      // — all real shape changes.
-      !readdirSync(probeMigrations).some((name) => /^0044_.*\.sql$/.test(name)),
+      // speaker-extraction/outreach-draft queue tables (TASK-070 follow-on);
+      // 0044 adds `chat_threads.module_id`/`last_opened_at` (TASK-071) — all
+      // real shape changes.
+      !readdirSync(probeMigrations).some((name) => /^0045_.*\.sql$/.test(name)),
       "no-op generation must not allocate another migration",
     );
   } finally {

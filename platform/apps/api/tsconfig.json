@@ -34,6 +34,9 @@
       "path": "../../packages/net-guard"
     },
     {
+      "path": "../../packages/events-extraction"
+    },
+    {
       "path": "../../modules/dealpilot"
     },
     {
