@@ -11,11 +11,11 @@
     ]
   },
   "enabledPlugins": {
-    "prompt-architect@prompt-architect-marketplace": false,
-    "superpowers@superpowers-dev": false,
-    "last30days@last30days-skill": false,
+    "prompt-architect@prompt-architect-marketplace": true,
+    "superpowers@superpowers-dev": true,
+    "last30days@last30days-skill": true,
     "ecc@ecc": false,
-    "skill-creator@claude-plugins-official": false
+    "skill-creator@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "prompt-architect-marketplace": {

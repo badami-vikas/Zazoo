@@ -684,6 +684,94 @@ export const LEARNING_RECOMMENDATION_SKILL_MANIFEST = {
   defaultAgents: ["learning"],
 } as const;
 
+// ---------------------------------------------------------------------------
+// The governed capability-build chain (ADR-181) — one Skill per junction of
+// @bridge/core's `capability/build-chain.ts`.
+//
+// Before this, Capability Builder held ZERO Skills: it had an identity, a role,
+// and a governance row, and no way to do anything with them. These three Skills
+// are what make "the Builder builds capabilities" a fact rather than a mission
+// statement — and, equally, what bound it, since a Skill is the only thing an
+// Agent can be attributed for.
+//
+// Each Skill is granted to EXACTLY ONE Agent below. The chain's actor checks
+// already refuse a mismatched agent in pure code; the grants make the same rule
+// true one layer down, at Skill resolution, so neither layer is the sole guard.
+//
+// Note what is NOT here: no Skill activates anything. All three declare
+// `signal:write` — the scope all three Agents already held — so wiring the
+// chain widened no Agent's authority by a single permission. Activation stays
+// on the Human-only `capability.approve` path it was always on.
+// ---------------------------------------------------------------------------
+
+/** One durable Goal for the whole chain; each request mints its own bounded
+ * Tasks, the same durable-Goal/fresh-Task split every other governed lane uses. */
+export const CAPABILITY_BUILD_GOAL_TYPE = "capability.build";
+export const RECOMMEND_CAPABILITY_BUILD_TASK_TYPE = "recommend_capability_build";
+export const DRAFT_CAPABILITY_TASK_TYPE = "draft_capability";
+export const REVIEW_CAPABILITY_DRAFT_TASK_TYPE = "review_capability_draft";
+
+export const RECOMMEND_CAPABILITY_BUILD_SKILL_ID = "capability.recommendBuild";
+export const DRAFT_CAPABILITY_SKILL_ID = "capability.draft";
+export const REVIEW_CAPABILITY_DRAFT_SKILL_ID = "capability.reviewDraft";
+
+/** Junction 1 — Internal Strategist names a capability that should exist. */
+const stageCapabilityBuildRecommendation: Skill = {
+  name: RECOMMEND_CAPABILITY_BUILD_SKILL_ID,
+  async run(inputs) {
+    return { proposedOutput: inputs, diff: { to: inputs } };
+  },
+};
+
+/** Junction 2 — Capability Builder turns that into a draft manifest. */
+const stageCapabilityDraft: Skill = {
+  name: DRAFT_CAPABILITY_SKILL_ID,
+  async run(inputs) {
+    return { proposedOutput: inputs, diff: { to: inputs } };
+  },
+};
+
+/** Junction 3 — Governance's computed verdict on the draft. */
+const stageCapabilityDraftReview: Skill = {
+  name: REVIEW_CAPABILITY_DRAFT_SKILL_ID,
+  async run(inputs) {
+    return { proposedOutput: inputs, diff: { to: inputs } };
+  },
+};
+
+const CAPABILITY_BUILD_SKILL_MANIFEST_BASE = {
+  organizationId: PILOT_ORGANIZATION,
+  version: "1.0.0",
+  goalTypes: [CAPABILITY_BUILD_GOAL_TYPE],
+  permissions: ["signal:write"],
+  plane: "local",
+  dataScopes: ["all"],
+  riskBand: "advisory",
+  evalVersion: "1.0.0",
+  childRunPolicy: "allowed",
+} as const;
+
+export const RECOMMEND_CAPABILITY_BUILD_SKILL_MANIFEST = {
+  ...CAPABILITY_BUILD_SKILL_MANIFEST_BASE,
+  skillId: RECOMMEND_CAPABILITY_BUILD_SKILL_ID,
+  taskTypes: [RECOMMEND_CAPABILITY_BUILD_TASK_TYPE],
+  defaultAgents: ["internal_strategist"],
+} as const;
+
+export const DRAFT_CAPABILITY_SKILL_MANIFEST = {
+  ...CAPABILITY_BUILD_SKILL_MANIFEST_BASE,
+  skillId: DRAFT_CAPABILITY_SKILL_ID,
+  taskTypes: [DRAFT_CAPABILITY_TASK_TYPE],
+  defaultAgents: ["capability_builder"],
+} as const;
+
+export const REVIEW_CAPABILITY_DRAFT_SKILL_MANIFEST = {
+  ...CAPABILITY_BUILD_SKILL_MANIFEST_BASE,
+  skillId: REVIEW_CAPABILITY_DRAFT_SKILL_ID,
+  taskTypes: [REVIEW_CAPABILITY_DRAFT_TASK_TYPE],
+  defaultAgents: ["governance"],
+} as const;
+
 /**
  * TASK-010 (platform red-flag correction feedback, docs/raw/ui-architecture-
  * rules-2026-07.md §5d) — the ONE governed step in the red-flag flow. The
@@ -3088,6 +3176,9 @@ export const GOVERNED_SKILL_MANIFEST_CATALOG: readonly SkillManifest[] = [
   STAGE_CAPTURE_SKILL_MANIFEST,
   JOBPILOT_RESEARCH_CULTURE_SOURCE_SKILL_MANIFEST,
   JOBPILOT_SYNTHESIZE_CULTURE_PROFILE_SKILL_MANIFEST,
+  RECOMMEND_CAPABILITY_BUILD_SKILL_MANIFEST,
+  DRAFT_CAPABILITY_SKILL_MANIFEST,
+  REVIEW_CAPABILITY_DRAFT_SKILL_MANIFEST,
   ...TASK_MANAGER_SKILL_MANIFESTS,
   ...GOOGLE_SKILL_MANIFESTS,
 ];
@@ -3251,6 +3342,10 @@ function seedGovernance(
     "jobpilot.synthesizeCultureProfile",
     "task-manager.ledger-projection",
     "task-manager.create-task",
+    // ADR-181 junction 1: the Strategist is the only Agent that may say a
+    // capability should exist. It still cannot build one — there is no draft
+    // Skill in this list, and `draftCapability` refuses it in core besides.
+    RECOMMEND_CAPABILITY_BUILD_SKILL_ID,
   ]);
   roles.roleGrants.set("role-internal-strategist", [
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
@@ -3271,7 +3366,15 @@ function seedGovernance(
   // capability.approve/action.decide surfaces, never through this scope.
   agents.assumed.set(GOVERNANCE_AGENT, "role-governance");
   agents.scope.set(GOVERNANCE_AGENT, ["signal:write", "record:read", "record:archive"]);
-  agents.skills.set(GOVERNANCE_AGENT, ["task-manager.completed-bay-sweep"]);
+  // ADR-181 junction 3: Governance is the only Agent that may review a draft.
+  // The Skill stages the verdict; the verdict itself is COMPUTED by
+  // `reviewDraft` from computeRisk/trifecta/sandbox — this Agent contributes no
+  // opinion the pipeline would act on, which is why reviewing needs no scope
+  // beyond the signal:write it already had.
+  agents.skills.set(GOVERNANCE_AGENT, [
+    "task-manager.completed-bay-sweep",
+    REVIEW_CAPABILITY_DRAFT_SKILL_ID,
+  ]);
   roles.roleGrants.set("role-governance", [
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "record", resourceId: null, action: "read", effect: "allow" },
@@ -3285,6 +3388,18 @@ function seedGovernance(
   // signal:write scope for the same reason as Governance above.
   agents.assumed.set(CAPABILITY_BUILDER_AGENT, "role-capability-builder");
   agents.scope.set(CAPABILITY_BUILDER_AGENT, ["signal:write"]);
+  // ADR-181 junction 2 — the first Skill this Agent has ever held. It can now
+  // produce a real CapabilityManifest for any of the five governed Capability
+  // types (skill / automation / agent / integration / database), which is the
+  // whole of what "the Builder builds capabilities" means today.
+  //
+  // What it still cannot do, stated rather than implied: it holds NO builder-
+  // primitive grant (file:read/write/edit, shell:execute — capability/
+  // builder-primitives.ts). Those primitives are implemented and tested but
+  // granted to nobody, so the Builder writes manifests, not files, and runs no
+  // code. A draft that declares `shell:execute` without containment is blocked
+  // at junction 3 rather than quietly honoured.
+  agents.skills.set(CAPABILITY_BUILDER_AGENT, [DRAFT_CAPABILITY_SKILL_ID]);
   roles.roleGrants.set("role-capability-builder", [
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
   ]);
@@ -4195,7 +4310,10 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     .register(stageHelpRequestOffer)
     .register(stageOutreachDraft)
     .register(createResearchCultureSourceSkill())
-    .register(stagePreferenceAdjustmentProposal);
+    .register(stagePreferenceAdjustmentProposal)
+    .register(stageCapabilityBuildRecommendation)
+    .register(stageCapabilityDraft)
+    .register(stageCapabilityDraftReview);
   for (const manifest of TASK_MANAGER_SKILL_MANIFESTS) {
     skillRegistry.register({
       name: manifest.skillId,

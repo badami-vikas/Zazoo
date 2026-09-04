@@ -141,6 +141,19 @@ test("ensureCapabilityBuilderGovernance: provisions a real, usable Capability Bu
     assert.ok((await agentStore.capabilityScope(config.agentId)).includes("signal:write"));
     const roleGrants = await roleStore.grantsForRole(config.roleId);
     assert.ok(roleGrants.some((g) => g.resourceType === "signal" && g.action === "write" && g.effect === "allow"));
+
+    // ADR-181 — the durable half of "the Builder can build". Until this, the
+    // Agent was provisioned with NO allowed Skills at all, so its authority was
+    // real and unusable. One Skill, one junction: it drafts and nothing else.
+    assert.deepEqual(await agentStore.allowedSkills(config.agentId), ["capability.draft"]);
+    // And still no route to activation: reviewing and approving are other
+    // Agents' (and a Human's) junctions, never this one's.
+    for (const notMine of ["capability.reviewDraft", "capability.recommendBuild"]) {
+      assert.ok(
+        !(await agentStore.allowedSkills(config.agentId)).includes(notMine),
+        `Capability Builder must not hold ${notMine}`,
+      );
+    }
   } finally {
     await close();
   }

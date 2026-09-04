@@ -69,3 +69,31 @@ research; PromptAssembler = shared build with LA1.
 
 BA0/BA1 refine existing P0–P1 tracks (ADR-017/019/026/036), do NOT reorder
 H2 sequencer. Pull-forward → APPROVALS.
+
+**Shipped 2026-08-06 (ADR-181)** — the chain, not the roadmap. Before this
+Builder held ZERO skills: identity + role + governance row, nothing callable.
+Now: `capability.draft`, one skill, one junction.
+
+Chain = Strategist recommends → Builder drafts Manifest → Governance computes
+verdict → Human approves. Structural, not conventional: `draftCapability`
+takes ONLY a RecommendedState (can't build unasked) · `reviewDraft` takes ONLY
+a DraftedState and COMPUTES its verdict (no verdict parameter exists) · NO
+`approved` phase, no `approve()` — chain ends at "reviewed" = fit to ASK ·
+`humanApprovalRequired: true` is the literal type · every junction throws on
+wrong actor (Builder can't self-review).
+
+Router = ONE door (`capabilityBuild.run`). No per-junction endpoint = no
+bypass. Test asserts against router DEFINITION (a caller proxy answers any
+name, can never prove absence).
+
+Blockers: type substitution · claimed origin ≠ ai_generated (real trust-tier
+escalation) · sandbox floor · shell:execute w/o execution spec ·
+retrospective recommendation with zero citations. Blocked ⇒ NO capability row
+written (else a human gets asked about what Governance refused to forward).
+
+Scope unchanged: all 3 skills declare `signal:write`, which all 3 Agents
+already held. Builder holds NO builder-primitive grant — writes manifests,
+not files; runs no code.
+
+Still open: `@builder` chat path unchanged (prose via passthrough) · builder
+primitives implemented+tested+granted to nobody · BA0–BA6 above untouched.

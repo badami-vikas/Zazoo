@@ -140,6 +140,11 @@ const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   // — Governance/authoring surfaces: writing capability or authority state from a public
   //   shell would move the trust boundary, not just serve data.
   ["capability.", "capability trust-state authoring is governed, desktop-only"],
+  // Note the separate entry: "capabilityBuild.run" does NOT start with
+  // "capability." (the dot), so the line above never covered it. It drives
+  // three local-plane Agent Runs and writes a governed capability manifest —
+  // strictly more than `capability.` authoring, never less.
+  ["capabilityBuild.", "the build chain drives Agent Runs and writes governed capability state"],
   ["agent.", "Agent authoring changes who may act"],
   ["automation.", "Automation authoring grants a trigger the right to start Runs"],
   ["commons.", "Commons publication is an External-band action"],

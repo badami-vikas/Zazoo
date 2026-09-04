@@ -379,6 +379,10 @@ test("persistent governance provisioning grants culture-research authority to Le
       "jobpilot.synthesizeCultureProfile",
       "task-manager.ledger-projection",
       "task-manager.create-task",
+      // ADR-181 junction 1 — the Strategist may say a capability should exist.
+      // It holds no draft or review Skill: deciding what to build and building
+      // it are separate Agents on purpose.
+      "capability.recommendBuild",
     ]);
   } finally {
     await close();

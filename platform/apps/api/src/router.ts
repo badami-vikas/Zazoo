@@ -81,6 +81,11 @@ import {
   PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE,
   type Wiring,
 } from "./wiring.js";
+import {
+  CAPABILITY_BUILD_GOAL_TITLE,
+  CAPABILITY_BUILD_GOAL_TYPE,
+  runCapabilityBuildChain,
+} from "./capability-build.js";
 import { resolveAuthorizedAgentRoleTemplate } from "./agent-role-templates.js";
 import type {
   Action,
@@ -14788,6 +14793,84 @@ export const appRouter = t.router({
    * relies on. Activate enforces requiredApproval + the daily auto-activation
    * budgets + the kill switch before flipping active/trusted.
    */
+  /**
+   * The governed capability-build chain (ADR-181). ONE procedure, deliberately:
+   * Internal Strategist recommends, Capability Builder drafts, Governance
+   * computes the verdict, and only then does a manifest land in `draft` for a
+   * Human to approve on the pre-existing `capability.approve` surface.
+   *
+   * There is no per-junction endpoint. Exposing `draft` separately would let a
+   * caller build something no one recommended; exposing `review` separately
+   * would let one be skipped. The bypass is closed by there being no door.
+   */
+  capabilityBuild: t.router({
+    run: authenticatedProcedure
+      .input(
+        z
+          .object({
+            organizationId: z.string().min(1),
+            origin: z.enum(["proactive", "retrospective"]),
+            capabilityType: capabilityTypeEnum,
+            title: z.string().trim().min(1).max(200),
+            rationale: z.string().trim().min(1).max(2_000),
+            /** Citations. Empty is legal for `proactive` and blocked for
+             * `retrospective` — the Strategist's own evidence boundary. */
+            evidence: z.array(z.string().trim().min(1).max(500)).max(20).default([]),
+          })
+          .strict(),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+
+        const configuredModel = resolveConfiguredModel(ctx.wiring.models, "reasoning");
+        const governedModel = configuredModel
+          ? createGovernedModelProvider(
+              ctx,
+              input.organizationId,
+              configuredModel,
+              "capability_build_draft",
+            )
+          : undefined;
+
+        const result = await runCapabilityBuildChain(
+          {
+            wiring: ctx.wiring,
+            run: ctx.run,
+            organizationId: input.organizationId,
+            actingUserId: ctx.identity.id,
+            ...(governedModel ? { model: governedModel.provider } : {}),
+            provisionTask: (taskType, agentId) =>
+              provisionGoalTask(
+                ctx.wiring,
+                input.organizationId,
+                CAPABILITY_BUILD_GOAL_TYPE,
+                CAPABILITY_BUILD_GOAL_TITLE,
+                taskType,
+                agentId,
+              ),
+          },
+          {
+            origin: input.origin,
+            capabilityType: input.capabilityType,
+            title: input.title,
+            rationale: input.rationale,
+            evidence: input.evidence,
+          },
+        );
+
+        return {
+          phase: result.state.phase,
+          trail: result.trail,
+          proposalIds: result.proposalIds,
+          manifestId: result.manifestId,
+          blockers: result.blockers,
+          verdict: result.state.phase === "recommended" ? null : (result.state as { verdict?: unknown }).verdict ?? null,
+          modelReceiptLedgerId: governedModel?.receiptLedgerId() ?? null,
+        };
+      }),
+  }),
+
   capability: t.router({
     /** Register a new capability manifest. Always creates state=draft — "generation
      * only ever creates draft" (Capability Builder never activates). */

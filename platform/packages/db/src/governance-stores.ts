@@ -678,6 +678,10 @@ export async function ensureInternalStrategistGovernance(
       "jobpilot.synthesizeCultureProfile",
       "task-manager.ledger-projection",
       "task-manager.create-task",
+      // ADR-181 junction 1 — recommend a capability build. Deliberately NOT
+      // "capability.draft": the Agent that decides what should exist is not the
+      // Agent that builds it.
+      "capability.recommendBuild",
     ],
     dataScope: "all",
   });
@@ -699,7 +703,13 @@ export async function ensureGovernanceAgentGovernance(
       { resourceType: "record", action: "read", capabilityToken: "record:read" },
       { resourceType: "record", action: "archive", capabilityToken: "record:archive" },
     ],
-    allowedSkills: ["task-manager.completed-bay-sweep"],
+    allowedSkills: [
+      "task-manager.completed-bay-sweep",
+      // ADR-181 junction 3 — review a Capability Builder draft. Reviewing does
+      // not decide: the verdict is computed by the kernel, and approval remains
+      // a Human-only surface this Agent has no grant on.
+      "capability.reviewDraft",
+    ],
     dataScope: "all",
   });
 }
@@ -708,10 +718,18 @@ export async function ensureCapabilityBuilderGovernance(
   db: Database,
   config: FoundationalAgentGovernanceConfig,
 ): Promise<void> {
-  return ensureSignalDraftAgentGovernance(db, config, {
+  return ensurePersistentAgentGovernance(db, {
+    ...config,
     name: "Capability Builder",
     description: "May draft inspectable capability-change Signals; never activates its own output.",
     goal: "Draft and test proposed capability changes without shipping or activation.",
+    resourceType: "signal",
+    action: "write",
+    capabilityToken: "signal:write",
+    // ADR-181 junction 2 — the first Skill this Agent has held. One Skill, one
+    // junction: it drafts manifests and nothing else. No builder-primitive
+    // Skill appears here, so it writes no files and executes no code.
+    allowedSkills: ["capability.draft"],
   });
 }
 

@@ -39,12 +39,34 @@
       "name": "platform-web",
       "runtimeExecutable": "node",
       "runtimeArgs": [
-        "node_modules/.bin/vite",
+        "node_modules/vite/bin/vite.js",
         "--port",
         "5174"
       ],
       "cwd": "platform/apps/web",
       "port": 5174
+    },
+    {
+      "name": "platform-web-tauri",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "apps/web/node_modules/vite/bin/vite.js",
+        "apps/web",
+        "--port",
+        "5173"
+      ],
+      "cwd": "platform",
+      "port": 5173
+    },
+    {
+      "name": "platform-desktop",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "node_modules/@tauri-apps/cli/tauri.js",
+        "dev"
+      ],
+      "cwd": "platform/apps/desktop",
+      "port": 5173
     },
     {
       "name": "platform-web-worktree",
@@ -56,40 +78,6 @@
       ],
       "cwd": ".claude/worktrees/egg-commons-composition-109d78/platform/apps/web",
       "port": 5175
-    },
-    {
-      "name": "zazoo-panda",
-      "runtimeExecutable": "node",
-      "runtimeArgs": [
-        "platform/apps/web/node_modules/vite/bin/vite.js",
-        "platform/apps/web",
-        "--port",
-        "5176"
-      ],
-      "port": 5176
-    },
-    {
-      "name": "oldplatform-preview",
-      "runtimeExecutable": "node",
-      "runtimeArgs": [
-        "platform/apps/web/node_modules/vite/bin/vite.js",
-        "preview",
-        "--config",
-        "platform/apps/web/vite.zazoo.config.ts",
-        "--port",
-        "5177"
-      ],
-      "port": 5177
-    },
-    {
-      "name": "platform-web-parallel-worktree",
-      "runtimeExecutable": "node",
-      "runtimeArgs": [
-        "node_modules/.bin/vite"
-      ],
-      "cwd": ".claude/worktrees/parallel-ai-api-search-e3922b/platform/apps/web",
-      "autoPort": true,
-      "port": 5179
     }
   ]
 }

@@ -172,6 +172,32 @@ export {
   type SandboxTrifectaLegs,
 } from "./capability/sandbox-policy.js";
 
+// ADR-181 — the governed capability-build chain. Internal Strategist decides
+// what to build, Capability Builder drafts it, Governance computes the verdict,
+// and only a Human can approve. The three junctions are structural: each entry
+// point accepts only the prior phase's state, and there is no `approved` phase.
+export {
+  recommendBuild,
+  draftCapability,
+  reviewDraft,
+  readyForHumanApproval,
+  describeChain,
+  BuildChainError,
+  EVIDENCE_REQUIRED_BLOCKER,
+  type BuildOrigin,
+  type BuildRecommendation,
+  type CapabilityBuildDraft,
+  type GovernanceVerdict,
+  type BuildChainState,
+  type RecommendedState,
+  type DraftedState,
+  type ReviewedState,
+  type BlockedState,
+  type RecommendBuildArgs,
+  type DraftCapabilityArgs,
+  type ReviewDraftArgs,
+} from "./capability/build-chain.js";
+
 // Context Provider contract (docs/wiki/clients.md, Sensor SPI) — desktop-only,
 // optional capability; screen capture is one provider among nine, never the
 // kernel's dependency.
