@@ -16,7 +16,7 @@ import { moduleFilesRoot } from "../src/module-files.js";
 import {
   TASK_MANAGER_DRIFT_AUTOMATION_ID,
   TASK_MANAGER_SWEEP_AUTOMATION_ID,
-} from "../src/built-in-modules.js";
+} from "@bridge/module-manifests";
 
 function run(): RunCtx {
   const clock = new SystemClock();

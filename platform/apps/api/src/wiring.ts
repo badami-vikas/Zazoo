@@ -21,6 +21,7 @@
  * are configured; otherwise a fail-closed factory (no fake/dummy data — the platform
  * sources only real data).
  */
+import { PILOT_ORGANIZATION } from "@bridge/core";
 import {
   InMemoryAgentStore,
   InMemoryEphemeralStore,
@@ -340,7 +341,7 @@ import {
   DEVPILOT_REVIEWER_AGENT_ID,
   resolveModuleAgentRuntimeId,
   resolveModuleAutomationRuntimeId,
-} from "./built-in-modules.js";
+} from "@bridge/module-manifests";
 import { deterministicUuid } from "./deterministic-uuid.js";
 import {
   InMemoryCaptureLedger,
@@ -364,7 +365,7 @@ import { getD2CDb, closeD2CConnection, type D2CDb } from "./d2c-store.js";
 // Exported: router.ts's `assertPilotOrganization` uses it to explicitly REJECT any
 // other organizationId (interim single-tenant safety fix, All fixes.md Phase 3 item 11a
 // — full multi-tenancy is out of scope for this pass).
-export const PILOT_ORGANIZATION = "b0000000-0000-4000-a000-000000000001";
+export { PILOT_ORGANIZATION };
 export const OUTREACH_AGENT = "b0000000-0000-4000-a000-0000000000d1";
 export const OUTREACH_ROLE = "b0000000-0000-4000-a000-0000000000f1";
 const OUTREACH_EVENT_PERMISSION = "b0000000-0000-4000-a000-0000000000c1";
@@ -518,7 +519,7 @@ export interface Wiring {
   /** Email paired with the approved Supabase Auth pilot subject. */
   pilotUserEmail: string;
   /** Feature flight for the TASK-032 learning observation loop (`learning.*`
-   * router). OFF by default; enabled via `BRIDGE_LEARNING_OBSERVATION=1` (or a
+   * router). ON by default (AP-182); `BRIDGE_LEARNING_OBSERVATION=0` turns it off (or a
    * test override). Disabled means every `learning.*` procedure fails closed
    * with a typed error and `learning.status` reports `{ enabled: false }` so
    * clients can honestly hide the surface instead of showing dead controls. */
@@ -534,7 +535,7 @@ export interface Wiring {
   /** JobPilot's persistence (Phase 4 — @bridge/jobpilot is pure logic, no store). */
   jobpilotStore: DrizzleJobPilotStore;
   /** Feature flight for the DevPilot Module (D0/D1, TASK-067/TASK-068). OFF by
-   * default; enabled via `BRIDGE_DEVPILOT=1` (or a test override). Disabled
+   * default (AP-182); `BRIDGE_DEVPILOT=0` turns it off (or a test override). Disabled
    * means every `devpilot.*` procedure except `status` fails closed. */
   devpilotEnabled: boolean;
   /** DevPilot's GitHub tracker surface — the store + gateway factory the
@@ -660,7 +661,7 @@ export interface Wiring {
    * and the Second Brain projection read it, and only the governed
    * claim-acceptance path writes it. */
   claimStore: DrizzleClaimStore;
-  /** K3 flight. OFF by default; enabled via `BRIDGE_CLAIM_SUBSTRATE=1`
+  /** K3 flight. ON by default (AP-182); `BRIDGE_CLAIM_SUBSTRATE=0` turns it off
    * (or a test override). Disabled means every `learning.claims.*`
    * procedure fails closed and the Second Brain omits the knowledge region. */
   claimSubstrateEnabled: boolean;
@@ -678,13 +679,13 @@ export interface Wiring {
   skillRegistry: SkillRegistry;
   /** Feature flight for LA5 retrieval fusion (chat memory slot filled by
    * structured+vector+graph RRF fusion; scheduled embedding indexer). OFF by
-   * default; enabled via `BRIDGE_RETRIEVAL_FUSION=1` (or a test override).
+   * default (AP-182); `BRIDGE_RETRIEVAL_FUSION=0` turns it off (or a test override).
    * Disabled means chat keeps the pre-fusion recency slice and no indexer
    * runs — nothing new is stored or read. */
   retrievalFusionEnabled: boolean;
   /** Feature flight for Commons capability archetypes (roadmap-v2 Phase 4:
    * generalize accepted preferences → contribute; seed suggestions from
-   * Commons archetypes). OFF by default; `BRIDGE_COMMONS_ARCHETYPES=1` (or a
+   * Commons archetypes). ON by default (AP-182); `BRIDGE_COMMONS_ARCHETYPES=0` (or a
    * test override). Every `learning.archetypes.*` procedure fails closed
    * while off — nothing is generalized, published, or seeded. */
   commonsArchetypesEnabled: boolean;
@@ -751,19 +752,19 @@ export interface Wiring {
 
 export interface BuildWiringOptions {
   /** Test/deployment override for the learning observation flight. Omitted
-   * means the environment decides (`BRIDGE_LEARNING_OBSERVATION`), default OFF. */
+   * means the environment decides (`BRIDGE_LEARNING_OBSERVATION=0` turns it off), default ON. */
   learningObservationEnabled?: boolean;
   /** Test/deployment override for the LA5 retrieval-fusion flight. Omitted
-   * means the environment decides (`BRIDGE_RETRIEVAL_FUSION`), default OFF. */
+   * means the environment decides (`BRIDGE_RETRIEVAL_FUSION=0` turns it off), default ON. */
   retrievalFusionEnabled?: boolean;
   /** Test/deployment override for the Commons-archetypes flight. Omitted
-   * means the environment decides (`BRIDGE_COMMONS_ARCHETYPES`), default OFF. */
+   * means the environment decides (`BRIDGE_COMMONS_ARCHETYPES=0` turns it off), default ON. */
   commonsArchetypesEnabled?: boolean;
   /** Test/deployment override for the K3 knowledge-substrate flight. Omitted
-   * means the environment decides (`BRIDGE_CLAIM_SUBSTRATE`), default OFF. */
+   * means the environment decides (`BRIDGE_CLAIM_SUBSTRATE=0` turns it off), default ON. */
   claimSubstrateEnabled?: boolean;
   /** Test/deployment override for the DevPilot Module flight. Omitted means
-   * the environment decides (`BRIDGE_DEVPILOT`), default OFF. */
+   * the environment decides (`BRIDGE_DEVPILOT=0` turns it off), default ON. */
   devpilotEnabled?: boolean;
   /** Explicit semantic embedder for the LA5 vector lane (tests/deployments).
    * Omitted means the wiring resolves one from the registered local
@@ -5596,27 +5597,28 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       "BRIDGE_LOCAL_DIR is required: DealPilot Records, captures, and continuation state cannot use process-local runtime storage",
     );
   }
-  // TASK-032 flight — options override wins (tests/deployments); otherwise
-  // the environment decides; absent both, the loop is OFF.
+  // Flights (AP-182): options override wins (tests/deployments); otherwise the
+  // environment decides; absent both, every flight is ON. The env var is the
+  // emergency off switch, not the on switch.
   const learningObservationEnabled =
     options.learningObservationEnabled ??
-    ["1", "true"].includes((process.env.BRIDGE_LEARNING_OBSERVATION ?? "").trim().toLowerCase());
-  // LA5 flight — same override-then-environment resolution, default OFF.
+    !["0", "false"].includes((process.env.BRIDGE_LEARNING_OBSERVATION ?? "").trim().toLowerCase());
+  // LA5 flight — same resolution, default ON.
   const retrievalFusionEnabled =
     options.retrievalFusionEnabled ??
-    ["1", "true"].includes((process.env.BRIDGE_RETRIEVAL_FUSION ?? "").trim().toLowerCase());
-  // Commons-archetypes flight (roadmap-v2 Phase 4) — same resolution, default OFF.
+    !["0", "false"].includes((process.env.BRIDGE_RETRIEVAL_FUSION ?? "").trim().toLowerCase());
+  // Commons-archetypes flight (roadmap-v2 Phase 4) — same resolution, default ON.
   const commonsArchetypesEnabled =
     options.commonsArchetypesEnabled ??
-    ["1", "true"].includes((process.env.BRIDGE_COMMONS_ARCHETYPES ?? "").trim().toLowerCase());
-  // K3 knowledge-substrate flight (TASK-047) — same resolution, default OFF.
+    !["0", "false"].includes((process.env.BRIDGE_COMMONS_ARCHETYPES ?? "").trim().toLowerCase());
+  // K3 knowledge-substrate flight (TASK-047) — same resolution, default ON.
   const claimSubstrateEnabled =
     options.claimSubstrateEnabled ??
-    ["1", "true"].includes((process.env.BRIDGE_CLAIM_SUBSTRATE ?? "").trim().toLowerCase());
-  // DevPilot flight (D0, TASK-067) — same resolution, default OFF.
+    !["0", "false"].includes((process.env.BRIDGE_CLAIM_SUBSTRATE ?? "").trim().toLowerCase());
+  // DevPilot flight (D0, TASK-067) — same resolution, default ON.
   const devpilotEnabled =
     options.devpilotEnabled ??
-    ["1", "true"].includes((process.env.BRIDGE_DEVPILOT ?? "").trim().toLowerCase());
+    !["0", "false"].includes((process.env.BRIDGE_DEVPILOT ?? "").trim().toLowerCase());
   // LA5 semantic embedder — explicit override wins; otherwise the ONLY
   // provider trusted for real semantics today is Ollama (its embed hits a
   // genuine embedding model). The Echo double's pseudo-embed is a test

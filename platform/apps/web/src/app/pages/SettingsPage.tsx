@@ -530,7 +530,6 @@ function InputCaptureDenylistEditor({ enabled }: { enabled: boolean }) {
           }). Do not turn typing capture on until it loads — its exclusions cannot be shown.`,
         ),
       );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!loaded) {

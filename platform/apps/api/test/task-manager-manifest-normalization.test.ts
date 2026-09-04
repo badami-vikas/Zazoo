@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { InMemoryModuleStore, canonicalizeManifest, parseModuleManifest } from "@bridge/core";
-import { BUILT_IN_MODULES } from "../src/built-in-modules.js";
+import { BUILT_IN_MODULES } from "@bridge/module-manifests";
 import { PILOT_ORGANIZATION, seedBuiltInModules } from "../src/wiring.js";
 
 test("built-in Task Manager upgrade converges to the same canonical manifest Commons signs", async () => {

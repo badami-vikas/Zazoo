@@ -31,22 +31,7 @@ import {
 import { appRouter } from "../src/router.js";
 import { deterministicUuid } from "../src/deterministic-uuid.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
-
-function makeRun(seed: number): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(seed);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(wiring: Wiring, seed = 41) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(seed),
-    identity: { type: "user" as const, id: PILOT_USER },
-    authenticated: true,
-    verifying: false,
-  });
-}
+import { makeCaller } from "./caller.js";
 
 /** In-memory archetype-capable registry double. Module methods are unused by
  * these procedures and fail loudly if reached. */
@@ -126,7 +111,7 @@ async function acceptOneDismissPattern(wiring: Wiring, caller: ReturnType<typeof
 }
 
 test("either flight off fails closed for every archetype procedure", async () => {
-  const learningOnly = await buildWiring({ learningObservationEnabled: true });
+  const learningOnly = await buildWiring({ learningObservationEnabled: true, commonsArchetypesEnabled: false });
   try {
     const caller = makeCaller(learningOnly);
     for (const call of [
@@ -139,7 +124,7 @@ test("either flight off fails closed for every archetype procedure", async () =>
   } finally {
     await learningOnly.close();
   }
-  const archetypesOnly = await buildWiring({ commonsArchetypesEnabled: true });
+  const archetypesOnly = await buildWiring({ commonsArchetypesEnabled: true, learningObservationEnabled: false });
   try {
     const caller = makeCaller(archetypesOnly);
     await assert.rejects(

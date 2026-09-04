@@ -27,7 +27,7 @@
  *   3. THE BELOW-FOLD STACK (`below`). Ordinary flow content after the first
  *      screen, so it exists only for a reader who has scrolled past the table.
  *
- * SCROLL HANDOFF IS NATIVE, DELIBERATELY. The Glide canvas keeps its own inner
+ * SCROLL HANDOFF IS NATIVE, DELIBERATELY. The table keeps its own inner
  * scroller; when its rows bottom out the browser's standard scroll chaining
  * carries the remaining wheel/touch delta out to the page scroller above, which
  * is what brings Files and Intelligence up. No wheel handler, no scroll

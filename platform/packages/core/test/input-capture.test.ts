@@ -12,6 +12,9 @@
  * assertion breaks. That is the whole point of gating this sensor behind
  * K10 — the guarantees are executable before raw ever flows.
  */
+// timeOfDayBucket reads local hours; pin the zone so the 22:00Z → "night"
+// assertion holds on every contributor machine, not only UTC-ish ones.
+process.env.TZ = "UTC";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {

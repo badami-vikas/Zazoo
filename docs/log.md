@@ -4155,6 +4155,30 @@ Verified: api `builder-attribution` 4/4 with the negative case mutation-checked,
 and no web surface lists them. `learning.builderRuns` exists and is tested; nothing in the app calls
 it. The data is queryable, the screen is not built.
 
+## 2026-09-03 — AP-182 applied: governance proportionality (ADR 2026-09-03 "Governance facilitates work")
+
+User directive: governance should facilitate work; only critical issues block, the rest flag and
+can be overridden; model-premised rules are stale. Audit in
+`outputs/2026-09-03-governance-proportionality-audit.md`; user gave full approval in-session.
+
+Applied (nine items): `pipeline.ts` `requiresApproval` consults the risk band — Agents auto-apply in
+the `informational` band with an audited `governance.auto-apply` result (advisory still drafts: the
+first cut auto-applied advisory too and 22 tests correctly refused — every advisory manifest is a
+learning suggestion or intake whose pending proposal IS the product; see the ADR's correction); Agent-only invocation and the
+Goal/Task ceremony are `governance.flag` results, not rejections (an inactive Agent is still refused);
+`deployment-boundary.ts` is a deny-list; five flights default ON; `verify` drops `check:vocabulary`
+(advisory in CI, `continue-on-error`); `check:agent-context` warns on size and drops the equality
+counts; UI-rules doc gates warn; pre-commit keeps only the PII check; coverage floors dropped on
+twenty packages (core/net-guard/api keep theirs); `tools/eslint-rules` (`no-crm-vocab`) and
+`check:no-dummy-runtime` deleted; APPROVALS policy narrowed; CLAUDE.md merged Tiers A/B and dropped
+the token budgets; ADRs cited by date and title from here on.
+
+Same session, Phase 2 of the cleanup closed: full `@bridge/api` suite 581 tests / 580 pass / 0 fail
+(one skipped) after the router split into `routers/<ns>.ts` + `router-shared.ts`, the
+`organizationGuard` middleware, and the shared `test/caller.ts`.
+
+**Not done by the agent:** the `.claude/settings.json` PostToolUse UI-rules hook — auto mode refuses
+settings edits; the user removes the `hooks` block by hand.
 ## 2026-09-03 — TASK-028: the research agent runs without the companion, and its brief becomes a Result
 
 The Research Run engine has been correct since July and reachable only from one place: the desktop

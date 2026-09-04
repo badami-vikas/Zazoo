@@ -176,17 +176,18 @@ for (const name of new Set([...Object.keys(current), ...Object.keys(baseline)]))
   }
 }
 
-const docFailures = DOC_GATES.map((g) => ({ g, msg: g.check() })).filter((x) => x.msg);
+// AP-182: doc gates WARN. Prose drifting is worth a line in the log, not a red build.
+const docWarnings = DOC_GATES.map((g) => ({ g, msg: g.check() })).filter((x) => x.msg);
+for (const { g, msg } of docWarnings) {
+  console.log(`\nDOC GATE WARNING (not blocking) — ${g.name}\n  ${g.why}\n  ${msg}`);
+}
 
-if (!introduced.length && !fixed.length && !docFailures.length) {
+if (!introduced.length && !fixed.length) {
   const total = Object.values(current).reduce((a, files) => a + Object.values(files).reduce((x, y) => x + y, 0), 0);
-  console.log(`check-ui-rules: OK — ${DOC_GATES.length} doc gates pass, ${total} known violations held at the baseline.`);
+  console.log(`check-ui-rules: OK — ${DOC_GATES.length - docWarnings.length}/${DOC_GATES.length} doc gates pass, ${total} known violations held at the baseline.`);
   process.exit(0);
 }
 
-for (const { g, msg } of docFailures) {
-  console.error(`\nDOC GATE FAILED — ${g.name}\n  ${g.why}\n  ${msg}`);
-}
 for (const { name, file, c, b } of introduced) {
   console.error(`\nNEW VIOLATION — ${name} (${c}, was ${b})\n  ${file}\n  ${RULES[name].rule}`);
 }

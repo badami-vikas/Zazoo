@@ -25,6 +25,11 @@ Format per entry:
 - **Alternatives rejected:** and why.
 - **Consequences / follow-ups:** what this commits us to, what remains open.
 
+**Citation convention (AP-182, 2026-09-03):** cite an entry by its **date and title**. The
+`ADR-nnn` numbers on older entries are a convenience, never a key: parallel worktrees collided
+on them fifteen times, and renumbering after a merge rewrote cross-references in three ledgers
+each time. New entries may carry a number or not; nothing is ever renumbered again.
+
 ## ADR-041 — Rejected / Parked OSS: governance engines, UI framework, runtime, agent frameworks (2026-07-09)
 
 **Context:** The OSS map assembled during the 2026-07 research sweep included several candidates that were explicitly ruled out or parked — governance-engine alternatives (OpenFGA/OPA/Cedar/SpiceDB), an alternative UI framework (Refine), a desktop-shell alternative (Electron), an agent framework in maintenance mode (AutoGen), a workflow engine with license risk (Windmill), and a deferred orchestration engine (Temporal). These verdicts existed in the execution plan but had no ADR entry, creating risk that a future session would re-evaluate them without the original rationale.
@@ -6487,6 +6492,63 @@ recorder supports one), and no surface lists them yet — `learning.builderRuns`
 but nothing in the web app calls it. Naming that plainly: the data is queryable, the screen is not
 built.
 
+## 2026-09-03 — Governance facilitates work: critical gates block, everything else flags (AP-182)
+
+**Context:** the user set one baseline rule: governance should facilitate work, not block it; only
+critical issues block, everything else is flagged and overridable; and rules premised on weak
+models are suspect now that the models are not weak. The audit
+(`outputs/2026-09-03-governance-proportionality-audit.md`) found the runtime pipeline parking
+EVERY Agent mutation regardless of the Trust Model's own risk bands, a Goal/Task ceremony that
+every router had grown a helper to satisfy, a public-cloud allowlist that produced "most modules
+say retry" twice in one day, five feature flights shipping OFF, and a process layer where a
+vocabulary lint ahead of the migration job had caused hosted schema drift, 43% of the approvals
+ledger was queue bookkeeping, and a byte budget on CLAUDE.md had cost a session eleven rewrites.
+
+**Decision:** "critical" means secret leakage, an unauthorized external side effect, a residency
+violation, or irreversible loss. Those keep hard gates: taint sinks, server-owned Agent identity,
+Human-only approval, agent-floor self-modification, the kill switch (an inactive Agent is still
+refused), residency clamp and credential gates, `ABSOLUTE_DENY`, the PII pre-commit hook, the
+dependency audit, the clean-room protocol, and coverage floors on core/net-guard/api. Everything
+else became a flag: `requiresApproval` now consults the governed skill's risk band and an Agent
+auto-applies in the `informational` band with an audited `governance.auto-apply` policy result
+(unknown band still drafts; advisory and above park — see the correction below); the Agent-only rule and the
+Goal/Task ceremony record a `governance.flag` policy result on the ledger row and proceed; the
+public-cloud boundary is a deny-list (an unlisted procedure is served, the closures with a
+residency reason stay); all five flights default ON with the env var as the off switch. Process:
+`check:vocabulary` left `verify` and runs advisory in CI; `check:agent-context` warns on size and
+no longer asserts exact override/plugin counts; the UI-rules doc gates warn; the UI-rules check
+runs once (CI), not three times; coverage floors dropped on twenty packages; `no-crm-vocab` and
+`check:no-dummy-runtime` deleted; APPROVALS rows only for irreversible or strategy-reversing
+decisions; ADRs cited by date and title; CLAUDE.md merged Tiers A/B and dropped the token budgets.
+
+**Rationale:** the stalls came from gates in the wrong position, not from thresholds. A perfect
+model still executes text it was told to treat as data, so taint and identity stay; a perfect
+model does not need a Goal id to be attributable, because the server already resolves the actor.
+The residency guarantee never rested on the allowlist — a public-cloud instance has no Local
+Plane to leak — so the allowlist only ever bought silence.
+
+**Alternatives rejected:** keeping every gate at higher thresholds (wrong axis); deleting the
+approval machinery outright (the bands are the right shape; the defect was that Actions ignored
+them); a `check:adr-numbers` gate (a gate to police a gate — citing by date removes the class).
+
+**Correction found while landing it:** the first cut auto-applied the `advisory` band too, and
+twenty-two tests said no — correctly. Every advisory manifest today is a learning suggestion or an
+intake whose *pending proposal is the product*: "only an explicit Human acceptance mints a
+preference" (TASK-032's exit test), "the human approval is the emission warrant" (Google intake),
+and the red-flag SAGA that withdraws, reopens and enacts proposals by lineage. Those are product
+canon, not governance friction, so `advisory` drafts and only `informational` auto-applies (no
+manifest uses it yet, so the mechanism is live and the behaviour change is zero until a manifest
+opts in by declaring the band). The distinction the tests taught: a gate that blocks *work* is
+friction; a pending state that *is* the work is the feature.
+
+**Consequences / follow-ups:** the pipeline consults risk bands for Actions; a Module that wants
+an Agent action to auto-apply declares `riskBand: "informational"` on the manifest, and the
+Governance Section (ADR-263 overlay) is where a user tightens it back. Trust grants and daily
+budgets still govern *capability activation*; a later pass can make the pipeline consult them
+for Actions too. The
+`provisionGoalTask` helpers in the routers are now optional attribution, not a precondition, and
+can be deleted where nothing reads the Task. The `.claude/settings.json` PostToolUse hook could
+not be removed by the agent (auto-mode refuses settings edits) and is left for the user.
 ## ADR-277 — The create surface is the Record's own page, and its Sections are a property of the Database (2026-09-03; attach: TASK-083; AP-168/AP-171, executing ADR-258/ADR-259/ADR-261)
 
 **Decision.** New opens the Database's Record page — every column on it, defaults pre-filled, one

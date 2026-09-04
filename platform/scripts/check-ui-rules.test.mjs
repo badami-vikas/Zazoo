@@ -79,7 +79,7 @@ test("a fix that is not recorded in the baseline also fails", () => {
   }
 });
 
-test("a doc gate fails when a retired canon grows rules back", () => {
+test("a doc gate WARNS when a retired canon grows rules back, and does not block (AP-182)", () => {
   const stub = path.resolve(PLATFORM, "..", "docs", "wiki", "ui-architecture.md");
   const backup = mkdtempSync(path.join(tmpdir(), "ui-gate-doc-"));
   const saved = path.join(backup, "stub.md");
@@ -87,7 +87,8 @@ test("a doc gate fails when a retired canon grows rules back", () => {
   try {
     writeFileSync(stub, `# UI architecture\n\n${"A competing rule.\n".repeat(60)}`, "utf8");
     const { code, out } = run();
-    assert.equal(code, 1, "a stub that regrows into a second canon must fail");
+    assert.equal(code, 0, "a doc gate is a warning, not a red build");
+    assert.match(out, /DOC GATE WARNING/);
     assert.match(out, /one-canonical-rulebook/);
   } finally {
     cpSync(saved, stub);

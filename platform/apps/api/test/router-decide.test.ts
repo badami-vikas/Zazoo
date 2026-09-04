@@ -18,24 +18,9 @@ import {
   PILOT_ORGANIZATION,
   type Wiring,
 } from "../src/wiring.js";
+import { makeCaller } from "./caller.js";
 
 const NON_MEMBER_USER_ID = "c0000000-0000-4000-a000-000000000099";
-
-function makeRun(seed = 1): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(seed);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(wiring: Wiring, identity: Actor = { type: "user", id: PILOT_USER }, seed = 1) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(seed),
-    identity,
-    authenticated: true,
-    verifying: false,
-  });
-}
 
 function grantShareEvent(wiring: Wiring) {
   assert.ok(wiring.roles instanceof InMemoryRoleStore, "buildWiring test harness should use in-memory roles");

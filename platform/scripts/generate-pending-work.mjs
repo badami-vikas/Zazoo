@@ -48,7 +48,7 @@ const items = [
 ];
 
 await Promise.all([
-  writeFile(output, `${JSON.stringify({ generatedAt: new Date().toISOString(), items }, null, 2)}\n`),
+  writeFile(output, `${JSON.stringify({ items }, null, 2)}\n`),
   writeFile(taskIndexOutput, renderActiveTaskIndex(document)),
 ]);
 for (const incident of duplicateFieldIncidents(document)) {

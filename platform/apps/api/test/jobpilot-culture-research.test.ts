@@ -45,25 +45,7 @@ import {
   computeSourcePolicyHash,
   type Wiring,
 } from "../src/wiring.js";
-
-function makeRun(seed = 1): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(seed);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(
-  wiring: Wiring,
-  identity: { type: "user" | "team"; id: string } = { type: "user", id: PILOT_USER },
-) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity,
-    authenticated: true,
-    verifying: false,
-  });
-}
+import { makeCaller, makeRun } from "./caller.js";
 
 function cultureFetchDeps(wiring: Wiring) {
   return {

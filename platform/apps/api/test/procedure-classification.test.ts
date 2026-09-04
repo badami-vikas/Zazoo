@@ -1,16 +1,10 @@
 /**
- * The completeness gate for the public-cloud boundary.
- *
- * Deny-by-default is correct but SILENT: a procedure nobody adds to the allowlist is
- * simply refused in the cloud, and the first person to find out is the user staring at
- * a surface that says "retry". AP-082 ("most of the modules are broken") and AP-085
- * ("2nd brain is not loading") were that same omission twice in one day — the second
- * missed because Second Brain is a nav preset rather than a Module, so reviewing "the
- * list of Modules" could not have caught it.
- *
- * This test removes the silence. Every procedure the router exposes must be classified
- * EXPLICITLY — allowed, or denied with a stated reason. Anything in neither set fails
- * here, by name, before it can reach a user.
+ * The public-cloud boundary is a DENY-list (AP-182). The allowlist era produced
+ * AP-082 ("most of the modules are broken") and AP-085 ("2nd brain is not
+ * loading") — the same silent omission twice in one day. Now an unlisted
+ * procedure is served; what this test guards is that the closures carrying a
+ * residency reason are present by name and that the runtime gate agrees with
+ * the classifier for every procedure the router exposes.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -32,30 +26,11 @@ function allProcedurePaths(): string[] {
 test("the router exposes procedures we can actually enumerate", () => {
   const paths = allProcedurePaths();
   // A guard on the guard: if tRPC ever changes shape and this returns nothing, the
-  // completeness test below would vacuously pass and the gate would be silently dead.
+  // agreement test below would vacuously pass and the gate would be silently dead.
   assert.ok(paths.length > 100, `expected a populated router, saw ${paths.length}`);
 });
 
-test("every procedure is explicitly classified — allowed or denied with a reason", () => {
-  const unclassified = allProcedurePaths().filter(
-    (path) => classifyPublicCloudProcedure(path).kind === "unclassified",
-  );
-  assert.deepEqual(
-    unclassified,
-    [],
-    `\n${unclassified.length} procedure(s) are neither allowed in public cloud nor ` +
-      `explicitly closed:\n\n  ${unclassified.join("\n  ")}\n\n` +
-      `Decide for each one, in apps/api/src/deployment-boundary.ts:\n` +
-      `  • serves ONLY Cloud-Plane stores under the caller's identity + RLS?\n` +
-      `      → add the exact path to PUBLIC_CLOUD_PROCEDURES\n` +
-      `  • touches the Local Plane, credentials, raw capture, or private scope?\n` +
-      `      → add a prefix + reason to LOCAL_ONLY_PREFIXES\n\n` +
-      `Leaving it unlisted does NOT mean "closed" — it means the next person to find ` +
-      `out is the user, looking at a surface that says "retry".\n`,
-  );
-});
-
-test("classification is total and unambiguous", () => {
+test("classification is total and the runtime gate agrees with it", () => {
   for (const path of allProcedurePaths()) {
     const verdict = classifyPublicCloudProcedure(path);
     if (verdict.kind === "allowed") {
@@ -66,21 +41,16 @@ test("classification is total and unambiguous", () => {
       );
       continue;
     }
-    if (verdict.kind === "local-only") {
-      assert.equal(
-        isPublicCloudProcedureAllowed(path),
-        false,
-        `${path} is closed by classification yet the runtime gate would serve it`,
-      );
-      assert.ok(verdict.reason.length > 0, `${path} is closed without a stated reason`);
-    }
+    assert.equal(
+      isPublicCloudProcedureAllowed(path),
+      false,
+      `${path} is closed by classification yet the runtime gate would serve it`,
+    );
+    assert.ok(verdict.reason.length > 0, `${path} is closed without a stated reason`);
   }
 });
 
-test("permission is exact-path only, so it can never be granted by prefix", () => {
-  // The asymmetry that keeps this safe: a new procedure dropped into an already-open
-  // namespace must still be decided by a human. If allow-by-prefix ever creeps in, a
-  // `relationship.deleteEverything` would be served publicly the moment it is written.
+test("a closed namespace stays closed for new siblings; an unlisted namespace is served", () => {
   const invented = "relationship.deleteEverythingForever";
   assert.equal(isPublicCloudProcedureAllowed(invented), false);
   assert.equal(
@@ -92,9 +62,28 @@ test("permission is exact-path only, so it can never be granted by prefix", () =
   const inventedOpenNamespace = "taskManagerz.somethingNew";
   assert.equal(
     classifyPublicCloudProcedure(inventedOpenNamespace).kind,
-    "unclassified",
-    "a procedure in an unknown namespace must force an explicit decision",
+    "allowed",
+    "the boundary is a deny-list: an unlisted namespace is served, a closed one is not",
   );
+});
+
+test("the residency-critical closures are present by name", () => {
+  for (const path of [
+    "capture.anything",
+    "modelProviderKey.set",
+    "chat.voice.transcribe",
+    "dealpilot.accessCredential",
+    "whatsapp.send",
+    "integration.connect",
+    "google.oauth.start",
+    "learning.capture.browser.visit",
+  ]) {
+    assert.equal(
+      isPublicCloudProcedureAllowed(path),
+      false,
+      `${path} accepts raw capture or credentials and must never be served from the public cloud`,
+    );
+  }
 });
 
 test("every deny reason is real prose, not a placeholder", () => {

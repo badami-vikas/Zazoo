@@ -5,9 +5,12 @@ const RENDER_HOST_RE =
   /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
 
 /**
- * Procedures permitted in `public-cloud` mode.
+ * Procedures re-opened inside a CLOSED namespace in `public-cloud` mode. AP-182
+ * made the boundary a deny-list: this set only overrides a `LOCAL_ONLY_PREFIXES`
+ * entry (the `relationship.*` / `taskManager.*` reads); everything outside a
+ * closed namespace is served without being listed here.
  *
- * The public-cloud API is a thin public shell. A procedure is allowed here ONLY
+ * The public-cloud API is a thin public shell. A procedure is listed here ONLY
  * when it resolves exclusively to Cloud-Plane (Supabase / Drizzle) stores under
  * the caller's authenticated identity + `bridge_app` RLS, and never touches the
  * Local Plane, the Source credential vault, or raw capture bodies (which stay on
@@ -150,28 +153,22 @@ const PUBLIC_CLOUD_PROCEDURES = new Set([
 ]);
 
 /**
- * Namespaces that are CLOSED in public-cloud mode, each with the reason.
+ * Namespaces and paths that are CLOSED in public-cloud mode, each with the reason.
  *
- * Why this exists at all: deny-by-default is the right runtime behaviour, but on its
- * own it is silent. A new procedure that nobody adds to `PUBLIC_CLOUD_PROCEDURES` is
- * simply refused in the cloud, and the first person to learn about it is the user
- * looking at a surface that says "retry". That happened twice in one day — AP-082
- * ("most of the modules are broken") and AP-085 ("2nd brain is not loading") were the
- * same omission, the second one missed because Second Brain is a nav preset rather
- * than a Module.
+ * This is THE list (AP-182): anything not matched here is served. The allowlist era
+ * was deny-by-default and therefore silent — a procedure nobody listed was refused in
+ * the cloud and the first person to learn about it was the user looking at a surface
+ * that says "retry" (AP-082 "most of the modules are broken", AP-085 "2nd brain is not
+ * loading", the same omission twice in one day). A deny-list fails the other way: an
+ * unlisted Local-Plane procedure errors at its store in the cloud, which is loud and
+ * leaks nothing, because a public-cloud instance has no Local Plane.
  *
- * So: every procedure must be classified EXPLICITLY, either allowed above or denied
- * here. `classifyPublicCloudProcedure` returns `"unclassified"` for anything in
- * neither set, and a test fails the build naming it. Silence is no longer an option.
+ * What MUST stay here is anything that would accept raw capture, credentials, or
+ * model keys from a client — those are the residency-critical closures, and
+ * `procedure-classification.test.ts` names them.
  *
- * Prefixes are matched longest-first, so a specific rule beats a general one.
- *
- * NOTE the deliberate asymmetry: denial may be granted by namespace, but permission is
- * exact-path only. Adding a procedure to an already-closed namespace inherits the
- * closure (safe, and almost always correct). Adding one to an already-OPEN namespace —
- * say a `relationship.deleteEverything` — matches no allow entry and no deny prefix, so
- * it lands as `unclassified` and fails the build. The direction that could leak data
- * therefore cannot be automatic.
+ * Prefixes are matched longest-first, so a specific rule beats a general one, and an
+ * exact entry in `PUBLIC_CLOUD_PROCEDURES` re-opens a path inside a closed namespace.
  */
 const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   // — Raw capture, credentials, and the Local Plane itself: canon says raw capture stays Local.
@@ -263,7 +260,6 @@ const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["taskManager.", "the remaining taskManager.* surface writes governed structure"],
   ["jobpilot.cultureResearch", "runs governed web research from the device"],
   ["graph.listRecords", "unscoped record enumeration"],
-  ["graph.getRecord", "unscoped record read"],
   ["view.", "local geocoder + location resolution stay on the device"],
   ["resources.", "Resources store is Local Plane"],
 ];
@@ -275,17 +271,21 @@ export function isPublicCloudOnly(
 }
 
 export function isPublicCloudProcedureAllowed(path: string): boolean {
-  return PUBLIC_CLOUD_PROCEDURES.has(path);
+  return classifyPublicCloudProcedure(path).kind === "allowed";
 }
 
 export type PublicCloudClassification =
   | { kind: "allowed" }
-  | { kind: "local-only"; reason: string }
-  | { kind: "unclassified" };
+  | { kind: "local-only"; reason: string };
 
 /**
- * Every tRPC procedure must resolve to `allowed` or `local-only`. `unclassified` is a
- * build failure, not a runtime state — see `LOCAL_ONLY_PREFIXES`.
+ * AP-182: the boundary is a DENY-list. A procedure is served from the public
+ * cloud unless a `LOCAL_ONLY_PREFIXES` entry closes it; an exact entry in
+ * `PUBLIC_CLOUD_PROCEDURES` re-opens a path inside a closed namespace. The
+ * residency guarantee does not rest on this list: a public-cloud instance has
+ * no Local Plane to leak, so an unlisted Local-Plane procedure fails at its
+ * store, not into the wrong plane. What the list must keep closed is anything
+ * that would ACCEPT raw capture or credentials from a client — those stay.
  */
 export function classifyPublicCloudProcedure(
   path: string,
@@ -296,7 +296,7 @@ export function classifyPublicCloudProcedure(
     if (!path.startsWith(entry[0])) continue;
     if (!match || entry[0].length > match[0].length) match = entry;
   }
-  return match ? { kind: "local-only", reason: match[1] } : { kind: "unclassified" };
+  return match ? { kind: "local-only", reason: match[1] } : { kind: "allowed" };
 }
 
 /** The classified deny list, for tests and audits. */

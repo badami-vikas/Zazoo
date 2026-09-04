@@ -20,24 +20,9 @@ import {
   buildWiring,
   type Wiring,
 } from "../src/wiring.js";
+import { makeCaller, makeRun } from "./caller.js";
 
 const NON_PILOT_ORGANIZATION = "d0000000-0000-4000-a000-00000000dead";
-
-function makeRun(seed = 1): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(seed);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(wiring: Wiring) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity: { type: "user" as const, id: PILOT_USER },
-    authenticated: true,
-    verifying: false,
-  });
-}
 
 function templateById(id: string) {
   const template = AGENT_ROLE_TEMPLATES.find((candidate) => candidate.id === id);

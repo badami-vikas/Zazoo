@@ -29,22 +29,7 @@ import {
   PILOT_USER,
   type Wiring,
 } from "../src/wiring.js";
-
-function makeRun(seed = 26): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(seed);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(wiring: Wiring, seed = 26) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(seed),
-    identity: { type: "user" as const, id: PILOT_USER },
-    authenticated: true,
-    verifying: false,
-  });
-}
+import { makeCaller } from "./caller.js";
 
 class ChatModel implements ModelProvider {
   readonly id: string;

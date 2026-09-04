@@ -42,11 +42,12 @@
  * removed; AP-023). Domain status (DealPilot/JobPilot fit, etc.) uses
  * explicit text labels, never this control.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Flag } from 'lucide-react';
 import clsx from 'clsx';
 import { trpc } from '../../lib/trpc';
 import { useRedFlagContext, type RedFlagAnchor } from './RedFlagProvider';
+import { useDismiss } from '../../lib/useDismiss';
 
 interface MenuPosition {
   x: number;
@@ -94,6 +95,7 @@ export interface RedFlagControlProps {
 export function RedFlagControl({ anchor, renderedValue, renderedVersion, children, className, affordance = 'menu' }: RedFlagControlProps) {
   const ctx = useRedFlagContext();
   const [position, setPosition] = useState<MenuPosition | null>(null);
+  const closeMenu = useCallback(() => setPosition(null), []);
   const [reasonDraft, setReasonDraft] = useState('');
   const [busy, setBusy] = useState(false);
   /** review round-5 item 11 — surfaces `RedFlagProvider.create`'s
@@ -130,19 +132,7 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
     // (e.g. after a refresh following clear/reopen).
   }, [current?.row.id, reason]);
 
-  useEffect(() => {
-    if (!position) return;
-    const close = () => setPosition(null);
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
-    };
-    window.addEventListener('pointerdown', close);
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.removeEventListener('pointerdown', close);
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [position]);
+  useDismiss(position !== null, closeMenu);
 
   // Re-check approval status each time the popover opens on a proposed flag
   // — never on mount/batch load (see comment on `approval` state above).

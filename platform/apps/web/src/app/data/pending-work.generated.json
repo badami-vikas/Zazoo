@@ -1,5 +1,4 @@
 {
-  "generatedAt": "2026-09-04T16:44:25.593Z",
   "items": [
     {
       "id": "HORIZON-prototype",
@@ -1373,7 +1372,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 541,
+      "sourceLine": 542,
       "rank": 40
     },
     {
@@ -1404,7 +1403,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 564,
+      "sourceLine": 565,
       "rank": 41
     },
     {
@@ -1442,7 +1441,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 593,
+      "sourceLine": 594,
       "rank": 42
     },
     {
@@ -1476,7 +1475,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 606,
+      "sourceLine": 607,
       "rank": 43
     },
     {
@@ -1507,7 +1506,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 619,
+      "sourceLine": 620,
       "rank": 44
     },
     {
@@ -1546,7 +1545,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 636,
+      "sourceLine": 637,
       "rank": 45
     },
     {
@@ -1575,7 +1574,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 579,
+      "sourceLine": 580,
       "rank": 46
     },
     {
@@ -1609,7 +1608,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1114,
+      "sourceLine": 1115,
       "rank": 47
     },
     {
@@ -1649,7 +1648,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1156,
+      "sourceLine": 1157,
       "rank": 48
     },
     {
@@ -1691,7 +1690,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1169,
+      "sourceLine": 1170,
       "rank": 49
     },
     {
@@ -1721,7 +1720,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1128,
+      "sourceLine": 1129,
       "rank": 50
     },
     {
@@ -1753,7 +1752,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1142,
+      "sourceLine": 1143,
       "rank": 51
     },
     {
@@ -1787,7 +1786,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1212,
+      "sourceLine": 1213,
       "rank": 52
     },
     {
@@ -1819,7 +1818,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1181,
+      "sourceLine": 1182,
       "rank": 53
     },
     {
@@ -1856,7 +1855,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1195,
+      "sourceLine": 1196,
       "rank": 54
     },
     {
@@ -1888,7 +1887,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 658,
+      "sourceLine": 659,
       "rank": 55
     },
     {
@@ -1927,7 +1926,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 673,
+      "sourceLine": 674,
       "rank": 56
     },
     {
@@ -1959,7 +1958,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 688,
+      "sourceLine": 689,
       "rank": 57
     },
     {
@@ -2000,7 +1999,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 734,
+      "sourceLine": 735,
       "rank": 58
     },
     {
@@ -2036,7 +2035,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 748,
+      "sourceLine": 749,
       "rank": 59
     },
     {
@@ -2075,7 +2074,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 768,
+      "sourceLine": 769,
       "rank": 60
     },
     {
@@ -2113,7 +2112,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 783,
+      "sourceLine": 784,
       "rank": 61
     },
     {
@@ -2152,7 +2151,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 798,
+      "sourceLine": 799,
       "rank": 62
     },
     {
@@ -2192,7 +2191,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 812,
+      "sourceLine": 813,
       "rank": 63
     },
     {
@@ -2232,7 +2231,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 826,
+      "sourceLine": 827,
       "rank": 64
     },
     {
@@ -2274,7 +2273,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 839,
+      "sourceLine": 840,
       "rank": 65
     },
     {
@@ -2321,7 +2320,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 852,
+      "sourceLine": 853,
       "rank": 66
     },
     {
@@ -2361,7 +2360,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 865,
+      "sourceLine": 866,
       "rank": 67
     },
     {
@@ -2402,7 +2401,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 878,
+      "sourceLine": 879,
       "rank": 68
     },
     {
@@ -2445,7 +2444,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 892,
+      "sourceLine": 893,
       "rank": 69
     },
     {
@@ -2483,7 +2482,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 907,
+      "sourceLine": 908,
       "rank": 70
     },
     {
@@ -2522,7 +2521,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 938,
+      "sourceLine": 939,
       "rank": 71
     },
     {
@@ -2557,7 +2556,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 952,
+      "sourceLine": 953,
       "rank": 72
     },
     {
@@ -2591,7 +2590,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 966,
+      "sourceLine": 967,
       "rank": 73
     },
     {
@@ -2625,7 +2624,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 980,
+      "sourceLine": 981,
       "rank": 74
     },
     {
@@ -2658,7 +2657,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 994,
+      "sourceLine": 995,
       "rank": 75
     },
     {
@@ -2690,7 +2689,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1008,
+      "sourceLine": 1009,
       "rank": 76
     },
     {
@@ -2727,7 +2726,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1022,
+      "sourceLine": 1023,
       "rank": 77
     },
     {
@@ -2759,7 +2758,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1041,
+      "sourceLine": 1042,
       "rank": 78
     },
     {
@@ -2791,7 +2790,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1061,
+      "sourceLine": 1062,
       "rank": 79
     },
     {
@@ -2825,7 +2824,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1080,
+      "sourceLine": 1081,
       "rank": 80
     },
     {
@@ -2856,7 +2855,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1099,
+      "sourceLine": 1100,
       "rank": 81
     },
     {
@@ -2901,7 +2900,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1228,
+      "sourceLine": 1229,
       "rank": 82
     },
     {
@@ -2936,7 +2935,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1241,
+      "sourceLine": 1242,
       "rank": 83
     },
     {
@@ -2969,7 +2968,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1253,
+      "sourceLine": 1254,
       "rank": 84
     },
     {
@@ -3014,7 +3013,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1267,
+      "sourceLine": 1268,
       "rank": 85
     },
     {
@@ -3046,7 +3045,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1299,
+      "sourceLine": 1300,
       "rank": 86
     },
     {
@@ -3079,7 +3078,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1313,
+      "sourceLine": 1314,
       "rank": 87
     },
     {
@@ -3114,7 +3113,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1332,
+      "sourceLine": 1333,
       "rank": 88
     },
     {
@@ -3147,7 +3146,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1353,
+      "sourceLine": 1354,
       "rank": 89
     },
     {
@@ -3184,7 +3183,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1374,
+      "sourceLine": 1375,
       "rank": 90
     },
     {
@@ -3219,7 +3218,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1397,
+      "sourceLine": 1398,
       "rank": 91
     },
     {
@@ -3250,7 +3249,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1416,
+      "sourceLine": 1417,
       "rank": 92
     },
     {
@@ -3281,7 +3280,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1438,
+      "sourceLine": 1439,
       "rank": 93
     },
     {
@@ -3314,7 +3313,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1453,
+      "sourceLine": 1454,
       "rank": 94
     },
     {
@@ -3346,7 +3345,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1476,
+      "sourceLine": 1477,
       "rank": 95
     },
     {
@@ -3377,7 +3376,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1496,
+      "sourceLine": 1497,
       "rank": 96
     },
     {
@@ -3407,7 +3406,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1514,
+      "sourceLine": 1515,
       "rank": 97
     },
     {
@@ -3436,7 +3435,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1530,
+      "sourceLine": 1531,
       "rank": 98
     },
     {
@@ -3465,7 +3464,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1546,
+      "sourceLine": 1547,
       "rank": 99
     },
     {
@@ -3500,7 +3499,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1563,
+      "sourceLine": 1564,
       "rank": 100
     },
     {
@@ -3543,7 +3542,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1579,
+      "sourceLine": 1580,
       "rank": 101
     }
   ]

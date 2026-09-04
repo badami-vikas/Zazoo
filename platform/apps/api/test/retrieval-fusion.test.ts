@@ -31,22 +31,7 @@ import {
 import { appRouter } from "../src/router.js";
 import { indexMemoryEmbeddings, MEMORY_VECTOR_ENTITY_TYPE } from "../src/retrieval-fusion.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(31);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(wiring: Wiring) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity: { type: "user" as const, id: PILOT_USER },
-    authenticated: true,
-    verifying: false,
-  });
-}
+import { makeCaller } from "./caller.js";
 
 class FusionChatModel implements ModelProvider {
   readonly id: string;
@@ -156,7 +141,7 @@ async function sendHvacQuestion(wiring: Wiring): Promise<void> {
 
 test("flight OFF: the recency slice misses the older relevant memory (pre-fusion behavior unchanged)", async () => {
   const local = new FusionChatModel();
-  const wiring = await buildWiring({ modelProviders: [local] }); // flight off
+  const wiring = await buildWiring({ modelProviders: [local], retrievalFusionEnabled: false }); // flight off (default is ON since AP-182)
   try {
     await seedRecencyShadowedCorpus(wiring);
     await sendHvacQuestion(wiring);

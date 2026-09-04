@@ -19,24 +19,9 @@ import { TRPCError } from "@trpc/server";
 import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_USER, PILOT_ORGANIZATION, type Wiring } from "../src/wiring.js";
+import { makeCaller } from "./caller.js";
 
 const NON_PILOT_ORGANIZATION = "d0000000-0000-4000-a000-00000000dead"; // test_fixture_ — deliberately not PILOT_ORGANIZATION
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(1);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-async function makeCaller(wiring: Wiring) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity: { type: "user", id: PILOT_USER },
-    authenticated: true, // SEC-1: in-process test caller is a trusted, authenticated actor
-    verifying: false,
-  });
-}
 
 test("dealpilot.list: a non-pilot organizationId is rejected with FORBIDDEN, not silently ignored", async () => {
   const wiring = await buildWiring();

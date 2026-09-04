@@ -24,12 +24,7 @@ import {
 } from "@bridge/core";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(1);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
+import { makeRun } from "./caller.js";
 
 function caller(wiring: Wiring) {
   return appRouter.createCaller({
