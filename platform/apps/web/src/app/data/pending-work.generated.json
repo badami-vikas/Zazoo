@@ -3549,17 +3549,22 @@
       "id": "TASK-096",
       "title": "TASK-096 — The installable Egg: kernel-only profile, Commons directory, and the Builder's standard build process",
       "status": "in-progress",
-      "statusNote": "2026-09-04; profile, directory move, and Builder prior art landed — the dynamic Module runtime has NOT",
+      "statusNote": "2026-09-04; profile, directory move, Builder prior art, the Egg's primary Agents, and the standard Module Page landed — the dynamic Module runtime and a machine-independent installer have NOT",
       "priority": "P1",
       "horizon": "Living Software",
       "outcome": "A bare Egg installs and boots with the kernel, Builder, Research Agent and primitives only; every Module lives in Commons and is installed from the registry; asking the Builder for a Module runs the standard build process with Commons as one source of inspiration.",
-      "prototypeTest": "`BRIDGE_PROFILE=egg` boot lists only Task Manager in the rail and serves no `dealpilot.*`/`whatsapp.*` procedure; `pnpm --filter @bridge/web build:egg` emits no Module Page chunk; `builder.run` with a name that has no manifest starts at \"create module.yaml\" and its prompt names related Commons entries; an unreachable registry does not stop the Run.",
+      "prototypeTest": "`BRIDGE_PROFILE=egg` boot lists only Task Manager in the rail and serves no `dealpilot.*`/`whatsapp.*` procedure; in that boot the five foundational Agents are active, chat answers, a Research Run starts and its Skill gate accepts Task Manager's binding, and a Builder Run on a new name writes `module.yaml` → registered → approved → Records served at `/module/<name>/<page>` by the shell's own Page; `pnpm --filter @bridge/web build:egg` emits no Module Page chunk; `builder.run` with a name that has no manifest starts at \"create module.yaml\" and its prompt names related Commons entries; an unreachable registry does not stop the Run.",
       "scope": [
-        "`platform/commons/*`, `packages/module-manifests` (`EGG_MODULES`, `bridgeProfileFromEnv`, `builtInModulesForProfile`), `apps/api/src/{router,server,wiring}.ts`, `apps/api/src/builder/run.ts`, `apps/web/src/app/routes.tsx`, `outputs/2026-09-03-cleanup-and-egg-commons-strategy.md` §Phase 3."
+        "`platform/commons/*`, `packages/module-manifests` (`EGG_MODULES`, `bridgeProfileFromEnv`, `builtInModulesForProfile`, Task Manager 1.10.0 `web-research` binding, `resolveModuleAgentRuntimeId`, one Builder id), `packages/core/src/module/{types,manifest}.ts` (`module.databases[]`), `apps/api/src/{module-register.ts,routers/moduleRecords.ts,routers/modules.ts,routers/builder.ts}`, `apps/web/src/app/{pages/ModulePage.tsx,routes.tsx,Layout.tsx}`, `apps/desktop` (`build:tauri:egg`, `api_sidecar.rs` profile), UI Rulebook §3d, `apps/api/src/{router,server,wiring}.ts`, `apps/api/src/builder/run.ts`, `apps/web/src/app/routes.tsx`, `outputs/2026-09-03-cleanup-and-egg-commons-strategy.md` §Phase 3."
       ],
       "evidence": [
         "`apps/api/test/egg-profile.test.ts` (4 tests)",
-        "web build full 2616 KB / 43 assets / 16 Module chunks vs Egg 2308 KB / 20 assets / 0 Module chunks (2026-09-04)."
+        "web build full 2616 KB / 43 assets / 16 Module chunks vs Egg 2308 KB / 20 assets / 0 Module chunks (2026-09-04). Second half (2026-09-04): `apps/api/test/egg-boot.test.ts` 3/3 and `module-records.test.ts` 3/3",
+        "full api suite green after its one single-owner gate test (agent-orchestration) was updated for two owners",
+        "`agent-orchestration.test.ts` 24/24",
+        "`pnpm --filter @bridge/web build:egg` green (12 JS assets, no Module Page chunk)",
+        "`cargo check` on the sidecar",
+        "BUGS 2026-09-04 (Builder id split) resolved."
       ],
       "requests": [
         "user directive 2026-09-03/04 verbatim in ADR 2026-09-04 \"The Egg ships the kernel",
