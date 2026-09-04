@@ -34,6 +34,7 @@ async function makeCaller(wiring: Wiring) {
     wiring,
     run: makeRun(),
     identity: { type: "user", id: PILOT_USER },
+    auth: { verified: true, pilotFallbackAllowed: false },
   });
 }
 

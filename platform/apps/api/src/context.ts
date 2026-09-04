@@ -23,7 +23,7 @@
 import { TRPCError } from "@trpc/server";
 import { SeededRng, SystemClock, UuidGen, type Actor, type RunCtx } from "@bridge/core";
 import type { Wiring } from "./wiring.js";
-import { createIdentityResolver, IdentityVerificationError } from "./identity.js";
+import { authModeFromEnv, createIdentityResolver, IdentityVerificationError } from "./identity.js";
 
 export interface ApiContext {
   wiring: Wiring;
@@ -31,6 +31,12 @@ export interface ApiContext {
   /** The authenticated actor (server-resolved, never client-asserted). Approvals and
    * human-origin proposals authorize against this. */
   identity: Actor;
+  auth: {
+    /** True only when the request supplied credentials accepted by a configured verifier. */
+    verified: boolean;
+    /** The pilot identity may authorize writes only in pure in-memory local development. */
+    pilotFallbackAllowed: boolean;
+  };
 }
 
 /** Minimal shape of what the tRPC Fastify adapter hands createContext. */
@@ -47,14 +53,18 @@ export function makeContextFactory(wiring: Wiring) {
   // Supabase user when a bearer token is presented and a verifier is configured.
   const pilotUserId = process.env.BRIDGE_PILOT_USER_ID ?? wiring.pilotUserId;
   const identityResolver = createIdentityResolver(pilotUserId);
+  const authMode = authModeFromEnv();
 
   return async function createContext(args?: CreateContextArgs): Promise<ApiContext> {
     const clock = new SystemClock();
     const rng = new SeededRng(clock.nowMs() >>> 0); // boundary seed
     const authHeader = headerValue(args?.req?.headers?.["authorization"]);
     let identity: Actor;
+    let verified: boolean;
     try {
-      identity = await identityResolver.resolve(authHeader);
+      const resolved = await identityResolver.resolve(authHeader);
+      identity = resolved.actor;
+      verified = resolved.verified;
     } catch (err) {
       if (err instanceof IdentityVerificationError) {
         throw new TRPCError({ code: "UNAUTHORIZED", message: "invalid or unverifiable credentials", cause: err });
@@ -66,6 +76,10 @@ export function makeContextFactory(wiring: Wiring) {
       wiring,
       run: { clock, rng, ids: new UuidGen(clock, rng) },
       identity,
+      auth: {
+        verified,
+        pilotFallbackAllowed: authMode.pilotFallbackAllowed,
+      },
     };
   };
 }

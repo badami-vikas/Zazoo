@@ -33,6 +33,7 @@ async function makeCaller(wiring: Wiring) {
     wiring,
     run: makeRun(),
     identity: { type: "user", id: "test_fixture_single_tenant_guard_user" },
+    auth: { verified: true, pilotFallbackAllowed: false },
   });
 }
 

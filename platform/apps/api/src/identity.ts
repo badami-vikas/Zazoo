@@ -47,7 +47,28 @@ export interface IdentityResolver {
   /** Resolve the authenticated actor for a request, given its Authorization header.
    * Rejects with `IdentityVerificationError` (never a raw/opaque error) on any
    * verification failure, including JWKS timeout. */
-  resolve(authHeader: string | undefined): Promise<Actor>;
+  resolve(authHeader: string | undefined): Promise<{ actor: Actor; verified: boolean }>;
+}
+
+export interface AuthMode {
+  verifier: "supabase-hs256" | "supabase-jwks" | "none";
+  persistent: boolean;
+  pilotFallbackAllowed: boolean;
+}
+
+/** Safe for startup logs: reports only verifier/deployment state, never config values. */
+export function authModeFromEnv(): AuthMode {
+  const verifier = process.env.SUPABASE_JWT_SECRET
+    ? "supabase-hs256"
+    : process.env.SUPABASE_URL
+      ? "supabase-jwks"
+      : "none";
+  const persistent = Boolean(process.env.DATABASE_URL) || process.env.NODE_ENV === "production";
+  return {
+    verifier,
+    persistent,
+    pilotFallbackAllowed: verifier === "none" && !persistent,
+  };
 }
 
 function bearer(authHeader: string | undefined): string | null {
@@ -87,16 +108,16 @@ export function createIdentityResolver(pilotUserId: string): IdentityResolver {
       const token = bearer(authHeader);
       if (!verifying || !token) {
         // Dev / no-auth: server-pinned pilot identity (never client-asserted).
-        return { type: "user", id: pilotUserId };
+        return { actor: { type: "user", id: pilotUserId }, verified: false };
       }
       try {
         if (hsKey) {
           const { payload } = await jwtVerify(token, hsKey);
-          return actorFrom(payload);
+          return { actor: actorFrom(payload), verified: true };
         }
         // jwks is non-null here (verifying && !hsKey).
         const { payload } = await jwtVerify(token, jwks!);
-        return actorFrom(payload);
+        return { actor: actorFrom(payload), verified: true };
       } catch (err) {
         // Any verify failure — JWKS fetch timeout, network error, bad signature,
         // expired/malformed token — becomes a typed error the API layer maps to a

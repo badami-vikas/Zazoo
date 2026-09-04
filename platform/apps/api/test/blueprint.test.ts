@@ -22,6 +22,7 @@ async function makeCaller(wiring: Wiring) {
     // Real seeded user id (not a test_fixture_-prefixed string) — workspace_definitions.created_by
     // is a real FK to users, so an arbitrary caller id would violate it.
     identity: { type: "user", id: PILOT_USER },
+    auth: { verified: true, pilotFallbackAllowed: false },
   });
 }
 

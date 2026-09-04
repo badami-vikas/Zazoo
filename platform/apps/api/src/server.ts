@@ -7,6 +7,7 @@ import cors from "@fastify/cors";
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from "@trpc/server/adapters/fastify";
 import { appRouter, type AppRouter } from "./router.js";
 import { makeContextFactory } from "./context.js";
+import { authModeFromEnv } from "./identity.js";
 import { buildWiring } from "./wiring.js";
 import { registerGoogleOAuthRoutes } from "./google-oauth-routes.js";
 
@@ -57,6 +58,7 @@ export async function buildServer() {
   const createContext = makeContextFactory(wiring);
 
   const app = Fastify({ logger: true, maxParamLength: 5000 });
+  app.log.info(authModeFromEnv(), "authentication mode");
   const origin = corsOriginConfig();
   if (origin === true) {
     app.log.warn("CORS: no API_ALLOWED_ORIGINS set — allowing all origins (dev default). Set API_ALLOWED_ORIGINS in any shared/production environment.");

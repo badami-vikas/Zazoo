@@ -91,7 +91,22 @@ const withPilotWorkspaceGuard = t.middleware(async ({ next }) => {
   return result;
 });
 
-const procedure = t.procedure.use(withPilotWorkspaceGuard);
+const publicProcedure = t.procedure.use(withPilotWorkspaceGuard);
+
+const requireAuthenticatedMutation = t.middleware(({ ctx, next, type }) => {
+  if (type === "mutation" && !ctx.auth.verified && !ctx.auth.pilotFallbackAllowed) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "authentication required" });
+  }
+  return next();
+});
+
+/**
+ * Default boundary for the internal API surface. Queries retain their existing
+ * behavior; every mutation requires either verified credentials or the narrowly
+ * allowed pure in-memory local-dev pilot fallback.
+ */
+const protectedProcedure = publicProcedure.use(requireAuthenticatedMutation);
+const procedure = protectedProcedure;
 
 /** Strip `undefined` so exactOptionalPropertyTypes is satisfied at the seam. */
 function cleanOnBehalfOf(
@@ -545,7 +560,7 @@ export const appRouter = t.router({
 
   action: t.router({
     /** Propose a governed mutation → Proposal (pending_review | applied | rejected). */
-    propose: procedure.input(proposeInput).mutation(async ({ input, ctx }) => {
+    propose: protectedProcedure.input(proposeInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
       // Human identity is SERVER-RESOLVED (ctx.identity), never taken from the request
       // body. An agent actor keeps its requested service identity but always drafts and
@@ -1533,7 +1548,7 @@ export const appRouter = t.router({
    */
   helpdesk: t.router({
     public: t.router({
-      createTicket: procedure
+      createTicket: publicProcedure
         .input(
           z.object({
             workspaceId: z.string().min(1),
@@ -1555,7 +1570,7 @@ export const appRouter = t.router({
           return { ticket, message };
         }),
 
-      getThread: procedure
+      getThread: publicProcedure
         .input(z.object({ accessToken: z.string().min(1) }))
         .query(async ({ input, ctx }) => {
           const result = await ctx.wiring.helpdeskStore.getTicketByToken(input.accessToken);
@@ -1563,7 +1578,7 @@ export const appRouter = t.router({
           return result;
         }),
 
-      reply: procedure
+      reply: publicProcedure
         .input(z.object({ accessToken: z.string().min(1), body: z.string().min(1) }))
         .mutation(async ({ input, ctx }) => {
           const message = await ctx.wiring.helpdeskStore.replyByToken(input.accessToken, input.body);

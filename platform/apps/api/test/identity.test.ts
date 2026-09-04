@@ -73,7 +73,10 @@ test("identity: no verifier configured + no token => pilot fallback, unaffected 
   await withEnv({ SUPABASE_JWT_SECRET: undefined, SUPABASE_URL: undefined }, async () => {
     const resolver = createIdentityResolver("test_fixture_pilot_user");
     assert.equal(resolver.verifying, false);
-    const actor = await resolver.resolve(undefined);
-    assert.deepEqual(actor, { type: "user", id: "test_fixture_pilot_user" });
+    const resolved = await resolver.resolve(undefined);
+    assert.deepEqual(resolved, {
+      actor: { type: "user", id: "test_fixture_pilot_user" },
+      verified: false,
+    });
   });
 });

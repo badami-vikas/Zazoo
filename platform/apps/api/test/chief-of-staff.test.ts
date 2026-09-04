@@ -25,6 +25,7 @@ async function makeCaller(wiring: Wiring) {
     wiring,
     run: makeRun(),
     identity: { type: "user", id: "test_fixture_chief_of_staff_user" },
+    auth: { verified: true, pilotFallbackAllowed: false },
   });
 }
 
