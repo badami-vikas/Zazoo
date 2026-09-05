@@ -1606,17 +1606,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## The agentic chat lane knows what a Module is: the Claude Code backend is briefed and registers what it builds
 - ID: TASK-098
-- Status: done (2026-09-04; PR #80 merged, installer rebuilt)
+- Status: done (2026-09-04; PR #80 merged, installer rebuilt; second half — Modules and folders as data — landed 2026-09-04)
 - Priority: P0
 - Horizon: Living Software
 - Outcome: "Build me a Module for X" in the desktop chat starts the standard Module build process — the agent knows Bridge, the Module definition, the Organization folder, the process, and Commons prior art — and a `module.yaml` it writes becomes a pending Module the user installs from Modules.
 - Prototype test: in the installed Egg, a Claude Code thread asked "Can you build me a new module for managing my academics" creates `<Organization>/academics-manager/module.yaml`, the reply ends with "Registered the Module "academics-manager" (pending_review)", and Modules lists it.
 - Scope: `packages/core/src/chat-backend.ts` (`system`), `apps/api/src/chat/claude-code-backend.ts`, `apps/api/src/builder/run.ts` (`moduleBuildBriefing`), `apps/api/src/routers/chat.ts`.
-- Evidence: `chat-agentic-backend.test.ts` "the agentic backend is briefed on what a Module is, and a module.yaml it writes is registered".
+- Evidence: `chat-agentic-backend.test.ts` "the agentic backend is briefed on what a Module is, and a module.yaml it writes is registered" — its second turn proves the registered Module rides in `system` as `academics-manager (Academics, pending_review)` with `Database assignments: columns course:text, due:date`, and `JobManager/resume.pdf` is named `JobManager: plain folder of files, no Module` with no file name carried; seen failing unfixed 2026-09-04 ('the registered Module is listed with status'). `installedModulesForBriefing` / `organizationFoldersForBriefing` in `apps/api/src/builder/run.ts`, wired in `routers/chat.ts`; caps 30 Modules / 50 folders with "…and N more"; a failed read renders "unavailable".
 - Requests: user report 2026-09-04 verbatim in BUGS 2026-09-04 "the desktop chat asked what a module is".
 - Approval: none needed.
 - Dependencies: TASK-096 (Module manifest databases, `registerModuleManifest`).
-- NOT LANDED (stated): the briefing is static text plus prior art; it does not yet carry the installed Modules' manifests or the user's existing folders as data.
+- NOT LANDED (stated): the briefing is refreshed per turn from the store and disk, not on a change signal; the Egg prototype test (a live Claude Code thread on the rebuilt installer reading the listing) is not re-run here.
 
 ## The companion appears only when summoned: shortcut or open panel, never hover or launch
 - ID: TASK-099

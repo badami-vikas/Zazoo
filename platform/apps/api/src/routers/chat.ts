@@ -9,7 +9,7 @@ import { MAX_TRANSCRIPTION_AUDIO_BYTES, transcribeAudio, VoiceTranscriptionError
 import { organizationFilesRoot } from "../module-files.js";
 import { relative, sep } from "node:path";
 import { BUILT_IN_MODULES } from "@bridge/module-manifests";
-import { commonsPriorArt, moduleBuildBriefing } from "../builder/run.js";
+import { commonsPriorArt, installedModulesForBriefing, moduleBuildBriefing, organizationFoldersForBriefing } from "../builder/run.js";
 import { readModuleManifestFile, registerModuleManifest } from "../module-register.js";
 import { ClaudeSignInRequiredError } from "../chat/claude-code-backend.js";
 import { deterministicUuid } from "../deterministic-uuid.js";
@@ -638,13 +638,22 @@ export const chatRouter = t.router({
               attachedModule !== null &&
               !BUILT_IN_MODULES.some((entry) => entry.manifest.name === attachedModule) &&
               (await ctx.wiring.moduleStore.listVersions(thread.organizationId, attachedModule)).length === 0;
-            const priorArt = await commonsPriorArt(ctx.wiring.commonsRegistry, attachedModule ?? "", input.message);
+            // What already exists rides along as data too (ADR-247): the
+            // Organization's Modules from the store and its folders from disk,
+            // each section saying "unavailable" when its read fails.
+            const [priorArt, installedModules, folders] = await Promise.all([
+              commonsPriorArt(ctx.wiring.commonsRegistry, attachedModule ?? "", input.message),
+              installedModulesForBriefing(ctx.wiring.moduleStore, thread.organizationId),
+              organizationFoldersForBriefing(workingDirectory),
+            ]);
             const system = moduleBuildBriefing({
               organizationRoot: workingDirectory,
               moduleName: attachedModule,
               isNewModule,
               priorArt: priorArt.items,
               priorArtUnavailable: priorArt.unavailable,
+              installedModules,
+              folders,
             });
 
             let backendTurn: ChatBackendTurn;
