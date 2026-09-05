@@ -5,6 +5,7 @@ import { applyApprovedRelationshipMaterialization, isRelationshipSignalEvidence,
 import { isRelationshipMutation, validateRelationshipMutationEdit } from "../relationship-record-materializer.js";
 import { isGoogleLinkedInteractionIntake, parseGoogleLinkedInteractionIntake, validateGoogleInteractionEdit } from "../relationship-intake-materializer.js";
 import { OUTREACH_AGENT, PILOT_ORGANIZATION, type Wiring } from "../wiring.js";
+import { describeProposal } from "./proposal-copy.js";
 import type { Action, DataScope, ResourceType } from "@bridge/core";
 import { AgentFloorDeniedError, AlreadyResolvedError, KERNEL_PASSTHROUGH_SKILL, NotPendingProposalError, labelFromLegacyTrustOrigin, declassifyTaintLabel, deriveDeclassifiedLabel, hashTaintValue, labelAtSource, type Proposal, type LedgerEntry } from "@bridge/core";
 import { activateApprovedModuleInstallation, assertCultureProposalBindingValid, assertMembership, assertPilotOrganization, assertPrivateProposalOwner, authenticatedProcedure, captureProposalInputSchema, captureProposalOutputSchema, chatCreateTaskOutputSchema, chatOwnerScope, cleanContext, decideInput, emitGoogleCaptureSignals, entryClaimsChatTaskProposal, finishChatTaskDecision, isCaptureProposal, isPrivateProposalInputs, materializeApprovedCapture, materializeDealPilotApproval, moduleInstallIdFromProposal, organizationGuard, outreachDraftInput, outreachDraftsInFlight, procedure, proposeInput, provisionOutreachDraftTask, reconcileApprovedExternalEffect, recordChatTaskResult, recordRejectedCapture, requireChatTaskProposalBinding, resolveClientOnBehalfOf, stableOutreachProposalId, t, validateDealPilotDecision, type OutreachDraftResult } from "../router-shared.js";
@@ -222,7 +223,12 @@ export const actionRouter = t.router({
         offset: input.offset,
         privateOwnerUserId: ctx.identity.id,
       });
-      return { items, total, hasMore: input.offset + items.length < total };
+      // Every row carries its plain-language sentence (directive 2026-09-05).
+      return {
+        items: items.map((entry) => ({ ...entry, copy: describeProposal(entry.request) })),
+        total,
+        hasMore: input.offset + items.length < total,
+      };
     }),
 
   /** Every undecided proposal that belongs to one Task (ADR 2026-09-04
@@ -240,7 +246,7 @@ export const actionRouter = t.router({
       const located = await Promise.all(items.map((entry) => pendingProposalTask(ctx.wiring, entry)));
       return {
         items: items
-          .map((entry, index) => ({ ...entry, task: located[index] }))
+          .map((entry, index) => ({ ...entry, task: located[index], copy: describeProposal(entry.request) }))
           .filter((entry) => entry.task?.taskId === input.taskId),
       };
     }),

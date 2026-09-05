@@ -3300,3 +3300,30 @@ reaches it and a deliberate Fn hold still does. A panel opened by push-to-talk (
 itself once the dictation is typed (`onTaskDone`) or the answer is delivered and spoken
 (`dismissAfterTask`), and the companion conceals with it. Not automated: the flag poll is macOS-only
 runtime behaviour; confirmed on the rebuilt installer or reopened.
+
+### 2026-09-05 — the approvals pile survived the fix: 257 rows, labelled "(replayed) WRITE" (FIXED, TASK-097 reopened)
+
+User report, verbatim: *"I still see tasks pending approvals in a language a human cannot understand, anything on
+this platform a 5 year old should be able to understand"* — with a screenshot of Home on the rebuilt Egg: "257
+proposals await your decision in Approvals", five rows reading "(replayed) WRITE", no Task names.
+
+**Evidence (read-only copy of the app's Local Plane, 2026-09-05 12:05 local):** 375 undecided rows still there
+(256 `learning.observationDigest`, 119 `devpilot.syncGithub`, all `inputs = {}`, all with an Automation Run
+context), `superseded` rows: 0, and no Automation Run since the reinstall. Cause: migration 0015's
+`ledger_user_decision_check` admits only `approve | veto | edit | auto`; every `superseded` insert failed, the
+exception escaped `runSchedulerTick`, and the tick died every minute — which also froze every Automation (the
+Egg's own Task Manager ones included). The 2026-09-04 tests all ran on in-memory stores, which carry no check
+constraint — "a fresh database hides migration bugs" (CLAUDE.md), verbatim. Two more findings from the same
+copy: DevPilot's poll WAS parked (that half worked), but the stale Academics row "Canvas coursework sync"
+stayed `active` because the parking only knew Automations that declare a manifest `automationId`; and the
+"(replayed)" label came from `#requestFromEntry` substituting a placeholder for a Skill the ledger has
+persisted since the `ledger.skill` column landed.
+
+**Fix (2026-09-05):** migration `0049_ledger_superseded_decision` widens the check to admit `superseded`;
+the sweep runs inside its own try/catch so housekeeping can never stop Automations again; boot parking also
+parks any active Automation whose Skills belong to a Module outside the profile; replay carries the persisted Skill;
+`describeProposal` (`routers/proposal-copy.ts`) turns every pending row into a sentence ("Learning Agent wants
+to save a short note about what it noticed you working on today." + why) on Home, the Task Page and Approvals
+— ids stay on the payload. Test: `automation-scheduler.test.ts` "the sweep withdraws duplicates on a MIGRATED
+Local Plane" (buildWiring with `localDir`, runs the real migration chain; seen failing on the constraint
+before 0049). Egg-profile parking test gained an orphan Automation running an Academics Skill.

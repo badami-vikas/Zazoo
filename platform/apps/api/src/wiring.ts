@@ -6783,11 +6783,23 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       if (id) foreignAutomationIds.add(id);
     }
   }
-  if (foreignAutomationIds.size > 0) {
-    for (const definition of await automationRegistry.listByStatus(PILOT_ORGANIZATION, "active")) {
-      if (!foreignAutomationIds.has(definition.id)) continue;
-      await automationRegistry.save({ ...definition, status: "draft" });
-    }
+  // Second rule, same reason (BUGS 2026-09-05): an Automation whose steps run a
+  // Skill of a Module outside the profile is foreign too. The id map above only
+  // knows Automations that declare a manifest `automationId`; a row saved by an
+  // older build of that Module (Academics' "Canvas coursework sync", Skill
+  // `academics.syncCanvas`) has none, its Agent row is still `active`, and no
+  // resolver maps its Agent — but the Skill id carries the Module's namespace.
+  const namespacesOf = (pkg: (typeof BUILT_IN_MODULES)[number]) =>
+    [pkg.manifest.name, ...pkg.manifest.capabilities.map((capability) => capability.id.split(".")[0] ?? "")].filter(Boolean);
+  const profileNamespaces = new Set(builtInModulesForProfile(profile).flatMap(namespacesOf));
+  const foreignNamespaces = new Set(
+    BUILT_IN_MODULES.filter((pkg) => !profileModules.has(pkg.manifest.name)).flatMap(namespacesOf).filter((ns) => !profileNamespaces.has(ns)),
+  );
+  const runsForeignSkill = (definition: { steps: { skill: string }[] }) =>
+    definition.steps.some((step) => foreignNamespaces.has(step.skill.split(".")[0] ?? ""));
+  for (const definition of await automationRegistry.listByStatus(PILOT_ORGANIZATION, "active")) {
+    const foreign = foreignAutomationIds.has(definition.id) || runsForeignSkill(definition);
+    if (foreign) await automationRegistry.save({ ...definition, status: "draft" });
   }
 
 

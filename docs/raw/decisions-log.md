@@ -6932,3 +6932,38 @@ the browser for it (stated in TASK-100 NOT LANDED). The Record page shows relati
 values but still offers no picker for them. The mapping is proven PRESENT in the prompt and the
 briefing by test; whether a given model applies it well is a live-Run question no test here answers.
 Cited by date and title.
+
+## 2026-09-05 — Ledger admits `superseded`; approvals speak plain language; housekeeping never stops Automations
+
+**Context:** the rebuilt Egg still showed 257 approvals because migration 0015's `ledger_user_decision_check`
+refused the `superseded` value ADR 2026-09-04 "Approvals belong to Tasks" introduced; the insert threw inside
+the scheduler tick and froze every Automation. The tests that "proved" the sweep ran on in-memory stores.
+Home labelled rows "(replayed) WRITE" — an identifier and an enum, not a sentence. User directive 2026-09-05:
+"anything on this platform a 5 year old should be able to understand".
+
+**Decisions:**
+1. **Migration 0049 widens the check** to `approve | veto | edit | auto | superseded`. The schema and the
+   type (`LedgerEntry.userDecision`) now agree; the constraint stays (an unknown decision value is still a
+   bug worth failing on).
+2. **Housekeeping is fenced.** The duplicate sweep runs in its own try/catch; a failure logs a warning and the
+   Automations still run. A tick that dies because a broom broke is the failure mode this ADR forbids.
+3. **Boot parking keys on the Skill namespace, not only the manifest id.** An active Automation whose steps
+   run a Skill from a Module outside this profile (`academics.*` in the Egg) is parked as draft — the
+   manifest id map only knows Automations that declare an `automationId`, and rows from Modules since
+   deleted from the manifests (Academics' old Canvas sync) have none. Keying on the Agent was tried first
+   and rejected: the Study Steward row was still active, so nothing parked.
+4. **Every pending row carries a sentence.** `describeProposal` is data: a table of known Skill ids → what the
+   Agent asks to do and why, Agent ids → names (kernel constants + manifest agents), and a fallback from
+   action + resource type. Surfaces render the sentence; the ids stay on the payload and in the ledger.
+5. **Replay carries the persisted Skill.** `#requestFromEntry` uses `ledger.skill` when present; "(replayed)"
+   survives only for rows older than that column.
+
+**Rejected alternatives:** deleting the constraint (loses the guard against a typo'd decision); auto-approving
+the pile (a policy change dressed as a cleanup); a per-surface copy map in the web (three places to drift —
+the server has the last word on what a row means); hand-editing the user's Local Plane (irreversible, and the
+next tick would have refilled it).
+
+**Consequences:** a test that exercises a decision value MUST run against a migrated Local Plane
+(`buildWiring({ localDir })`), not only in-memory stores — recorded as a rule in the scheduler test file.
+New Skills should add a `SKILL_COPY` entry or accept the generic sentence. Installer rebuild required; the
+user's existing rows are withdrawn on the first tick after it.

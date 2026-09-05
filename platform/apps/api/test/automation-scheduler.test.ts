@@ -347,3 +347,63 @@ test("the tick withdraws stale duplicate proposals a Local Plane already holds, 
     await wiring.close();
   }
 });
+
+test("the sweep withdraws duplicates on a MIGRATED Local Plane, not only on in-memory stores (BUGS 2026-09-05)", async () => {
+  // The first installed Egg never withdrew a row: `ledger_user_decision_check`
+  // (migration 0015) did not admit `superseded`, the insert failed, and the
+  // whole scheduler tick died with it. In-memory stores have no constraint,
+  // so the in-memory test above stayed green. This one runs the real chain.
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const root = await mkdtemp(join(tmpdir(), "bridge-sweep-migrated-"));
+  const wiring = await buildWiring({ localDir: join(root, "local") });
+  try {
+    const ctx = scheduledRunCtx("test");
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const proposal = await wiring.pipeline.propose(
+        {
+          organizationId: PILOT_ORGANIZATION,
+          actor: { type: "agent", id: LEARNING_AGENT },
+          action: "write",
+          resourceType: "signal",
+          inputs: {},
+          skill: OBSERVATION_DIGEST_SKILL_ID,
+          dataScope: "private",
+          context: { type: "automation", id: LEARNING_DIGEST_AUTOMATION_ID, runId: ctx.ids.next() },
+        },
+        ctx,
+      );
+      ids.push(proposal.id);
+    }
+    const before = await wiring.pipeline.listPending(PILOT_ORGANIZATION, { limit: 50, offset: 0 });
+    assert.equal(before.items.filter((item) => ids.includes(item.id)).length, 3);
+
+    // Through the tick itself, so a sweep failure would surface as "no rows
+    // withdrawn" here rather than as a swallowed log line.
+    const tick = await runSchedulerTick({
+      registry: wiring.automationRegistry,
+      pipeline: wiring.pipeline,
+      runRecorder: wiring.automationRunRecorder,
+      executor: wiring.automationExecutor,
+      organizationId: PILOT_ORGANIZATION,
+      log: { info: () => undefined, warn: () => undefined, error: () => undefined },
+    });
+    assert.ok(tick, "the tick completes");
+
+    const after = await wiring.pipeline.listPending(PILOT_ORGANIZATION, { limit: 50, offset: 0 });
+    assert.equal(after.items.filter((item) => ids.includes(item.id)).length, 1, "one open proposal per identical step");
+    const history = await wiring.ledger.listHistory(PILOT_ORGANIZATION, { limit: 50, offset: 0 });
+    assert.equal(
+      history.items.filter((entry) => entry.userDecision === "superseded" && ids.includes(entry.refLedgerId ?? "")).length,
+      2,
+      "the withdrawn rows read as superseded on a migrated plane",
+    );
+    // And the persisted Skill name survives replay — Home must never show "(replayed)".
+    assert.equal(after.items.find((item) => ids.includes(item.id))?.request.skill, OBSERVATION_DIGEST_SKILL_ID);
+  } finally {
+    await wiring.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

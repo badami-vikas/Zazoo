@@ -520,7 +520,8 @@ function TaskApprovalsSection({ taskId }: { taskId: string }) {
           {items.map((item) => (
             <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
               <div className="min-w-0">
-                <p className="font-medium">{item.request.skill ?? `${item.request.action} ${item.request.resourceType}`}</p>
+                <p className="font-medium">{item.copy.title}</p>
+                <p className="text-xs text-muted-foreground">{item.copy.detail}</p>
                 <p className="text-xs text-muted-foreground">
                   Proposed {new Date(item.createdAt).toLocaleString()} by {item.request.actor.type} {item.request.actor.id.slice(-4)}
                 </p>

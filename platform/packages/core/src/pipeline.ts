@@ -1130,7 +1130,9 @@ export class UniversalActionPipeline {
       resourceType: entry.resourceType,
       ...(entry.resourceId ? { resourceId: entry.resourceId } : {}),
       inputs: entry.inputs,
-      skill: "(replayed)",
+      // The ledger persists the Skill since schema `ledger.skill`; older rows
+      // written before that column keep the literal placeholder.
+      skill: entry.skill ?? "(replayed)",
       ...(entry.seed ? { seed: entry.seed } : {}),
       ...(entry.dataScope ? { dataScope: entry.dataScope } : {}),
       ...(entry.context ? { context: entry.context } : {}),

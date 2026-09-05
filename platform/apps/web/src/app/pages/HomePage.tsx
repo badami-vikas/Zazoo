@@ -204,7 +204,7 @@ function MorningBriefCard() {
                   className="no-underline hover:underline"
                   style={{ color: "var(--color-navy)" }}
                 >
-                  <span className="font-semibold">{item.skill ?? `${item.action} ${item.resourceType}`}</span>
+                  <span className="font-semibold">{item.copy.title}</span>
                   {item.task ? ` · ${item.task.title}` : item.resource ? ` · ${item.resource}` : ""}
                   <span className="ml-1.5 uppercase tracking-wide" style={{ color: "var(--color-warm-gray)" }}>
                     {item.importance.tier}{item.importance.untrusted ? " · untrusted" : ""}

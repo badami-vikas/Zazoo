@@ -303,7 +303,9 @@ function proposalToEntry(proposal: PendingProposal): LedgerEntry {
       : null,
     delegationId: asString(inputs?.delegationId),
     runId: asString(inputs?.runId),
-    action: asString(display?.action) ?? proposal.request.action,
+    // The server's plain-language sentence first (directive 2026-09-05), then a
+    // Skill-supplied display verb, then the raw action.
+    action: proposal.copy?.title ?? asString(display?.action) ?? proposal.request.action,
     resourceType: displayResourceType(proposal.request.resourceType),
     resource,
     policy,

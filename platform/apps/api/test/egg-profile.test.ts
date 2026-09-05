@@ -154,6 +154,19 @@ test("a Local Plane that once ran the full profile parks the other Modules' Auto
   assert.ok(foreign.length > 0, "the full profile declares Automations the Egg does not");
   try {
     const full = await buildWiring({ localDir });
+    // An Automation row saved by an OLDER build of a Module outside the Egg: it
+    // declares no manifest `automationId`, its Agent row is still active, and
+    // only its Skill id (`academics.syncCanvas`) says whose it is — the shape
+    // of the real "Canvas coursework sync" row (BUGS 2026-09-05).
+    const template = (await full.automationRegistry.listByStatus(PILOT_ORGANIZATION, "active"))[0]!;
+    const ORPHAN_ID = "b0000000-0000-4000-a000-0000000000ee";
+    await full.automationRegistry.save({
+      ...template,
+      id: ORPHAN_ID,
+      name: "Canvas coursework sync (stale row)",
+      steps: template.steps.map((step) => ({ ...step, skill: "academics.syncCanvas" })),
+      status: "active",
+    });
     const activeBefore = (await full.automationRegistry.listByStatus(PILOT_ORGANIZATION, "active")).map((row) => row.id);
     await full.close();
     assert.ok(foreign.some((id) => activeBefore.includes(id)), "the full profile activated a foreign Automation");
@@ -163,6 +176,7 @@ test("a Local Plane that once ran the full profile parks the other Modules' Auto
       const active = (await egg.automationRegistry.listByStatus(PILOT_ORGANIZATION, "active")).map((row) => row.id);
       for (const id of foreign) assert.ok(!active.includes(id), `${id} must not tick in the Egg`);
       const parked = (await egg.automationRegistry.listByStatus(PILOT_ORGANIZATION, "draft")).map((row) => row.id);
+      assert.ok(!active.includes(ORPHAN_ID) && parked.includes(ORPHAN_ID), "an Automation whose Agent is not active here is parked too");
       assert.ok(foreign.some((id) => parked.includes(id)), "parked as draft, not deleted");
       // Task Manager's own Automations are the Egg's and stay active.
       assert.ok(active.some((id) => activeBefore.includes(id)), "the Egg's own Automations still tick");

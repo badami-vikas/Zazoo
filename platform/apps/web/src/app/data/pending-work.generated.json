@@ -3578,21 +3578,14 @@
     {
       "id": "TASK-097",
       "title": "TASK-097 — Approvals belong to Tasks: one open proposal per Automation, profile-parked Automations, Task Page and Home as the approval surfaces",
-      "status": "completed",
-      "statusNote": "2026-09-04; PR #80 merged, Egg installer rebuilt as ~/Downloads/Bridge-Egg_0.1.0_aarch64.dmg — the 371 stale rows are withdrawn on the first scheduler tick after reinstall; 2026-09-04 follow-up branch `claude/task-097-approval-ranking`: Home ranks waiting approvals by importance and the ledger reads `superseded` as withdrawn — not yet in the installer",
+      "status": "in-progress",
+      "statusNote": "REOPENED 2026-09-05 — the installed Egg still showed 257 rows: migration 0015's check constraint refused `superseded`, so the sweep threw and the scheduler tick died every minute; fixed by migration 0049, a non-fatal sweep, parking foreign-Module Automations, and plain-language `describeProposal` copy; installer rebuild pending. Earlier: PR #80 merged; 2026-09-04 follow-up branch `claude/task-097-approval-ranking`: Home ranks waiting approvals by importance and the ledger reads `superseded` as withdrawn — not yet in the installer",
       "priority": "P0",
       "horizon": "Living Software",
       "outcome": "A launched Egg shows no inherited pile of approvals: an Automation never holds more than one undecided proposal per identical step, stale duplicates are withdrawn as `superseded`, Automations of Modules outside the profile do not tick, and every waiting approval is reachable from its Task (Task Page Approvals section) and named with its Task on Home — never from Settings.",
       "prototypeTest": "boot the Egg on a Local Plane holding the 371 duplicate rows → the first scheduler tick withdraws all but one per Automation and the DevPilot poll is `draft`; Home lists \"learning.observationDigest · Learning observation digest outcome\" linking to that Task's page, whose Approvals section approves or vetoes it; Settings → Governance shows only the Execution Ledger.",
       "scope": [
         "`packages/core/src/{types,pipeline,automation-executor}.ts`, `apps/api/src/{automation-scheduler,server,wiring}.ts`, `apps/api/src/routers/{action,brief}.ts`, `apps/web/src/app/pages/{TaskRecordDetailPage,HomePage,SettingsPage}.tsx`."
-      ],
-      "evidence": [
-        "`automation-scheduler.test.ts` (waits on an undecided twin",
-        "sweep keeps the newest and history reads `superseded`), `egg-profile.test.ts` (full-profile Local Plane booted as Egg parks foreign Automations), `chat-agentic-backend.test.ts`",
-        "Local Plane copy inspected 2026-09-04: 254 × digest, 117 × DevPilot poll undecided. Ranking: `apps/api/test/approval-importance.test.ts` (four tiers + untrusted-first + older-first, pure `rankPendingProposal`/`compareApprovalImportance` in `routers/approval-importance.ts`) and `apps/api/test/brief.test.ts` (an older share proposal leads a newer write in `brief.approvals.items`, each item carrying `importance: { tier, untrusted, rank }`",
-        "seen failing with the sort disabled before it was wired). Web: `Decision` gains `withdrawn`, `normalizeDecision('superseded') → 'withdrawn'`, Execution Ledger labels it \"Withdrawn (replaced by a newer identical proposal)\" and folds the withdrawal onto its proposal instead of leaving both rows \"Pending\"",
-        "web typecheck 0 errors, ui-rules/vocabulary gates pass."
       ],
       "requests": [
         "user report 2026-09-04 verbatim in BUGS 2026-09-04 \"255 pending approvals\"."
@@ -3605,7 +3598,7 @@
       "isGoal": false,
       "path": "8.6",
       "level": 1,
-      "canonicalStatus": "done",
+      "canonicalStatus": "in_progress",
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",

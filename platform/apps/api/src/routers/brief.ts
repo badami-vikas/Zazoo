@@ -2,6 +2,7 @@ import { z } from "zod";
 import { listSuggestions as listLearningSuggestions, listCommitmentSuggestions, listClaimSuggestions } from "@bridge/core";
 import { authenticatedProcedure, organizationGuard, t } from "../router-shared.js";
 import { pendingProposalTask } from "./action.js";
+import { describeProposal } from "./proposal-copy.js";
 import { compareApprovalImportance, rankPendingProposal } from "./approval-importance.js";
 
 /**
@@ -133,6 +134,8 @@ export const briefRouter = t.router({
           skill: item.request.skill ?? null,
           action: item.request.action,
           task,
+          /** Plain words for the row (directive 2026-09-05); ids stay above. */
+          copy: describeProposal(item.request),
           /** TASK-097: tier + trust + rank, so Home orders and labels from data. */
           importance: item.importance,
         };

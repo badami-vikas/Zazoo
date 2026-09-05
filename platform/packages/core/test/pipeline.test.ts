@@ -550,10 +550,11 @@ test("decide() persists and replays the ORIGINAL dataScope + context, not '(repl
   // SAME original context/dataScope — previously these were silently dropped.
   assert.deepEqual(decided.request.dataScope, "private");
   assert.deepEqual(decided.request.context, originalContext);
-  // skill is still the literal "(replayed)" placeholder (decide() never re-invokes
-  // a skill — the ledger never stored a skill name to replay in the first place),
-  // but that placeholder no longer drags context/dataScope down with it.
-  assert.equal(decided.request.skill, "(replayed)");
+  // The replay carries the PERSISTED Skill id (2026-09-05: the approvals list
+  // speaks plain language from it); "(replayed)" is only the fallback for rows
+  // written before the ledger stored a skill.
+  assert.equal(decided.request.skill, p.request.skill);
+  assert.notEqual(decided.request.skill, "(replayed)");
 
   // The decision ledger row itself also carries the original context/dataScope —
   // this is what makes the audit trail answer "what data tier did this touch?"

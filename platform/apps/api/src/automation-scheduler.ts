@@ -132,8 +132,16 @@ export async function runSchedulerTick(
   now: Date = new Date(),
 ): Promise<SchedulerTickResult> {
   if (deps.pipeline) {
-    const superseded = await supersedeDuplicateProposals(deps.pipeline, deps.organizationId, scheduledRunCtx("sweep"));
-    if (superseded > 0) deps.log.info({ superseded }, "stale duplicate Automation proposals withdrawn");
+    // The sweep is housekeeping. A failure in it (a Local Plane whose ledger
+    // constraint predates `superseded`, a transient read error) must never
+    // stop the Automations below from running — that is exactly what froze
+    // every Automation in the first installed Egg (BUGS 2026-09-05).
+    try {
+      const superseded = await supersedeDuplicateProposals(deps.pipeline, deps.organizationId, scheduledRunCtx("sweep"));
+      if (superseded > 0) deps.log.info({ superseded }, "stale duplicate Automation proposals withdrawn");
+    } catch (err) {
+      deps.log.warn({ err }, "stale duplicate proposal sweep failed; Automations still run");
+    }
   }
   const states = await readScheduleStates(deps);
   const due = dueAutomations(states, now);

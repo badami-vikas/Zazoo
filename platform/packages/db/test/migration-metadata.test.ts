@@ -16,7 +16,7 @@ const dbRoot = resolve(here, "../..");
 const migrationsFolder = resolve(dbRoot, "migrations");
 const drizzleKitBin = resolve(dbRoot, "node_modules/drizzle-kit/bin.cjs");
 
-test("Drizzle metadata is rebased through 0048 and generate is a deterministic no-op", () => {
+test("Drizzle metadata is rebased through 0049 and generate is a deterministic no-op", () => {
   const probe = mkdtempSync(resolve(dbRoot, ".drizzle-noop-"));
   const probeMigrations = join(probe, "migrations");
   try {
@@ -28,10 +28,10 @@ test("Drizzle metadata is rebased through 0048 and generate is a deterministic n
     };
     const last = journal.entries.at(-1);
     assert.deepEqual(last, {
-      idx: 48,
+      idx: 49,
       version: "7",
-      when: 1788474371856,
-      tag: "0048_task064_share_grants",
+      when: 1788628488585,
+      tag: "0049_ledger_superseded_decision",
       breakpoints: true,
     });
     assert.ok(
@@ -137,7 +137,9 @@ test("Drizzle metadata is rebased through 0048 and generate is a deterministic n
     assert.match(output, /No schema changes, nothing to migrate/);
     assert.equal(readFileSync(journalPath, "utf8"), journalBefore);
     assert.ok(
-      // The NEXT index after the current head (0048). If `generate` allocates
+      // The NEXT index after the current head (0049). 0049 only widens the
+      // `ledger_user_decision_check` CHECK (adds `superseded`, 2026-09-05); like
+      // 0038 it changes no Drizzle-visible shape, so it has no snapshot. If `generate` allocates
       // this, schema.ts and the committed migrations have drifted apart.
       // 0038 is a pure DATA migration (capability_type 'view' -> 'database'),
       // so it has no snapshot and cannot make generate produce one — the
@@ -153,7 +155,7 @@ test("Drizzle metadata is rebased through 0048 and generate is a deterministic n
       // schema.ts (LAYER 4 is defined before LAYER 8, so naming `tasks` there
       // is a TDZ crash) and so is absent from its snapshot too — which is why
       // generate stays a no-op.
-      !readdirSync(probeMigrations).some((name) => /^0049_.*\.sql$/.test(name)),
+      !readdirSync(probeMigrations).some((name) => /^0050_.*\.sql$/.test(name)),
       "no-op generation must not allocate another migration",
     );
   } finally {
