@@ -240,6 +240,7 @@ export type {
 // above; never redefines its trust-model types.
 export * from "./module/types.js";
 export { parseModuleManifest, ModuleManifestValidationError } from "./module/manifest.js";
+export { moduleStructure, DEFAULT_DATABASE_SECTIONS, type ModuleStructure } from "./module/structure.js";
 export { findOrganizationDataPaths } from "./module/privacy.js";
 export {
   governanceVerdict,

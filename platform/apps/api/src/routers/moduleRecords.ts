@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { applyColumnOverlay, type TableSpec } from "@bridge/tables";
-import type { ModuleDatabaseBinding, ModuleManifest } from "@bridge/core";
+import { moduleStructure, type ModuleDatabaseBinding, type ModuleManifest } from "@bridge/core";
 import { TABLE_SCHEMA_NAMESPACE_PREFIX, readStoredTableSchema } from "../table-schema.js";
 import {
   assertHumanIdentity,
@@ -60,7 +60,7 @@ function readStoredRecords(raw: unknown): StoredRecords {
   };
 }
 
-async function installedManifest(
+export async function installedManifest(
   ctx: { wiring: Wiring },
   organizationId: string,
   moduleName: string,
@@ -151,6 +151,28 @@ function pickDeclared(
 }
 
 export const moduleRecordsRouter = t.router({
+  /**
+   * The Module's resolved structure (UI Rulebook §2/§3d, TASK-100): root
+   * Pages (the header toggles), sub-modules with their Pages (collapsible nav
+   * children), and each Database's Sections. One resolver with the shell —
+   * `moduleStructure` in core — so the api and the rail agree.
+   */
+  structure: authenticatedProcedure
+    .input(z.object({ organizationId: z.string().min(1), moduleName: z.string().trim().min(1).max(200) }))
+    .use(organizationGuard).query(async ({ input, ctx }) => {
+      const manifest = await installedManifest(ctx, input.organizationId, input.moduleName);
+      const structure = moduleStructure(manifest);
+      return {
+        rootPages: structure.rootPages,
+        subModules: structure.subModules,
+        databases: (manifest.module?.databases ?? []).map((database) => ({
+          id: database.id,
+          name: database.name,
+          sections: structure.sections(database.id),
+        })),
+      };
+    }),
+
   /** The TableSpec the standard Module Page renders for one declared Database. */
   definition: authenticatedProcedure
     .input(target)
@@ -162,7 +184,11 @@ export const moduleRecordsRouter = t.router({
         input.organizationId,
         `${TABLE_SCHEMA_NAMESPACE_PREFIX}${specId}`,
       );
-      return { name: database.name, spec: moduleDatabaseSpec(input.moduleName, database, overlay) };
+      return {
+        name: database.name,
+        spec: moduleDatabaseSpec(input.moduleName, database, overlay),
+        sections: moduleStructure(manifest).sections(database.id),
+      };
     }),
 
   list: authenticatedProcedure

@@ -20,6 +20,7 @@ The only canonical vocabulary for product copy, architecture, APIs, schemas, Eve
 - **Database** — structured collection of Records governed by one schema. A Database is a Capability (`capability_type: database`) because it is what carries record permissions; each Database in a Module surfaces as exactly one Page.
 - **Record** — durable row in a Module Database.
 - **Record Detail** — routable surface for one Record’s Fields and related Sections. Every Record has one; Record Detail is not a sibling Module Page.
+- **Sub-module** — collapsible child of a Module in the left nav. Either a grouping of that Module's own Pages (`module.sub_modules[]`, UI Rulebook §2 rule 3) or a whole Module nesting under a parent (`parent_module`, ADR-178). A grouping is navigation only, never an installation.
 - **Field** — typed value on a Record.
 - **Relation** — one typed semantic connection between Records. It may carry attributes, dates, confidence, provenance, and many evidence references. Different meanings use separate Relations; group relationships use a Record or Event plus participant Relations.
 - **File** — durable user-visible file produced, imported, or accumulated by a Module. Non-file outcomes are Results.

@@ -142,6 +142,32 @@ Database exactly as it does to a built-in one. The left rail lands an installed 
 declared Page. A Module that needs a bespoke surface is a Commons Module with its own Page code;
 that is the exception this section exists to make rare.
 
+**Addendum 2026-09-04 (TASK-100) — the manifest expresses the whole of §2.** Two additive fields
+carry the structure Module → sub-module → Page → Section → Record; nothing else is declared, and a
+manifest without them parses unchanged (everything at root, every Section on).
+
+- `module.sub_modules[] = { id (kebab-case), name, pages: [page ids] }` — §2 rule 3. A Page listed
+  under a sub-module renders under that collapsible child in the left nav (the same ADR-178
+  disclosure a `parent_module` Module gets, keyed `<module>/<sub-module id>`); Pages listed nowhere
+  are the root's. An unknown page id, or one page in two sub-modules, is a parse error. The rail
+  lands the Module on its first ROOT Page. A sub-module is a navigation grouping of one Module's
+  Pages — its own toolbar, Lists and Files come from its Pages being Pages — not an installation.
+- `module.databases[].sections = { notes?, intelligence?, governance? }` — Part IV §1. Defaults to
+  all `true`: Notes and Governance are mandatory by default, and the owner switches them per
+  DATABASE from the Page's ⋮ → Records. A declared Database's Sections are what `records.sections`
+  answers until the owner switches one; nothing is ever declared per Record.
+- **The header toggle shows the Pages of the current scope** (§5h): the sub-module's Pages when the
+  open Page belongs to one, the root Pages otherwise.
+- **The element page is the standard Record detail** at `/module/<name>/<page>/<recordId>`: sticky
+  back + path (C-15), the Database's columns as fields (editable ones as inputs, derived ones saying
+  what fills them — the new-Record page's rule), the enabled Sections through the one per-Database
+  `RecordSections` component, written on Save only (C-34). There is no layout field for it, by
+  decision (ADR 2026-09-04 "The Builder's Module has the Rulebook's structure").
+- `moduleStructure(manifest)` (`@bridge/core`) is the ONE resolver of root Pages, sub-modules,
+  scope and Sections; the rail, `ModulePage`, `ModuleRecordDetailPage` and `moduleRecords.structure`
+  all read it. The Builder is handed §2's decision rules verbatim as `MODULE_STRUCTURE_RULES`
+  (`apps/api/src/builder/run.ts`) inside the standard build process.
+
 ### 3a. Actionability contract
 
 Every affordance does something useful. A card, row, node, badge, count, status, recommendation, Module name, or graph edge that looks interactive must open detail, edit, filter, provenance/explanation, or a governed Action. Read-only information uses plain non-interactive styling. Disabled Actions show the missing permission/dependency and next step. Keyboard, pointer, and touch paths reach the same Actions. Tests fail for clickable-looking elements without a route or handler and for handlers that only dismiss without an outcome.

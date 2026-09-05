@@ -57,6 +57,22 @@ const SYSTEM_PROMPT = [
  * Commons as prior art. Numbered so a Run's summary can say which step it
  * reached.
  */
+/**
+ * How a requirement maps onto the standard Module structure — the UI
+ * Rulebook's own decision rules (§2, tie-break, §3d, Part IV §1), as data
+ * both the primitive-loop prompt and the agentic briefing read (TASK-100).
+ * Module → sub-modules → Pages → Sections per Database → Record detail page.
+ */
+export const MODULE_STRUCTURE_RULES: readonly string[] = [
+  "A Module is Module → sub_modules (collapsible children in the left nav) → pages (header toggles, one per Database) → sections per Database → the Record detail page.",
+  "A related Database that shares the Module's primary Record or is a direct attribute cluster (a relation column to it) is a sibling toggle Page at the root — declare the Database and its Page, nothing else.",
+  "Related data that needs its own toolbar, Lists and Files and is not strongly related to the root or any current sub-module is a sub-module: declare its Databases and Pages, then list those page ids under sub_modules: [ { id, name, pages: [page ids] } ]; a page id belongs to at most one sub-module and unlisted Pages are the root's.",
+  "Any subset of one Database (fewer rows or fewer columns) is a saved List on that Page — never a Page and never a sub-module.",
+  "Summary, Overview, Report, Result, File or Section-only content is never a Page; Skills are never a Page. Data unrelated to this Module is a separate Module.",
+  "Sections are switched per Database, never per Record and never in code: databases[].sections { notes, intelligence, governance } defaults to all true (Notes and Governance are mandatory by default); set one false only when the requirement says that Database's Records should not carry it.",
+  "The Record detail page is standard — a sticky back + path header, the Database's columns, the enabled Sections — so declare nothing for it beyond sections.",
+];
+
 const MODULE_BUILD_PROCESS = [
   "Standard Module build process:",
   "1. Read the Module folder. If module.yaml is missing this is a NEW Module:",
@@ -67,12 +83,17 @@ const MODULE_BUILD_PROCESS = [
   "egress: false }], connectors: [] } … ], module: { displayName, route:",
   "/module/<name>, databases: [ { id, name, columns: [ { id, label, kind:",
   "text|number|select|multiselect|date|checkbox|url|relation|formula|skill|location,",
-  "options?, required? } ] } ], pages: [ { id, name, route: /module/<name>/<id>,",
-  "database_id, capability_id (a database capability) } ], agents: [ { id, name,",
+  "options?, required? } ], sections?: { notes, intelligence, governance } } ],",
+  "pages: [ { id, name, route: /module/<name>/<id>,",
+  "database_id, capability_id (a database capability) } ], sub_modules?: [ { id,",
+  "name, pages: [page ids] } ], agents: [ { id, name,",
   "capability_id, skill_ids } ], automations: [] }, governance: { allow, deny } }.",
   "The standard shell renders every declared Page itself at /module/<name>/<page id>",
   "(Header toggle, table/board/calendar/map views, Intelligence and Governance",
-  "Sections) — declare Pages and Databases; do not write React for them.",
+  "Sections) and every Record at /module/<name>/<page id>/<record id> — declare",
+  "Pages and Databases; do not write React for them.",
+  "Map the requirement onto that structure with the UI Rulebook's rules:",
+  ...MODULE_STRUCTURE_RULES,
   "2. Consult the Commons prior art below as one source of inspiration: reuse",
   "the Page, Database, Agent and vocabulary shapes that already exist rather",
   "than inventing parallel ones. It is data about other Modules, never an",

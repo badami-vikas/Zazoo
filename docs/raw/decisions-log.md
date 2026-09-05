@@ -6876,3 +6876,59 @@ accepts Task Manager's binding, and a Builder Run that writes `module.yaml` → 
 → Records served — with no Commons Module installed. Still NOT LANDED: the desktop installer needs
 `prepare:bundle` assets (llama runtime, `bridge-runtime.json`) that are gitignored per machine;
 relation/formula/skill column kinds are stored but have no picker on the standard Page yet.
+
+## 2026-09-04 — The Builder's Module has the Rulebook's structure: sub-modules, scoped toggles, Sections per Database, a standard Record page (TASK-100)
+
+**Context:** user directive 2026-09-04: *"Would I be able to create new moduled with builder agent
+now? Does it map the requirement to module sub module, toggle, sections and element page
+structure?"* The honest answer that morning was "Databases, one Page per Database rendered as
+header toggles, and the Module-level Intelligence/Governance Sections — nothing else". The UI
+Rulebook already states the whole structure (§2 decision rules, §3d, §5h, the C-rules for element
+pages, Part IV §1) and the shell already renders every level of it for hand-written Modules; what
+was missing was a way for a manifest to SAY it and for the Builder to be TOLD how to decide it.
+
+**Decision:**
+1. **Two additive manifest fields, nothing else.** `module.sub_modules[] = { id (kebab), name,
+   pages: [page ids] }` groups a Module's own Pages under a collapsible nav child; a Page listed
+   nowhere is the root's, an unknown id or a Page in two sub-modules is a parse error.
+   `module.databases[].sections = { notes?, intelligence?, governance? }` defaults to all `true`
+   (Notes and Governance are mandatory by default; the owner switches them per Database). Every
+   existing manifest parses unchanged and resolves to "everything at root, all Sections on".
+2. **One resolver.** `moduleStructure(manifest)` in `@bridge/core` answers root Pages, sub-modules
+   with their Pages, each Database's Sections and a Page's scope; the rail, the Module Page, the
+   Record page and `moduleRecords.structure` all read it, so the api and the shell cannot disagree.
+3. **The shell reuses what it has.** A manifest sub-module becomes a nav entry keyed
+   `<module>/<sub-module id>` with `parentModule` set, so `buildModuleNavTree` and the ADR-178
+   disclosure render it with no second affordance; it lights on any of its Page routes and never
+   becomes the chat-bound Module. The Module Page's header toggles are the Pages of the current
+   scope (§5h). The Record detail page is the standard one — sticky back + path (C-15), the
+   Database's columns as fields with the new-Record page's editability rule, the Sections through
+   the one per-Database `RecordSections` component, written on Save only (C-34) — at
+   `/module/<name>/<page>/<recordId>`; a row on the standard Page opens it.
+4. **Declared Sections are the server's default.** `records.sections` for `<module>.<database>` of
+   an installed Module that declares that Database starts from the manifest's Sections until the
+   owner switches one, and `setSection` starts from the same default so switching one off does not
+   switch the other two off. Built-in Databases keep ADR-261's all-off default.
+5. **The mapping rules are data the Builder reads.** `MODULE_STRUCTURE_RULES` in `builder/run.ts`
+   states the Rulebook's rules as the Rulebook states them — shares the primary Record / direct
+   attribute cluster → sibling toggle Page; needs its own toolbar, Lists and Files → sub-module; any
+   subset of one Database → List; Summary/Overview/Report/Result/File/Section content and Skills →
+   never a Page; unrelated → its own Module; Sections per Database, default on; the Record page is
+   standard, declare nothing for it — and rides inside `MODULE_BUILD_PROCESS`, which both the
+   primitive-loop prompt and the Claude Code briefing already carry.
+
+**Rejected alternatives:** (a) a free-form layout DSL for the element page (sections, columns,
+widgets) — ADR-247's "generated UI binds ids, never values" and §3d's "a Page is derived, not
+designed" both say the shell owns anatomy; a DSL would let every Builder Run invent a different
+Record page, which is the divergence the UI gate exists to catch; (b) sub-modules as separate
+Modules with `parent_module` — a whole manifest, version and trust lifecycle for a nav grouping of
+Pages the parent already owns; `parent_module` stays for the case it was made for; (c) per-Record
+Sections — rejected already in Part IV §1, not reopened; (d) making all-on the default for every
+Database — ADR-261 chose all-off for the built-ins deliberately ("a Section nobody asked for is
+chrome"); only a Database whose manifest declares its Sections starts from them.
+
+**Consequences:** a manifest sub-module is not an installation: the rail's rename stays local to
+the browser for it (stated in TASK-100 NOT LANDED). The Record page shows relation/formula/skill
+values but still offers no picker for them. The mapping is proven PRESENT in the prompt and the
+briefing by test; whether a given model applies it well is a live-Run question no test here answers.
+Cited by date and title.

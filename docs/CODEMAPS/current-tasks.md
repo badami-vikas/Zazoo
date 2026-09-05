@@ -22,6 +22,7 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-040 | in_progress | P2 | LA3 Phase 2 — credentialed SearchProvider tier for the research lane | TASK-023 |
 | TASK-041 | ready | P2 | Pending Tests — live verification backlog | non-task gate (see TASKS.md) |
 | TASK-054 | in_progress | P3 | K11 — EG4 sensor tier: input, screen, ambient voice | TASK-043, TASK-051 |
+| TASK-055 | in_progress | P3 | Companion trigger and capture parity — Fn hold, double-click listen, on-request recording | TASK-027 |
 | TASK-056 | ready | P2 | Multi-app automation for the background agent | TASK-028 |
 | TASK-057 | ready | P2 | Companion-triggered integrations | TASK-026, TASK-027 |
 | TASK-058 | ready | P3 | Companion as Bridge's universal expression surface (convergence) | TASK-056, TASK-057 |
@@ -42,6 +43,3 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-093 | in_progress | P1 | The conversation survives a model switch, and each Module reopens its own session | TASK-090 |
 | TASK-095 | in_progress | P1 | The Avatar has hands — Hey Clicky parity: a real pointer that glides, clicks, and types, behind explicit control consent | TASK-027, TASK-054 |
 | TASK-096 | in_progress | P1 | The installable Egg: kernel-only profile, Commons directory, and the Builder's standard build process | TASK-092, TASK-031 |
-| TASK-097 | in_progress | P0 | Approvals belong to Tasks: one open proposal per Automation, profile-parked Automations, Task Page and Home as the approval surfaces | TASK-030 |
-| TASK-098 | in_progress | P0 | The agentic chat lane knows what a Module is: the Claude Code backend is briefed and registers what it builds | TASK-096 |
-| TASK-099 | in_progress | P0 | The companion appears only when summoned: shortcut or open panel, never hover or launch | non-task gate (see TASKS.md) |

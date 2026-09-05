@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { Boxes } from "lucide-react";
+import { moduleStructure } from "@bridge/core";
 import { defaultViewConfig, type TableSpec, type ViewConfig } from "@bridge/tables";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { Header } from "../components/shared/Header";
@@ -10,37 +11,30 @@ import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { DataViews } from "../dataviews/DataViews";
 import type { DataRow } from "../dataviews/types";
 
-type Installation = Awaited<ReturnType<typeof trpc.modules.list.query>>["items"][number];
-type PageBinding = NonNullable<NonNullable<Installation["manifest"]>["module"]>["pages"][number];
+export type Installation = Awaited<ReturnType<typeof trpc.modules.list.query>>["items"][number];
 
 /** The canonical route of a manifest-declared Page in the standard shell. */
 export function modulePageRoute(moduleName: string, pageId: string): string {
   return `/module/${moduleName}/${pageId}`;
 }
 
-/**
- * The standard Module Page (ADR 2026-09-04) — what every Module the Builder
- * makes gets without writing a line of React.
- *
- * Reads the INSTALLED manifest (never a built-in catalog: a Module the user
- * built is not in one), picks the Page by id, and renders the same anatomy
- * every hand-written Module Page has (UI Rulebook §3): the Header toggle
- * across the Module's Pages, the data surface through `DataViews` with the
- * declared Database's columns, and the Intelligence and Governance Sections
- * below. Rows come from `moduleRecords.*`; an empty Database is the same
- * surface with nothing in it (§6b), never a placeholder.
- */
-export function ModulePage() {
-  const { moduleName = "", pageId = "" } = useParams();
-  const navigate = useNavigate();
-  const [installation, setInstallation] = useState<Installation | null | undefined>(undefined);
-  const [spec, setSpec] = useState<TableSpec | null>(null);
-  const [rows, setRows] = useState<DataRow[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<ViewConfig>(() =>
-    defaultViewConfig(`${moduleName}.${pageId}:table`),
-  );
+/** The standard Record detail page of a manifest-declared Page (C-15). */
+export function moduleRecordRoute(moduleName: string, pageId: string, recordId: string): string {
+  return `/module/${moduleName}/${pageId}/${recordId}`;
+}
 
+/**
+ * The INSTALLED manifest of a Module (never a built-in catalog: a Module the
+ * user built is not in one). `undefined` while loading, `null` when the
+ * Module is not installed here. Shared by the Module Page and its Record
+ * page so both read the same manifest the same way.
+ */
+export function useInstalledModule(moduleName: string): {
+  installation: Installation | null | undefined;
+  error: string | null;
+} {
+  const [installation, setInstallation] = useState<Installation | null | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     setInstallation(undefined);
@@ -65,12 +59,42 @@ export function ModulePage() {
       cancelled = true;
     };
   }, [moduleName]);
+  return { installation, error };
+}
 
-  const pages: PageBinding[] = useMemo(
-    () => installation?.manifest?.module?.pages ?? [],
+/**
+ * The standard Module Page (ADR 2026-09-04) — what every Module the Builder
+ * makes gets without writing a line of React.
+ *
+ * Reads the installed manifest, picks the Page by id, and renders the same
+ * anatomy every hand-written Module Page has (UI Rulebook §3): the Header
+ * toggle across the Pages of the current SCOPE — the sub-module's Pages when
+ * this Page belongs to one, the root's otherwise (§2, §5h) — the data surface
+ * through `DataViews` with the declared Database's columns, and the
+ * Intelligence and Governance Sections below. Rows come from
+ * `moduleRecords.*`; an empty Database is the same surface with nothing in it
+ * (§6b), never a placeholder. A row opens the standard Record detail page.
+ */
+export function ModulePage() {
+  const { moduleName = "", pageId = "" } = useParams();
+  const navigate = useNavigate();
+  const { installation, error: loadError } = useInstalledModule(moduleName);
+  const [spec, setSpec] = useState<TableSpec | null>(null);
+  const [rows, setRows] = useState<DataRow[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<ViewConfig>(() =>
+    defaultViewConfig(`${moduleName}.${pageId}:table`),
+  );
+
+  const structure = useMemo(
+    () => moduleStructure(installation?.manifest ?? { module: undefined }),
     [installation],
   );
-  const page = pages.find((candidate) => candidate.id === pageId) ?? pages[0] ?? null;
+  const pages = installation?.manifest?.module?.pages ?? [];
+  const page =
+    pages.find((candidate) => candidate.id === pageId) ?? structure.rootPages[0] ?? pages[0] ?? null;
+  const scope = page ? structure.scopeOf(page.id) : null;
+  const scopePages = scope ? scope.pages : structure.rootPages;
 
   const load = useCallback(async () => {
     if (!page) return;
@@ -100,7 +124,8 @@ export function ModulePage() {
     void load();
   }, [load]);
 
-  if (error) return <div className="p-6 text-sm text-red-600">{error}</div>;
+  const shown = error ?? loadError;
+  if (shown) return <div className="p-6 text-sm text-red-600">{shown}</div>;
   if (installation === undefined) return null;
   if (installation === null) {
     return (
@@ -124,10 +149,10 @@ export function ModulePage() {
       style={{ backgroundColor: "var(--color-surface)" }}
     >
       <Header
-        tabs={pages.map((candidate) => ({ id: candidate.name, icon: Boxes }))}
+        tabs={scopePages.map((candidate) => ({ id: candidate.name, icon: Boxes }))}
         activeTab={page.name}
         onTabChange={(name) => {
-          const next = pages.find((candidate) => candidate.name === name);
+          const next = scopePages.find((candidate) => candidate.name === name);
           if (next) navigate(modulePageRoute(moduleName, next.id));
         }}
       />
@@ -144,6 +169,9 @@ export function ModulePage() {
                 onViewChange={setView}
                 moduleName={moduleName}
                 searchPlaceholder={`Search ${page.name.toLowerCase()}…`}
+                onOpenRecord={(row) => {
+                  if (typeof row.id === "string") navigate(moduleRecordRoute(moduleName, page.id, row.id));
+                }}
                 onInsert={async (draft) => {
                   await trpc.moduleRecords.insert.mutate({
                     organizationId: PILOT_ORGANIZATION,

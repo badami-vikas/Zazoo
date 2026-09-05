@@ -937,7 +937,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
      Its companion ADR is grafted as ADR-217. -->
 ## Companion trigger and capture parity — Fn hold, double-click listen, on-request recording
 - ID: TASK-055
-- Status: partly landed (2026-09-04; the Fn-hold summon shipped under TASK-099 as a sustained-hold poll of the Function flag, no Input Monitoring needed; double-click listen and on-request recording remain open)
+- Status: in_progress (partly landed 2026-09-04; the Fn-hold summon shipped under TASK-099 as a sustained-hold poll of the Function flag, no Input Monitoring needed; double-click listen and on-request recording remain open)
 - Priority: P3
 - Estimate: 3d
 - Horizon: Convergence
@@ -1634,6 +1634,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: none needed.
 - Dependencies: TASK-096 (Module manifest databases, `registerModuleManifest`).
 - NOT LANDED (stated): the briefing is static text plus prior art; it does not yet carry the installed Modules' manifests or the user's existing folders as data.
+- 2026-09-04 (TASK-100): the briefing now carries `MODULE_STRUCTURE_RULES` — the UI Rulebook's requirement → sub-module / toggle Page / List / Sections mapping — through the same `MODULE_BUILD_PROCESS` the primitive loop reads.
 
 ## The companion appears only when summoned: shortcut or open panel, never hover or launch
 - ID: TASK-099
@@ -1648,3 +1649,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: none needed (supersedes the 2026-08-05 readiness-only rule; recorded in ADR 2026-09-04 "Approvals belong to Tasks", decision 4).
 - Dependencies: none.
 - NOT LANDED (stated): no automated test drives the overlay's Tauri presentation calls.
+
+## The Builder's Module has the Rulebook's structure: sub-modules, scoped toggles, Sections per Database, a standard Record page
+- ID: TASK-100
+- Status: done (2026-09-04; PR pending merge)
+- Priority: P0
+- Horizon: Living Software
+- Outcome: A Module the Builder writes expresses UI Rulebook §2/§3d structure in `module.yaml` — Module → `sub_modules[]` (collapsible nav children) → Pages (header toggles of the current scope, one per Database) → `databases[].sections` (Notes / Intelligence / Governance switched per Database) → the standard Record detail page at `/module/<name>/<page>/<recordId>` — and the standard build process maps a requirement onto it with the Rulebook's own decision rules.
+- Prototype test: register and install a manifest with a root `invoices` Page, a `billing` sub-module holding `payments`, and `invoices.sections.intelligence: false` → the rail shows the Module with a collapsible "Billing" child; opening Invoices shows only the root toggles and Payments only the sub-module's; a row opens `/module/invoice-tracker/invoices/<id>` with back + path, the columns as fields (written on Save only), Notes and Governance but no Intelligence; `moduleRecords.structure` answers the same tree; a Builder Run's prompt and the Claude Code briefing carry the mapping rules.
+- Scope: `packages/core/src/module/{types,manifest,structure}.ts` (`ModuleSubModuleBinding`, `ModuleDatabaseSections`, `moduleStructure`), `apps/api/src/routers/{moduleRecords,records}.ts` (`structure`, `definition.sections`, declared Sections as the `records.sections` default), `apps/api/src/builder/run.ts` (`MODULE_STRUCTURE_RULES` inside `MODULE_BUILD_PROCESS`, read by `builderSystemPrompt` and `moduleBuildBriefing`), `apps/web/src/app/{Layout.tsx,routes.tsx,pages/ModulePage.tsx,pages/ModuleRecordDetailPage.tsx}`, UI Rulebook §3d addendum, glossary "Sub-module".
+- Evidence: `packages/core/test/module-manifest.test.ts` (+2: sub_modules/sections parse and resolve; unknown page id, a page in two sub-modules, a non-kebab id and a non-boolean section refused — seen failing as a missing export first), `apps/api/test/module-records.test.ts` (+1: `moduleRecords.structure`, `definition.sections`, `records.sections` defaulting from the manifest and `setSection` keeping the rest; seen failing as a missing procedure first), `apps/api/test/chat-agentic-backend.test.ts` (briefing carries every `MODULE_STRUCTURE_RULES` entry; seen failing as a missing export first), `apps/web/test/panel-and-commons.test.mjs` (+1 source test: rail sub-modules via `moduleStructure`, scoped toggles, Record route, sticky header, Save-only write; seen failing first). Targeted api 44/44, core manifest 19/19, web 242/242 after regenerating the projection.
+- Requests: user directive 2026-09-04 verbatim: "Would I be able to create new moduled with builder agent now? Does it map the requirement to module sub module, toggle, sections and element page structure?"
+- Approval: none needed (additive manifest fields, every existing manifest parses unchanged; ADR 2026-09-04 "The Builder's Module has the Rulebook's structure" records it).
+- Dependencies: TASK-096 (manifest Databases, standard Module Page), TASK-098 (briefing).
+- NOT LANDED (stated): a manifest sub-module is a nav grouping of one Module's Pages, not an installation — renaming it from the rail stays in this browser (no row to rename); the Record page's derived (relation/formula/skill) columns display their value or reason but still have no picker; no live Builder Run against a real model was made this session — the mapping is proven present in the prompt, not that a model applies it well; the built-in Databases keep ADR-261's all-off Section default, only a manifest-declared Database starts from its declared Sections.

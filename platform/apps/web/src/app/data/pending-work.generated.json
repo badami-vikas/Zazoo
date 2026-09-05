@@ -2488,8 +2488,8 @@
     {
       "id": "TASK-055",
       "title": "TASK-055 — Companion trigger and capture parity — Fn hold, double-click listen, on-request recording",
-      "status": "open",
-      "statusNote": "landed (2026-09-04; the Fn-hold summon shipped under TASK-099 as a sustained-hold poll of the Function flag, no Input Monitoring needed; double-click listen and on-request recording remain open)",
+      "status": "in-progress",
+      "statusNote": "partly landed 2026-09-04; the Fn-hold summon shipped under TASK-099 as a sustained-hold poll of the Function flag, no Input Monitoring needed; double-click listen and on-request recording remain open",
       "priority": "P3",
       "estimate": "3d",
       "horizon": "Convergence",
@@ -2518,7 +2518,7 @@
       "isGoal": false,
       "path": "3.13",
       "level": 1,
-      "canonicalStatus": "partly",
+      "canonicalStatus": "in_progress",
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
@@ -3589,8 +3589,8 @@
     {
       "id": "TASK-097",
       "title": "TASK-097 — Approvals belong to Tasks: one open proposal per Automation, profile-parked Automations, Task Page and Home as the approval surfaces",
-      "status": "in-progress",
-      "statusNote": "2026-09-04; executor rule, scheduler sweep, profile parking, `listPendingForTask`, brief nudges, Task Page section, Home list, Settings card removed — installer rebuild pending",
+      "status": "completed",
+      "statusNote": "2026-09-04; PR #80 merged, Egg installer rebuilt as ~/Downloads/Bridge-Egg_0.1.0_aarch64.dmg — the 371 stale rows are withdrawn on the first scheduler tick after reinstall",
       "priority": "P0",
       "horizon": "Living Software",
       "outcome": "A launched Egg shows no inherited pile of approvals: an Automation never holds more than one undecided proposal per identical step, stale duplicates are withdrawn as `superseded`, Automations of Modules outside the profile do not tick, and every waiting approval is reachable from its Task (Task Page Approvals section) and named with its Task on Home — never from Settings.",
@@ -3614,7 +3614,7 @@
       "isGoal": false,
       "path": "8.6",
       "level": 1,
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
@@ -3624,8 +3624,8 @@
     {
       "id": "TASK-098",
       "title": "TASK-098 — The agentic chat lane knows what a Module is: the Claude Code backend is briefed and registers what it builds",
-      "status": "in-progress",
-      "statusNote": "2026-09-04; briefing + registration landed, installer rebuild pending",
+      "status": "completed",
+      "statusNote": "2026-09-04; PR #80 merged, installer rebuilt",
       "priority": "P0",
       "horizon": "Living Software",
       "outcome": "\"Build me a Module for X\" in the desktop chat starts the standard Module build process — the agent knows Bridge, the Module definition, the Organization folder, the process, and Commons prior art — and a `module.yaml` it writes becomes a pending Module the user installs from Modules.",
@@ -3646,7 +3646,7 @@
       "isGoal": false,
       "path": "8.7",
       "level": 1,
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
@@ -3656,8 +3656,8 @@
     {
       "id": "TASK-099",
       "title": "TASK-099 — The companion appears only when summoned: shortcut or open panel, never hover or launch",
-      "status": "in-progress",
-      "statusNote": "2026-09-04; gate landed, installer rebuild pending",
+      "status": "completed",
+      "statusNote": "2026-09-04; PR #80 merged, installer rebuilt; user confirmation on the rebuilt app still owed for the Fn hold and auto-dismiss",
       "priority": "P0",
       "horizon": "Living Software",
       "outcome": "The desktop companion is concealed at rest in both homes and appears only on ⌘⇧Space or while a panel it opened is up; moving the cursor over the notch, finishing launch, or an arrow/Home/End/F-key while typing never presents it; a held Fn (≈0.4 s) still does, and a push-to-talk request dismisses itself once the dictation is typed or the answer is delivered and spoken.",
@@ -3684,12 +3684,48 @@
       "isGoal": false,
       "path": "8.8",
       "level": 1,
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1639,
+      "sourceLine": 1640,
       "rank": 105
+    },
+    {
+      "id": "TASK-100",
+      "title": "TASK-100 — The Builder's Module has the Rulebook's structure: sub-modules, scoped toggles, Sections per Database, a standard Record page",
+      "status": "completed",
+      "statusNote": "2026-09-04; PR pending merge",
+      "priority": "P0",
+      "horizon": "Living Software",
+      "outcome": "A Module the Builder writes expresses UI Rulebook §2/§3d structure in `module.yaml` — Module → `sub_modules[]` (collapsible nav children) → Pages (header toggles of the current scope, one per Database) → `databases[].sections` (Notes / Intelligence / Governance switched per Database) → the standard Record detail page at `/module/<name>/<page>/<recordId>` — and the standard build process maps a requirement onto it with the Rulebook's own decision rules.",
+      "prototypeTest": "register and install a manifest with a root `invoices` Page, a `billing` sub-module holding `payments`, and `invoices.sections.intelligence: false` → the rail shows the Module with a collapsible \"Billing\" child; opening Invoices shows only the root toggles and Payments only the sub-module's; a row opens `/module/invoice-tracker/invoices/<id>` with back + path, the columns as fields (written on Save only), Notes and Governance but no Intelligence; `moduleRecords.structure` answers the same tree; a Builder Run's prompt and the Claude Code briefing carry the mapping rules.",
+      "scope": [
+        "`packages/core/src/module/{types,manifest,structure}.ts` (`ModuleSubModuleBinding`, `ModuleDatabaseSections`, `moduleStructure`), `apps/api/src/routers/{moduleRecords,records}.ts` (`structure`, `definition.sections`, declared Sections as the `records.sections` default), `apps/api/src/builder/run.ts` (`MODULE_STRUCTURE_RULES` inside `MODULE_BUILD_PROCESS`, read by `builderSystemPrompt` and `moduleBuildBriefing`), `apps/web/src/app/{Layout.tsx,routes.tsx,pages/ModulePage.tsx,pages/ModuleRecordDetailPage.tsx}`, UI Rulebook §3d addendum, glossary \"Sub-module\"."
+      ],
+      "evidence": [
+        "`packages/core/test/module-manifest.test.ts` (+2: sub_modules/sections parse and resolve",
+        "unknown page id, a page in two sub-modules, a non-kebab id and a non-boolean section refused — seen failing as a missing export first), `apps/api/test/module-records.test.ts` (+1: `moduleRecords.structure`, `definition.sections`, `records.sections` defaulting from the manifest and `setSection` keeping the rest",
+        "seen failing as a missing procedure first), `apps/api/test/chat-agentic-backend.test.ts` (briefing carries every `MODULE_STRUCTURE_RULES` entry",
+        "seen failing as a missing export first), `apps/web/test/panel-and-commons.test.mjs` (+1 source test: rail sub-modules via `moduleStructure`, scoped toggles, Record route, sticky header, Save-only write",
+        "seen failing first). Targeted api 44/44, core manifest 19/19, web 242/242 after regenerating the projection."
+      ],
+      "requests": [
+        "user directive 2026-09-04 verbatim: \"Would I be able to create new moduled with builder agent now? Does it map the requirement to module sub module, toggle, sections and element page structure?\""
+      ],
+      "approval": "none needed (additive manifest fields, every existing manifest parses unchanged; ADR 2026-09-04 \"The Builder's Module has the Rulebook's structure\" records it).",
+      "dependencies": [
+        "TASK-096 (manifest Databases, standard Module Page), TASK-098 (briefing)."
+      ],
+      "isGoal": false,
+      "path": "8.9",
+      "level": 1,
+      "canonicalStatus": "done",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1654,
+      "rank": 106
     }
   ]
 }
