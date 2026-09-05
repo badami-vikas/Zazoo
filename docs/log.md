@@ -1,5 +1,15 @@
 # Change Log
 
+- **2026-09-04 — the agentic chat briefing carries the Organization's Modules and folders as data (TASK-098, second half)**:
+  `moduleBuildBriefing` had been static text plus Commons prior art, so a Claude Code turn could
+  not know what the Organization already had. `installedModulesForBriefing` (one row per Module
+  name from the store — `available`, else the newest not-retired version, so a just-registered
+  `private`/`pending_review` Module is listed with that status — with each declared Database's
+  column ids/kinds and each Page) and `organizationFoldersForBriefing` (top-level folder names,
+  each tagged Module (module.yaml) or plain folder of files; never file names or bodies) ride in the
+  `system` prompt as data (ADR-247), capped at 30/50 with "…and N more", and a failed read says
+  "unavailable" rather than vanishing. Evidence: `chat-agentic-backend.test.ts` second turn, seen
+  failing unfixed ('the registered Module is listed with status').
 - **2026-09-04 — first-launch reports: approvals belong to Tasks, the chat lane is briefed, the companion is summoned-only (TASK-097/098/099)**:
   the Egg's first launch showed 255 inherited approvals (254 identical learning-digest proposals
   and 117 DevPilot polls still ticking, from a Local Plane that once ran the full profile), the

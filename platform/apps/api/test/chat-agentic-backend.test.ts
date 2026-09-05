@@ -370,5 +370,26 @@ test("the agentic backend is briefed on what a Module is, and a module.yaml it w
     const mine = modules.items.find((item) => item.moduleName === "academics-manager");
     assert.equal(mine?.status, "pending_review");
     assert.equal(mine?.manifest.module?.databases?.[0]?.id, "assignments");
+
+    // The next turn is briefed on what already exists, as data (ADR-247): the
+    // Module the last turn registered, with its Database column ids, and a
+    // plain folder of files the user keeps beside it, named as NOT a Module.
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const plain = join(backend.calls[0]!.workingDirectory, "JobManager");
+    await mkdir(plain, { recursive: true });
+    await writeFile(join(plain, "resume.pdf"), "not a Module");
+    await caller.chat.turn.send({
+      organizationId: PILOT_ORGANIZATION,
+      threadId: created.thread.id,
+      clientRequestId: "briefed-turn-2",
+      message: "Now add a grades Page",
+      surface: { kind: "chat_panel" },
+    });
+    const second = backend.calls[1]?.system ?? "";
+    assert.match(second, /academics-manager \(Academics, pending_review\)/, "the registered Module is listed with status");
+    assert.match(second, /Database assignments: columns course:text, due:date/, "its Database columns ride as data");
+    assert.match(second, /JobManager: plain folder of files, no Module/, "the plain folder is named as not a Module");
+    assert.match(second, /academics-manager: Module \(module\.yaml\)/, "the Module folder is named as a Module");
+    assert.doesNotMatch(second, /resume\.pdf/, "file names inside a plain folder never ride along");
   });
 });
