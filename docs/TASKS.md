@@ -1609,7 +1609,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Approvals belong to Tasks: one open proposal per Automation, profile-parked Automations, Task Page and Home as the approval surfaces
 - ID: TASK-097
-- Status: in_progress (2026-09-04; executor rule, scheduler sweep, profile parking, `listPendingForTask`, brief nudges, Task Page section, Home list, Settings card removed — installer rebuild pending)
+- Status: done (2026-09-04; PR #80 merged, Egg installer rebuilt as ~/Downloads/Bridge-Egg_0.1.0_aarch64.dmg — the 371 stale rows are withdrawn on the first scheduler tick after reinstall)
 - Priority: P0
 - Horizon: Living Software
 - Outcome: A launched Egg shows no inherited pile of approvals: an Automation never holds more than one undecided proposal per identical step, stale duplicates are withdrawn as `superseded`, Automations of Modules outside the profile do not tick, and every waiting approval is reachable from its Task (Task Page Approvals section) and named with its Task on Home — never from Settings.
@@ -1623,7 +1623,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## The agentic chat lane knows what a Module is: the Claude Code backend is briefed and registers what it builds
 - ID: TASK-098
-- Status: in_progress (2026-09-04; briefing + registration landed, installer rebuild pending)
+- Status: done (2026-09-04; PR #80 merged, installer rebuilt)
 - Priority: P0
 - Horizon: Living Software
 - Outcome: "Build me a Module for X" in the desktop chat starts the standard Module build process — the agent knows Bridge, the Module definition, the Organization folder, the process, and Commons prior art — and a `module.yaml` it writes becomes a pending Module the user installs from Modules.
@@ -1637,7 +1637,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## The companion appears only when summoned: shortcut or open panel, never hover or launch
 - ID: TASK-099
-- Status: in_progress (2026-09-04; gate landed, installer rebuild pending)
+- Status: done (2026-09-04; PR #80 merged, installer rebuilt; user confirmation on the rebuilt app still owed for the Fn hold and auto-dismiss)
 - Priority: P0
 - Horizon: Living Software
 - Outcome: The desktop companion is concealed at rest in both homes and appears only on ⌘⇧Space or while a panel it opened is up; moving the cursor over the notch, finishing launch, or an arrow/Home/End/F-key while typing never presents it; a held Fn (≈0.4 s) still does, and a push-to-talk request dismisses itself once the dictation is typed or the answer is delivered and spoken.
