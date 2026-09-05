@@ -134,7 +134,7 @@ test("Chat exposes model setup, terminal lifecycle actions, and accessible statu
   assert.match(hook, /model\?\.local\.state === "verifying"/);
   assert.match(hook, /if \(id\) void loadThread[\s\S]*void refreshModel\(\)/);
   assert.doesNotMatch(hook, /if \(shouldPoll\) void refreshModel\(\)/);
-  assert.match(view, /const accepted = await chat\.send\(message\)/);
+  assert.match(view, /const accepted = await chat\.send\(message, mentions\)/);
   assert.match(view, /if \(accepted\) setDraft\(""\)/);
   assert.doesNotMatch(view, /setDraft\(""\);\s*restoreComposerFocusRef/);
   assert.match(view, /if \(accepted && pendingMessage\)/);
@@ -202,11 +202,35 @@ test("one conversation can hold several Modules, and says which (TASK-093)", () 
   // The Modules already on the thread are not offered again...
   assert.match(view, /!threadModules\.includes\(module\.moduleName\)/);
   // ...and the ones that ARE on it are visible, which is what the exit test
-  // ("confirm both are listed on the thread") actually checks.
-  assert.match(view, /On this conversation:/);
+  // ("confirm both are listed on the thread") actually checks. The line says
+  // what it lists — Modules — after the user read "On this conversation:
+  // TaskManager" as Agents (BUGS 2026-09-05).
+  assert.doesNotMatch(view, /On this conversation/);
+  assert.match(view, /Working in:/);
   assert.match(view, /threadModules\.map\(/);
   // Only Modules this Organization has installed can be attached from here —
   // the same filter the nav uses, so the offer matches what a user can open.
   assert.match(view, /trpc\.modules\.list/);
   assert.match(view, /item\.state === "available"/);
+});
+
+test("Chief of Staff is the one face; other Agents are reached by typing @ (2026-09-05)", () => {
+  // The footer names Modules as Modules, with the reason on the element.
+  assert.match(view, /the Modules whose data and files this conversation may use/);
+  // `@` opens a picker bound to a REAL read of the Organization's active
+  // Agents — never a hard-coded list — and the picker is keyboard-driven.
+  assert.match(view, /trpc\.chat\.agents\.list\.query/);
+  assert.match(view, /role="listbox"/);
+  assert.match(view, /aria-label="Agents you can address"/);
+  assert.match(view, /case "Escape":/);
+  assert.match(view, /case "ArrowDown":/);
+  // Inserting a mention tokenises `@Name`; the send carries the runtime id.
+  assert.match(view, /insertMention\(/);
+  assert.match(view, /chat\.send\(message, mentions\)/);
+  assert.match(hook, /\.\.\.\(mentions && mentions\.length > 0 \? \{ mentions \} : \{\}\)/);
+  // The reply says who was addressed and who answered.
+  assert.match(view, /ref\.kind === "addressed_agent"/);
+  assert.match(view, /answered by Chief of Staff/);
+  // No Agent dropdown: Chief of Staff stays the single user-facing Agent.
+  assert.doesNotMatch(view, /aria-label="Chat agent"/);
 });

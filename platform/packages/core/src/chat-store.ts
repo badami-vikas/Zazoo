@@ -27,7 +27,11 @@ export type ChatTurnRefKind =
   | "result"
   | "event"
   | "file"
-  | "error";
+  | "error"
+  /** The Agent a person addressed with `@` on this turn (`refId` is its
+   * runtime id). Who ANSWERED stays `actorId`; the two differ while Chief of
+   * Staff answers on the addressed Agent's behalf. */
+  | "addressed_agent";
 
 export interface ChatOwnerScope {
   organizationId: string;

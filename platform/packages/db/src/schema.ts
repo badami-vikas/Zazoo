@@ -633,7 +633,8 @@ export const chatTurnRefs = pgTable(
         'result',
         'event',
         'file',
-        'error'
+        'error',
+        'addressed_agent'
       )`,
     ),
     check("chat_turn_refs_ref_id_check", sql`length(btrim(${t.refId})) > 0`),

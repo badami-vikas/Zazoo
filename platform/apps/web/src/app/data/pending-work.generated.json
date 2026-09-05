@@ -3489,7 +3489,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1548,
+      "sourceLine": 1549,
       "rank": 100
     },
     {
@@ -3532,7 +3532,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1564,
+      "sourceLine": 1565,
       "rank": 101
     },
     {
@@ -3572,7 +3572,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1581,
+      "sourceLine": 1582,
       "rank": 102
     },
     {
@@ -3609,7 +3609,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1595,
+      "sourceLine": 1596,
       "rank": 103
     },
     {
@@ -3644,7 +3644,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1609,
+      "sourceLine": 1610,
       "rank": 104
     },
     {
@@ -3682,7 +3682,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1624,
+      "sourceLine": 1625,
       "rank": 105
     },
     {
@@ -3718,8 +3718,45 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1638,
+      "sourceLine": 1639,
       "rank": 106
+    },
+    {
+      "id": "TASK-101",
+      "title": "TASK-101 — `@` in Chat addresses another Agent; the footer names Modules as Modules",
+      "status": "in-progress",
+      "statusNote": "built and wired 2026-09-05; the per-Agent lane handoff and the browser leg are NOT LANDED — see below",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "Chief of Staff is the only Agent the Chat panel puts in front of a person. The line under the composer says which Modules the conversation is working in and that they are Modules; typing `@` in the composer lists the Organization's active Agents from a real read, inserting one addresses that Agent, the turn records who was addressed, and the reply says who answered. When an Agent has its own lane (Learning Agent → research start, Capability Builder → Builder Run) the addressed turn is handed to it; until then Chief of Staff answers on its behalf and the turn says so.",
+      "prototypeTest": "on a Module's Chat, read \"Working in: TaskManager\" with the Module explanation on hover; type `@le`, see \"Learning Agent\" with its one-line role, press Enter, see `@Learning Agent ` in the draft; send and see the reply badged \"Addressed to Learning Agent · answered by Chief of Staff\"; call `turn.send` with a `mentions` id that is not an active Agent of the Organization and see it refused with no turn written.",
+      "scope": [
+        "`apps/web/src/app/chat/ChatView.tsx` (footer copy, `@` picker, addressed badge), `apps/web/src/app/chat/useChat.ts` (`send(message, mentions)`), `apps/api/src/routers/chat.ts` (`chat.agents.list`",
+        "mention check and `addressed_agent` refs in `turn.send`), `apps/api/src/router-shared.ts` (`chatSendInput.mentions`), `packages/core/src/chat-store.ts` + `packages/db` migration 0049 (`addressed_agent` ref kind)."
+      ],
+      "evidence": [
+        "`apps/web/test/chat.test.mjs` (the footer no longer says \"On this conversation\"",
+        "the `@` picker is bound to `chat.agents.list`, has the listbox and the Escape/ArrowDown cases, and the send carries `mentions` — seen failing 2/9 before the change, 9/9 after)",
+        "`apps/api/test/chat-mentions.test.ts` (2 tests: the picker lists the Learning Agent with a role and never Chief of Staff, every row an active Agent of the Organization",
+        "`turn.send` with `mentions` records the `addressed_agent` ref on the assistant turn, and a stranger id is refused with no turn written). api + web typecheck clean",
+        "vocabulary and UI-rules gates."
+      ],
+      "requests": [
+        "user directive 2026-09-05, verbatim: *\"Why does it show on this conversation task manager? If its showing agents involved, should the user be able to pick and choose agents in which case its multi select dropdown. Also is task manager handling the work of the builder? Because I thought chief of staff will be user facing and then it internally directs to different agents based on need. WHy do we even need to show other agent? If user wants to call other agents, pressing @ in chatbot should show agents that can be called\"*"
+      ],
+      "approval": "none needed (additive ref kind on an existing table; ADR 2026-09-05 \"`@` addresses an Agent; Chief of Staff stays the face\" records it).",
+      "dependencies": [
+        "TASK-093"
+      ],
+      "isGoal": false,
+      "path": "8.10",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1653,
+      "rank": 107
     }
   ]
 }

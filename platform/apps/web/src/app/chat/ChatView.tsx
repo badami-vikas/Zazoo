@@ -527,6 +527,59 @@ export function ChatView({
   const moduleLabel = (name: string) =>
     installedModules.find((module) => module.moduleName === name)?.displayName ?? name;
 
+  // ---- `@` mentions (2026-09-05) ----------------------------------------
+  // Chief of Staff is the one face of this panel. Another Agent is reached by
+  // typing `@`, which opens a picker over a REAL read of the Organization's
+  // active Agents; picking one inserts `@Name` and the send carries its id.
+  const [agents, setAgents] = useState<
+    readonly { id: string; name: string; role: string }[]
+  >([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentioned, setMentioned] = useState<readonly { id: string; name: string }[]>([]);
+  useEffect(() => {
+    let active = true;
+    trpc.chat.agents.list.query({ organizationId: PILOT_ORGANIZATION })
+      .then((result) => {
+        if (active) setAgents(result);
+      })
+      .catch(() => {
+        // `@` then simply offers nobody; the Chat still works.
+        if (active) setAgents([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const mentionMatches = useMemo(() => {
+    if (mentionQuery === null) return [] as typeof agents;
+    const query = mentionQuery.toLowerCase();
+    return agents.filter((agent) => agent.name.toLowerCase().includes(query));
+  }, [agents, mentionQuery]);
+  const agentName = (id: string) => agents.find((agent) => agent.id === id)?.name ?? "an Agent";
+  /** Sets the draft and opens/closes the picker from the `@word` at the caret. */
+  const updateDraft = (value: string) => {
+    setDraft(value);
+    const caret = inputRef.current?.selectionStart ?? value.length;
+    const match = /(?:^|\s)@([^\s@]*)$/.exec(value.slice(0, caret));
+    setMentionQuery(match ? match[1] ?? "" : null);
+    setMentionIndex(0);
+  };
+  const insertMention = (agent: { id: string; name: string }) => {
+    const field = inputRef.current;
+    const caret = field?.selectionStart ?? draft.length;
+    const before = draft.slice(0, caret).replace(/@[^\s@]*$/, `@${agent.name} `);
+    setDraft(before + draft.slice(caret));
+    setMentionQuery(null);
+    setMentioned((current) =>
+      current.some((entry) => entry.id === agent.id) ? current : [...current, agent],
+    );
+    requestAnimationFrame(() => {
+      field?.focus();
+      field?.setSelectionRange(before.length, before.length);
+    });
+  };
+
   // ---- voice input (every surface — `chat.voice.transcribe` is a server
   // procedure, so there is no desktop-only branch left; TASK-082) --------
   const [recording, setRecording] = useState(false);
@@ -742,7 +795,12 @@ export function ChatView({
         timeoutMs: 20_000,
       }).catch((error: unknown) => console.error("[companion] point-at failed", error));
     }
-    const accepted = await chat.send(message);
+    // Only the `@Name` tokens still in the text are sent — a mention the user
+    // deleted is not addressed.
+    const mentions = mentioned
+      .filter((entry) => message.includes(`@${entry.name}`))
+      .map((entry) => entry.id);
+    const accepted = await chat.send(message, mentions);
     if (accepted) setDraft("");
   };
 
@@ -909,6 +967,13 @@ export function ChatView({
             {turn.role === "assistant" && (
               <div className="mt-1 flex flex-wrap items-center gap-1 text-xs">
                 <Badge variant="outline">{turn.state.replace(/_/g, " ")}</Badge>
+                {turn.refs
+                  .filter((ref) => ref.kind === "addressed_agent")
+                  .map((ref) => (
+                    <Badge key={ref.id} variant="secondary">
+                      Addressed to {agentName(ref.refId)} · answered by Chief of Staff
+                    </Badge>
+                  ))}
                 {turn.refs.some((ref) => ref.kind === "model_receipt") && (
                   <Badge variant="outline">model receipt</Badge>
                 )}
@@ -1031,20 +1096,70 @@ export function ChatView({
             compact ? "p-1.5" : "p-2"
           }`}
         >
+          {mentionQuery !== null && mentionMatches.length > 0 && (
+            <ul
+              role="listbox"
+              aria-label="Agents you can address"
+              className="max-h-40 overflow-auto rounded-md border bg-background p-1 text-xs"
+            >
+              {mentionMatches.map((agent, index) => (
+                <li
+                  key={agent.id}
+                  role="option"
+                  aria-selected={index === mentionIndex}
+                  className={`flex cursor-pointer flex-wrap items-baseline gap-x-2 rounded px-2 py-1 ${
+                    index === mentionIndex ? "bg-muted" : ""
+                  }`}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    insertMention(agent);
+                  }}
+                >
+                  <span className="font-medium">{agent.name}</span>
+                  <span className="text-[var(--color-navy-mid)]">{agent.role}</span>
+                </li>
+              ))}
+            </ul>
+          )}
           <textarea
             ref={inputRef}
             aria-label="Chat message"
             className="max-h-32 min-h-8 w-full resize-none border-0 bg-transparent px-1.5 py-1 text-sm outline-none focus-visible:outline-none disabled:opacity-50"
             placeholder={
               modelReady
-                ? "Ask Chief of Staff…"
+                ? "Ask Chief of Staff… type @ to address another Agent"
                 : chat.model?.cloud.available
                   ? "Set up the local model, or pick Cloud in the model menu"
                   : "Set up the local model first"
             }
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => updateDraft(event.target.value)}
             onKeyDown={(event) => {
+              if (mentionQuery !== null && mentionMatches.length > 0) {
+                switch (event.key) {
+                  case "ArrowDown":
+                    event.preventDefault();
+                    setMentionIndex((index) => (index + 1) % mentionMatches.length);
+                    return;
+                  case "ArrowUp":
+                    event.preventDefault();
+                    setMentionIndex((index) => (index + mentionMatches.length - 1) % mentionMatches.length);
+                    return;
+                  case "Enter":
+                  case "Tab": {
+                    event.preventDefault();
+                    const chosen = mentionMatches[mentionIndex] ?? mentionMatches[0];
+                    if (chosen) insertMention(chosen);
+                    return;
+                  }
+                  case "Escape":
+                    event.preventDefault();
+                    setMentionQuery(null);
+                    return;
+                  default:
+                    break;
+                }
+              }
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
                 void submit();
@@ -1195,8 +1310,11 @@ export function ChatView({
           </div>
         </div>
         {threadModules.length > 0 && (
-          <p className="mt-1 flex flex-wrap items-center gap-1 px-1 text-xs text-[var(--color-navy-mid)]">
-            <span>On this conversation:</span>
+          <p
+            className="mt-1 flex flex-wrap items-center gap-1 px-1 text-xs text-[var(--color-navy-mid)]"
+            title="These are the Modules whose data and files this conversation may use — not Agents. Type @ in the message to address another Agent."
+          >
+            <span>Working in:</span>
             {threadModules.map((name) => (
               <Badge key={name} variant="secondary" className="text-[0.7rem]">
                 {moduleLabel(name)}

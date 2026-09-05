@@ -2,20 +2,60 @@ import { TRPCError } from "@trpc/server";
 import { mkdir } from "node:fs/promises";
 import { z } from "zod";
 import { INTERNAL_STRATEGIST_AGENT, chatCaptureSignalId } from "../wiring.js";
-import { ChatCloudGrantError, ChatStoreConflictError, ChatStoreScopeError, CHAT_BACKEND_IDS, type ChatBackendTurn } from "@bridge/core";
+import { ChatCloudGrantError, ChatStoreConflictError, ChatStoreScopeError, CHAT_BACKEND_IDS, FOUNDATIONAL_AGENTS, type ChatBackendTurn, type FoundationalAgentId } from "@bridge/core";
 import { createModelRouter, MANAGED_LLAMA_PROVIDER_ID } from "@bridge/models";
 import { captureAllowed, chatTurnCaptureSignal, detectCommitmentCandidates, proposeCommitmentSuggestions, recordSignal as recordCaptureSignal } from "@bridge/core";
 import { MAX_TRANSCRIPTION_AUDIO_BYTES, transcribeAudio, VoiceTranscriptionError } from "../voice-transcription.js";
 import { organizationFilesRoot } from "../module-files.js";
 import { relative, sep } from "node:path";
-import { BUILT_IN_MODULES } from "@bridge/module-manifests";
+import { BUILDER_AGENT_RUNTIME_ID, BUILT_IN_MODULES, CHIEF_OF_STAFF_AGENT_RUNTIME_ID, GOVERNANCE_AGENT_RUNTIME_ID, INTERNAL_STRATEGIST_AGENT_RUNTIME_ID, LEARNING_AGENT_RUNTIME_ID, resolveModuleAgentRuntimeId } from "@bridge/module-manifests";
 import { commonsPriorArt, installedModulesForBriefing, moduleBuildBriefing, organizationFoldersForBriefing } from "../builder/run.js";
 import { readModuleManifestFile, registerModuleManifest } from "../module-register.js";
 import { ClaudeSignInRequiredError } from "../chat/claude-code-backend.js";
 import { deterministicUuid } from "../deterministic-uuid.js";
 import { CHAT_MODEL_TIER, addChatTurnRef, appendChatBackendChangedFiles, appendChatRoutingDecision, assembleChatCompletion, authenticatedProcedure, chatAssistantEnvelopeSchema, chatHumanTaint, chatLedgerEntryIsProposal, chatOwnerScope, chatSendInput, chatTurnAbortControllers, chatTurnProposalStaging, composerCapability, createGovernedModelProvider, idempotentUuid, loadChatThreadView, organizationGuard, parseChatAssistantEnvelope, priorTurnsTranscript, readCaptureConsentState, requireOrganizationNameForFiles, resolveChatModel, resolveChatRetryPair, stageChatTaskProposal, t, transcriptionApiKey, type PublicCloudModelEgress } from "../router-shared.js";
 
+/** The four foundational Agents' chat-routing ids joined to their runtime
+ * identities — two registries that share a display name (see wiring.ts on
+ * `INTERNAL_STRATEGIST_AGENT`). Used only to borrow the one-line mission. */
+const FOUNDATIONAL_RUNTIME_IDS: Readonly<Record<FoundationalAgentId, string>> = {
+  learning: LEARNING_AGENT_RUNTIME_ID,
+  internal_strategist: INTERNAL_STRATEGIST_AGENT_RUNTIME_ID,
+  governance: GOVERNANCE_AGENT_RUNTIME_ID,
+  capability_builder: BUILDER_AGENT_RUNTIME_ID,
+};
+
 export const chatRouter = t.router({
+  agents: t.router({
+    /**
+     * The Agents a person can address by typing `@` in the composer
+     * (2026-09-05). Chief of Staff is the one user-facing Agent and is who the
+     * conversation is already with, so it is never offered. A real read, not a
+     * registry: the Agents the Organization's installed Modules declare,
+     * resolved to runtime identities and kept only while ACTIVE here. The
+     * one-line role is the foundational mission where one exists, else the
+     * declaring Module.
+     */
+    list: authenticatedProcedure
+      .input(z.object({ organizationId: z.string().uuid() }).strict())
+      .use(organizationGuard).query(async ({ input, ctx }) => {
+        const { items } = await ctx.wiring.moduleStore.list(input.organizationId, { limit: 10_000, offset: 0 });
+        const agents = new Map<string, { id: string; name: string; role: string }>();
+        for (const row of items) {
+          if (row.moduleAttachment !== undefined || row.state !== "available" || row.status !== "installed") continue;
+          const moduleLabel = row.displayNameOverride ?? row.manifest.module?.displayName ?? row.moduleName;
+          for (const declared of row.manifest.module?.agents ?? []) {
+            const id = resolveModuleAgentRuntimeId(row.moduleName, declared.id);
+            if (!id || id === CHIEF_OF_STAFF_AGENT_RUNTIME_ID || agents.has(id)) continue;
+            if ((await ctx.wiring.agents.organizationId(id)) !== input.organizationId) continue;
+            if (!(await ctx.wiring.agents.isActive(id))) continue;
+            const foundational = FOUNDATIONAL_AGENTS.find((entry) => FOUNDATIONAL_RUNTIME_IDS[entry.id] === id);
+            agents.set(id, { id, name: declared.name, role: foundational?.mission ?? `Agent of ${moduleLabel}` });
+          }
+        }
+        return [...agents.values()];
+      }),
+  }),
   model: t.router({
     status: authenticatedProcedure
       .input(z.object({ organizationId: z.string().uuid() }).strict())
@@ -439,6 +479,23 @@ export const chatRouter = t.router({
         if (!thread) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Chat thread not found" });
         }
+        // `@` mentions (2026-09-05): each must be an ACTIVE Agent of this
+        // Organization, refused before any turn is written. They are recorded
+        // on the assistant turn as `addressed_agent` refs below; who ANSWERS
+        // is unchanged — Chief of Staff still takes the turn (the per-Agent
+        // lane handoff is NOT LANDED, see TASK-101).
+        const mentions = [...new Set(input.mentions ?? [])];
+        for (const agentId of mentions) {
+          if (
+            (await ctx.wiring.agents.organizationId(agentId)) !== input.organizationId ||
+            !(await ctx.wiring.agents.isActive(agentId))
+          ) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `${agentId} is not an active Agent of this Organization`,
+            });
+          }
+        }
         const userTurnId = idempotentUuid(
           `${thread.id}:${input.clientRequestId}:user`,
         );
@@ -545,6 +602,9 @@ export const chatRouter = t.router({
           clientRequestId: `${input.clientRequestId}:assistant`,
           taintLabel,
         });
+        for (const agentId of mentions) {
+          await addChatTurnRef(ctx.wiring, scope, thread.id, assistantTurnId, "addressed_agent", agentId);
+        }
         const loadSendResponse = () =>
           loadChatThreadView(
             ctx.wiring,
