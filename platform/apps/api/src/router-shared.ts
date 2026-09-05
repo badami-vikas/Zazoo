@@ -3859,6 +3859,10 @@ export const chatSendInput = z.object({
   surface: chatSurfaceInput.optional(),
   cloudGrantId: z.string().uuid().optional(),
   retryTurnId: z.string().uuid().optional(),
+  /** Runtime ids of the Agents the person addressed with `@` (2026-09-05).
+   * Each must be an ACTIVE Agent of the Organization; recorded on the
+   * assistant turn as `addressed_agent` refs. */
+  mentions: z.array(z.string().uuid()).max(5).optional(),
 }).strict();
 
 /** A parent Task the deterministic matcher put forward, carried into the

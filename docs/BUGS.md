@@ -3327,3 +3327,29 @@ to save a short note about what it noticed you working on today." + why) on Home
 — ids stay on the payload. Test: `automation-scheduler.test.ts` "the sweep withdraws duplicates on a MIGRATED
 Local Plane" (buildWiring with `localDir`, runs the real migration chain; seen failing on the constraint
 before 0049). Egg-profile parking test gained an orphan Automation running an Academics Skill.
+### 2026-09-05 — the Chat footer's Module line read as Agents (FIXED, TASK-101)
+
+User report, verbatim: *"Why does it show on this conversation task manager? If its showing agents
+involved, should the user be able to pick and choose agents in which case its multi select dropdown.
+Also is task manager handling the work of the builder? Because I thought chief of staff will be user
+facing and then it internally directs to different agents based on need. WHy do we even need to show
+other agent? If user wants to call other agents, pressing @ in chatbot should show agents that can be
+called"*
+
+**Evidence:** the desktop Chat panel's footer read "On this conversation: TaskManager". That is the
+thread's MODULE line from TASK-093 (`chat_threads.module_name` + `attached_modules`) — the Modules
+whose data and files the conversation may use — not Agents, and nothing on the element said which.
+The composer's two dropdowns are the model/backend and the Module attach. Task Manager is not
+"handling the work of the builder": it is the Module the thread was opened on. There was no `@` in
+the composer at all, although `chiefOfStaff.converse` has parsed a leading `@learning`/`@builder`
+mention since ADR-033/046 — a lane the panel's `chat.turn.send` never reaches.
+
+**Fix (2026-09-05):** the footer reads "Working in: TaskManager" and its element title says these are
+Modules, not Agents, and to type `@` for an Agent. Typing `@` in the composer opens a keyboard-driven
+picker (ArrowUp/Down, Enter/Tab inserts, Esc closes) over `chat.agents.list` — a read of the
+Organization's installed Modules' declared Agents resolved to runtime ids and kept only while
+`agents.isActive`, never a hard-coded list; Chief of Staff is never listed because it is who the
+conversation is with. `turn.send` carries `mentions`, refuses an id that is not an active Agent of the
+Organization before any turn is written, and records each on the assistant turn as an
+`addressed_agent` ref (migration 0050), shown as "Addressed to X · answered by Chief of Staff". Who
+answers is unchanged — the per-Agent lane handoff is NOT LANDED in TASK-101.

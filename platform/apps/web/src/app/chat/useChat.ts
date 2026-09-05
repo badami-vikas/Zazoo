@@ -352,6 +352,8 @@ export function useChat(surfaceKind: ChatSurfaceKind, moduleName?: string) {
       clientRequestId: string;
       retryTurnId?: string;
     },
+    /** Runtime ids of Agents addressed with `@` (2026-09-05). */
+    mentions?: string[],
   ) => {
     if (!view) return false;
     const threadId = view.thread.id;
@@ -369,6 +371,7 @@ export function useChat(surfaceKind: ChatSurfaceKind, moduleName?: string) {
         surface: { kind: surfaceKind },
         ...(cloudGrantId ? { cloudGrantId } : {}),
         ...(request?.retryTurnId ? { retryTurnId: request.retryTurnId } : {}),
+        ...(mentions && mentions.length > 0 ? { mentions } : {}),
       });
       accepted = true;
       if (canApplyChatResponse({
@@ -395,7 +398,7 @@ export function useChat(surfaceKind: ChatSurfaceKind, moduleName?: string) {
     return accepted;
   }, [announce, loadThread, refreshThreads, surfaceKind, view]);
 
-  const send = useCallback(async (message: string) => {
+  const send = useCallback(async (message: string, mentions?: string[]) => {
     if (!view) return false;
     if (view.thread.plane === "cloud") {
       // Picking a Cloud Plane thread IS the user's consent to send this
@@ -416,14 +419,14 @@ export function useChat(surfaceKind: ChatSurfaceKind, moduleName?: string) {
           message,
           surface: { kind: surfaceKind },
         });
-        return await submit(message, disclosure.grantId, { clientRequestId });
+        return await submit(message, disclosure.grantId, { clientRequestId }, mentions);
       } catch (cause) {
         setError(errorMessage(cause));
         setSending(false);
         return false;
       }
     }
-    return submit(message);
+    return submit(message, undefined, undefined, mentions);
   }, [submit, surfaceKind, view]);
 
   const confirmCloud = useCallback(async () => {

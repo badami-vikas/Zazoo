@@ -6967,3 +6967,44 @@ next tick would have refilled it).
 (`buildWiring({ localDir })`), not only in-memory stores — recorded as a rule in the scheduler test file.
 New Skills should add a `SKILL_COPY` entry or accept the generic sentence. Installer rebuild required; the
 user's existing rows are withdrawn on the first tick after it.
+## 2026-09-05 — `@` addresses an Agent; Chief of Staff stays the face (TASK-101)
+
+**Context:** user directive 2026-09-05, verbatim: *"Why does it show on this conversation task
+manager? If its showing agents involved, should the user be able to pick and choose agents in which
+case its multi select dropdown. Also is task manager handling the work of the builder? Because I
+thought chief of staff will be user facing and then it internally directs to different agents based on
+need. WHy do we even need to show other agent? If user wants to call other agents, pressing @ in
+chatbot should show agents that can be called"*. The line under the composer was TASK-093's Module
+list ("On this conversation: TaskManager" — `chat_threads.module_name` + `attached_modules`), and
+nothing on it said Module rather than Agent. The composer had no `@`; the only mention parsing in
+the codebase (`chiefOfStaff.converse`, ADR-033/046) sits on a procedure the Chat panel never calls.
+
+**Decision:**
+1. **Copy names the thing.** "Working in: TaskManager", with the element stating these are the
+   Modules whose data and files the conversation may use, not Agents, and that `@` reaches an Agent.
+   Multi-attach stays; there is no Agent dropdown. Chief of Staff remains the one user-facing Agent
+   (glossary: "default coordinating Agent and interlocutor").
+2. **`@` is a read, not a registry.** `chat.agents.list` walks the Organization's installed Modules'
+   declared Agents, resolves each through `resolveModuleAgentRuntimeId`, keeps it only while
+   `agents.organizationId(id)` matches and `agents.isActive(id)`, and never lists Chief of Staff. The
+   one-line role is the foundational mission where the runtime id maps to one, else the Module.
+3. **The addressed Agent is a turn REF, not a column.** `addressed_agent` joins `ChatTurnRefKind`
+   (core union, db CHECK, migration 0050) with `refId` = the runtime id, written on the assistant
+   turn with the same idempotent id every other ref uses; `actorId` keeps meaning who answered.
+4. **Refuse before writing.** `turn.send` validates every `mentions` id against the same two checks
+   as (2) and throws BAD_REQUEST before the user turn is appended.
+5. **Routing is unchanged and says so.** Chief of Staff still takes the turn; the reply is badged
+   "Addressed to X · answered by Chief of Staff". The lane handoff is recorded NOT LANDED in TASK-101.
+
+**Rejected:** a `mentions jsonb` column on `chat_turns` — a second per-turn link shape beside the refs
+table the view already projects, for the same fact. Reusing the routing-decision ledger row's
+`selectedAgentId` — written at the END of a turn (a failed turn loses it) and its `actorId` means who
+acted, not who was asked. An Agent dropdown or multi-select — a second face beside Chief of Staff,
+which is exactly what the directive declined. Starting a research Run or Builder Run from the
+mention now — those lanes carry their own lifecycles and none takes a chat turn today; inventing the
+handoff in this change would ship routing the directive did not describe.
+
+**Consequences:** one migration (0050, a CHECK constraint only). `chiefOfStaff.converse`'s text-parsed
+`@learning`/`@builder` route stays where it is; when the lane handoff lands it must be ONE seam
+serving both procedures. A retry re-sends without `mentions`; the original ref is kept. Cited by date
+and title.
