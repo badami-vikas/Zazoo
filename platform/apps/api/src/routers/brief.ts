@@ -2,6 +2,7 @@ import { z } from "zod";
 import { listSuggestions as listLearningSuggestions, listCommitmentSuggestions, listClaimSuggestions } from "@bridge/core";
 import { authenticatedProcedure, organizationGuard, t } from "../router-shared.js";
 import { pendingProposalTask } from "./action.js";
+import { compareApprovalImportance, rankPendingProposal } from "./approval-importance.js";
 
 /**
  * Organization + team-member management — plain authenticated CRUD (direct DB
@@ -99,13 +100,21 @@ export const briefRouter = t.router({
         ? await listClaimSuggestions(ctx.wiring.memoryStore, scope, "proposed")
         : [];
 
+      // TASK-097: Home shows the five that matter most, not the five newest —
+      // rank a window of the queue, then keep five. ponytail: the window is
+      // 50; page the whole queue if a Local Plane ever holds more undecided
+      // rows than that after the scheduler's duplicate sweep.
       const pendingApprovals = await ctx.wiring.pipeline.listPending(input.organizationId, {
-        limit: 5, offset: 0, privateOwnerUserId: ctx.identity.id,
+        limit: 50, offset: 0, privateOwnerUserId: ctx.identity.id,
       });
+      const rankedApprovals = pendingApprovals.items
+        .map((item) => ({ ...item, importance: rankPendingProposal(item) }))
+        .sort(compareApprovalImportance)
+        .slice(0, 5);
       const approvalTasks = await Promise.all(
-        pendingApprovals.items.map((item) => pendingProposalTask(ctx.wiring, item)),
+        rankedApprovals.map((item) => pendingProposalTask(ctx.wiring, item)),
       );
-      const approvalNudges = pendingApprovals.items.map((item, index) => {
+      const approvalNudges = rankedApprovals.map((item, index) => {
         const task = approvalTasks[index] ?? null;
         const inputs = item.request.inputs;
         const display =
@@ -124,6 +133,8 @@ export const briefRouter = t.router({
           skill: item.request.skill ?? null,
           action: item.request.action,
           task,
+          /** TASK-097: tier + trust + rank, so Home orders and labels from data. */
+          importance: item.importance,
         };
       });
 

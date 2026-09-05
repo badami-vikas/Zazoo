@@ -122,19 +122,6 @@ const PUBLIC_CLOUD_PROCEDURES = new Set([
   "dealpilot.updateDeal",
   "dealpilot.updateSource",
 
-  // Academics — Cloud-Plane (DrizzleAcademicsStore), organizationId-scoped
-  // like jobpilot/relationship above. No Local Plane in these handlers; raw
-  // lecture capture (TASK-067 later phase) is a Skill, not this CRUD router.
-  "academics.createSubject",
-  "academics.listSubjects",
-  "academics.updateSubject",
-  "academics.createLectureSession",
-  "academics.listLectureSessions",
-  "academics.updateLectureSession",
-  "academics.createAssignment",
-  "academics.listAssignments",
-  "academics.updateAssignment",
-
   // Events (NetworkManager sub-module, TASK-068) — Cloud-Plane
   // (DrizzleEventsStore), organizationId-scoped. Speaker extraction is a
   // later phase and not part of this CRUD router.

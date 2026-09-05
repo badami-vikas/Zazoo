@@ -1065,25 +1065,6 @@
       "status": "completed",
       "priority": "P2",
       "horizon": "Convergence",
-      "outcome": "Learning Agent's LA3 research lane gains a governed `web-research` Skill backed by a provider-agnostic `SearchProvider` port (same shape as `ModelProvider`/`MemoryStore`/`ContentGuard`), wired only to current-rights-verified $0 Tier-1 direct access (currently anonymous Parallel Search MCP) with pre-vetted Tier-2 and Tier-3 expansion held behind fresh rights and cost/ROI gates, and every fetched result quarantined and tagged `untrusted_external` before Result, Memory, Event, or prompt sinks.",
-      "prototypeTest": "From a real Organization, Learning Agent runs a governed `web-research` Skill for an explicit bounded public objective, returns cited results from at least one permitted Tier-1 provider with provenance/taint recorded on Result, Memory, and Event, degrades explicitly if the provider is unavailable, and never silently escalates to credentialed, paid, Tier-2, Tier-3, or self-hosted access.",
-      "scope": [
-        "docs/raw/learning-agent-roadmap-2026-07.md §7 (LA3 provider survey + rollout phases)"
-      ],
-      "evidence": [
-        "outputs/2026-07-17-learning-agent-recon-search-integrations.md — 178-candidate Parallel FindAll audit (46 matched + 132 unmatched reviewed), Tier 1/2/3 classification, grouped discard reasoning",
-        "outputs/2026-07-18-task023-governed-web-research.md — candidate-A selection, current-main reconciliation, shared net-guard/ContentGuard/Module-authority implementation, durable Result/Memory/Event provenance, bounded Parallel evidence, targeted validation, and changed-scope security review. PR #44 source `6e33f051b7e001efe25c949d4038730aee6a1292` / merge `b8e1db0b808806d45dd904270902dd77b132541c` passed the exact real Organization prototype: anonymous Parallel returned cited bounded public evidence",
-        "Result, Memory, and Event preserved provenance plus `untrusted_external`",
-        "unavailable-provider and no-paid-escalation paths failed explicitly. Jina/DuckDuckGo remain unregistered at rights gates. GitHub Actions run `29844324937` assigned no runner and executed zero steps",
-        "no CI success is claimed. Closed under AP-069."
-      ],
-      "requests": [
-        "user directive 2026-07-17 (recon-capability provider research, tiering, roadmap, task)"
-      ],
-      "approval": "AP-039, AP-068, and AP-069 applied",
-      "dependencies": [
-        "TASK-007 (Agent/Skill/child-Run orchestration — Skill resolution this reuses)"
-      ],
       "isGoal": false,
       "path": "3.4",
       "level": 1,
@@ -1127,7 +1108,7 @@
       "parentId": "HORIZON-public-brand",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 444,
+      "sourceLine": 436,
       "rank": 34
     },
     {
@@ -1160,7 +1141,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 471,
+      "sourceLine": 463,
       "rank": 35
     },
     {
@@ -1206,7 +1187,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 489,
+      "sourceLine": 481,
       "rank": 36
     },
     {
@@ -1243,7 +1224,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 457,
+      "sourceLine": 449,
       "rank": 37
     },
     {
@@ -1294,7 +1275,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 509,
+      "sourceLine": 501,
       "rank": 38
     },
     {
@@ -1336,7 +1317,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 523,
+      "sourceLine": 515,
       "rank": 39
     },
     {
@@ -1372,7 +1353,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 542,
+      "sourceLine": 534,
       "rank": 40
     },
     {
@@ -1403,7 +1384,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 565,
+      "sourceLine": 557,
       "rank": 41
     },
     {
@@ -1441,7 +1422,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 594,
+      "sourceLine": 586,
       "rank": 42
     },
     {
@@ -1475,7 +1456,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 607,
+      "sourceLine": 599,
       "rank": 43
     },
     {
@@ -1506,13 +1487,14 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 620,
+      "sourceLine": 612,
       "rank": 44
     },
     {
       "id": "TASK-037",
       "title": "TASK-037 — Repository hygiene and unlanded work recovery",
-      "status": "pending",
+      "status": "completed",
+      "statusNote": "2026-09-04, with two items left to the user — see Evidence",
       "priority": "P3",
       "estimate": "1d",
       "horizon": "Convergence",
@@ -1531,7 +1513,12 @@
         "(i) `origin` still points at `github.com/badami-vikas/relationship-os`, which now reports the repository has MOVED to `github.com/manishsbhoopalam8498/relationship-os` — the remote URL should be updated deliberately."
       ],
       "evidence": [
-        "`outputs/2026-08-03-unfinished-work-audit.md`"
+        "`outputs/2026-08-03-unfinished-work-audit.md`",
+        "2026-09-04 sweep: every one of the 116 local branches (transient `worktree-agent-*` refs excluded) has 0 commits absent from `origin/main` (`git rev-list --count origin/main..<b>` = 0 for each local-only branch)",
+        "the four stash entries were preserved WITHOUT dropping them as pushed branches `salvage/stash-{0..3}-<date>` (stash-3 = the 2026-07-05 xenodochial-lamarr connector work, 51 files",
+        "it also carries a `Tools/recorder/backend/.venv` — prune before landing)",
+        "the `romantic-kowalevski-2a3e18` worktree item is moot — every `.claude/worktrees/*` tree and the `.git/worktrees` registry vanished on 2026-09-04 (see BUGS \"the companion avatar activated on its own\", second report, and memory). LEFT TO THE USER: (1) decide land-or-drop for the four salvage branches",
+        "(2) the main checkout sits on `claude/module-merge-accounting-d2c` with 7 dirty files that are not this session's — resetting it to `origin/main` is a deliberate discard."
       ],
       "requests": [
         "user directive 2026-08-03"
@@ -1541,11 +1528,11 @@
       "isGoal": false,
       "path": "3.7",
       "level": 1,
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 637,
+      "sourceLine": 629,
       "rank": 45
     },
     {
@@ -1574,7 +1561,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 580,
+      "sourceLine": 572,
       "rank": 46
     },
     {
@@ -1608,7 +1595,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1115,
+      "sourceLine": 1098,
       "rank": 47
     },
     {
@@ -1648,7 +1635,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1157,
+      "sourceLine": 1141,
       "rank": 48
     },
     {
@@ -1690,23 +1677,25 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1170,
+      "sourceLine": 1154,
       "rank": 49
     },
     {
       "id": "TASK-069",
       "title": "TASK-069 — Academics Module — Subjects/Lecture Sessions/Assignments vault",
-      "status": "pending",
+      "status": "completed",
       "priority": "P2",
       "estimate": "3d",
       "horizon": "Prototype",
-      "outcome": "a new `academics` Module (P1 of the plan) with three sibling toggles — Subjects, Lecture Sessions, Assignments — database-backed, using the shared `records`/`TableSpec` mechanism, no bespoke per-module data store. A Subject's Record Detail shows its own Lecture Sessions and Assignments as related Sections. Local Files land under `~/Documents/Bridge/<Organization>/Academics/`.",
-      "prototypeTest": "install the Module, add a Subject, add a Lecture Session and an Assignment related to it, reload — all three toggles show real rows (never dummy), the Subject's Record Detail shows both related rows, and the Module row passes `manifests/test/catalog.test.ts`.",
-      "scope": [
-        "manifest entry in `platform/modules/manifests/src/index.ts` (`BUILT_IN_MODULES`), catalog test name-list update, routes in `apps/web/src/app/routes.tsx`, page component(s) modeled on the existing toggle pattern, `BUILT_IN_SOURCE_REFS` entry. Study Steward Agent (`plane: local`) declared with no Skills wired yet — Skills (lecture-synthesis, syllabus-intake, recall-scheduler, reference-resolve, workload-forecast) and their Automations are follow-on tasks, not this one."
-      ],
+      "outcome": "a new `academics` Module (P1 of the plan) with three sibling toggles — Subjects, Lecture Sessions, Assignments — database-backed, using the shared `records`/`TableSpec` mechanism, no bespoke per-module data store. Local Files land under `~/Documents/Bridge/<Organization>/Academics/`. **Scope change 2026-09-04** (ADR 2026-09-04 \"The Egg ships the kernel; Modules live in Commons\"): the Module is a Commons manifest with three declared Databases (`module.databases[]`) and no code of its own — the standard Module Page (UI Rulebook §3d) renders each Page and `moduleRecords.*` serves the rows from the Local Plane. The Egg does not seed it (`EGG_MODULES` unchanged). The original \"Subject's Record Detail shows related Sections\" line is dropped: the standard Page has no Record Detail Sections and no relation picker yet.",
+      "prototypeTest": "boot the Egg profile, register the Academics manifest, approve the install proposal, insert a Subject, a Lecture Session and an Assignment through `moduleRecords.insert`, list each Page — real rows, never dummy; the Module row passes `packages/module-manifests/test/catalog.test.ts`.",
       "evidence": [
-        "none — greenfield. Confirmed via repo-wide grep that no academics/course/assignment/lecture Module, Page, route, or doc exists (`docs/wiki/`, `docs/TASKS.md`, `platform/`)."
+        "`apps/api/test/academics-module.test.ts` and the catalog test seen failing before the manifest declared Databases (\"Module academics declares no Database subjects in its manifest\"",
+        "catalog `databases` deepEqual), green after",
+        "`node --test dist/test/module-records.test.js dist/test/egg-boot.test.js dist/test/egg-profile.test.js dist/test/modules.test.js dist/test/academics-module.test.js` 45/45",
+        "module-manifests 26/26",
+        "api + web typecheck clean",
+        "`check-retired-vocabulary` and `check-ui-rules` OK."
       ],
       "requests": [
         "user directive 2026-08-13, verbatim: *\"I want to create a new module called Academics. The main module should act like a vault where I have a toggle for Subjects inside which I can add and manage lecture sessions, then a toggle for assignments.\"*"
@@ -1716,11 +1705,11 @@
       "isGoal": false,
       "path": "1.13",
       "level": 1,
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1129,
+      "sourceLine": 1112,
       "rank": 50
     },
     {
@@ -1752,7 +1741,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1143,
+      "sourceLine": 1127,
       "rank": 51
     },
     {
@@ -1786,7 +1775,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1213,
+      "sourceLine": 1197,
       "rank": 52
     },
     {
@@ -1818,7 +1807,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1182,
+      "sourceLine": 1166,
       "rank": 53
     },
     {
@@ -1855,7 +1844,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1196,
+      "sourceLine": 1180,
       "rank": 54
     },
     {
@@ -1887,7 +1876,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 659,
+      "sourceLine": 643,
       "rank": 55
     },
     {
@@ -1926,7 +1915,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 674,
+      "sourceLine": 657,
       "rank": 56
     },
     {
@@ -1958,7 +1947,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 689,
+      "sourceLine": 672,
       "rank": 57
     },
     {
@@ -1999,7 +1988,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 735,
+      "sourceLine": 718,
       "rank": 58
     },
     {
@@ -2035,7 +2024,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 749,
+      "sourceLine": 732,
       "rank": 59
     },
     {
@@ -2074,7 +2063,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 769,
+      "sourceLine": 752,
       "rank": 60
     },
     {
@@ -2112,7 +2101,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 784,
+      "sourceLine": 767,
       "rank": 61
     },
     {
@@ -2151,7 +2140,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 799,
+      "sourceLine": 782,
       "rank": 62
     },
     {
@@ -2191,7 +2180,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 813,
+      "sourceLine": 796,
       "rank": 63
     },
     {
@@ -2231,7 +2220,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 827,
+      "sourceLine": 810,
       "rank": 64
     },
     {
@@ -2273,7 +2262,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 840,
+      "sourceLine": 823,
       "rank": 65
     },
     {
@@ -2320,7 +2309,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 853,
+      "sourceLine": 836,
       "rank": 66
     },
     {
@@ -2360,7 +2349,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 866,
+      "sourceLine": 849,
       "rank": 67
     },
     {
@@ -2401,7 +2390,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 879,
+      "sourceLine": 862,
       "rank": 68
     },
     {
@@ -2444,7 +2433,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 893,
+      "sourceLine": 876,
       "rank": 69
     },
     {
@@ -2482,14 +2471,14 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 908,
+      "sourceLine": 891,
       "rank": 70
     },
     {
       "id": "TASK-055",
       "title": "TASK-055 — Companion trigger and capture parity — Fn hold, double-click listen, on-request recording",
       "status": "in-progress",
-      "statusNote": "partly landed 2026-09-04; the Fn-hold summon shipped under TASK-099 as a sustained-hold poll of the Function flag, no Input Monitoring needed; double-click listen and on-request recording remain open",
+      "statusNote": "2026-09-04; the Fn-hold summon shipped under TASK-099 as a sustained-hold poll of the Function flag, no Input Monitoring needed; double-click listen and on-request recording remain open",
       "priority": "P3",
       "estimate": "3d",
       "horizon": "Convergence",
@@ -2522,7 +2511,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 939,
+      "sourceLine": 922,
       "rank": 71
     },
     {
@@ -2557,7 +2546,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 953,
+      "sourceLine": 936,
       "rank": 72
     },
     {
@@ -2591,7 +2580,7 @@
       "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 967,
+      "sourceLine": 950,
       "rank": 73
     },
     {
@@ -2625,7 +2614,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 981,
+      "sourceLine": 964,
       "rank": 74
     },
     {
@@ -2658,7 +2647,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 995,
+      "sourceLine": 978,
       "rank": 75
     },
     {
@@ -2690,7 +2679,7 @@
       "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1009,
+      "sourceLine": 992,
       "rank": 76
     },
     {
@@ -2727,7 +2716,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1023,
+      "sourceLine": 1006,
       "rank": 77
     },
     {
@@ -2759,7 +2748,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1042,
+      "sourceLine": 1025,
       "rank": 78
     },
     {
@@ -2791,7 +2780,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1062,
+      "sourceLine": 1045,
       "rank": 79
     },
     {
@@ -2825,7 +2814,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1081,
+      "sourceLine": 1064,
       "rank": 80
     },
     {
@@ -2856,7 +2845,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1100,
+      "sourceLine": 1083,
       "rank": 81
     },
     {
@@ -2901,7 +2890,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1229,
+      "sourceLine": 1213,
       "rank": 82
     },
     {
@@ -2936,7 +2925,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1242,
+      "sourceLine": 1226,
       "rank": 83
     },
     {
@@ -2969,7 +2958,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1254,
+      "sourceLine": 1238,
       "rank": 84
     },
     {
@@ -3014,7 +3003,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1268,
+      "sourceLine": 1252,
       "rank": 85
     },
     {
@@ -3046,7 +3035,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1300,
+      "sourceLine": 1284,
       "rank": 86
     },
     {
@@ -3079,7 +3068,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1314,
+      "sourceLine": 1298,
       "rank": 87
     },
     {
@@ -3114,7 +3103,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1333,
+      "sourceLine": 1317,
       "rank": 88
     },
     {
@@ -3147,7 +3136,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1354,
+      "sourceLine": 1338,
       "rank": 89
     },
     {
@@ -3184,7 +3173,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1375,
+      "sourceLine": 1359,
       "rank": 90
     },
     {
@@ -3219,7 +3208,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1398,
+      "sourceLine": 1382,
       "rank": 91
     },
     {
@@ -3250,7 +3239,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1417,
+      "sourceLine": 1401,
       "rank": 92
     },
     {
@@ -3281,7 +3270,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1439,
+      "sourceLine": 1423,
       "rank": 93
     },
     {
@@ -3314,7 +3303,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1454,
+      "sourceLine": 1438,
       "rank": 94
     },
     {
@@ -3346,7 +3335,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1477,
+      "sourceLine": 1461,
       "rank": 95
     },
     {
@@ -3377,7 +3366,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1497,
+      "sourceLine": 1481,
       "rank": 96
     },
     {
@@ -3407,7 +3396,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1515,
+      "sourceLine": 1499,
       "rank": 97
     },
     {
@@ -3436,7 +3425,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1531,
+      "sourceLine": 1515,
       "rank": 98
     },
     {
@@ -3465,7 +3454,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1547,
+      "sourceLine": 1531,
       "rank": 99
     },
     {
@@ -3500,7 +3489,7 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1564,
+      "sourceLine": 1548,
       "rank": 100
     },
     {
@@ -3543,7 +3532,7 @@
       "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1580,
+      "sourceLine": 1564,
       "rank": 101
     },
     {
@@ -3583,14 +3572,14 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1597,
+      "sourceLine": 1581,
       "rank": 102
     },
     {
       "id": "TASK-097",
       "title": "TASK-097 — Approvals belong to Tasks: one open proposal per Automation, profile-parked Automations, Task Page and Home as the approval surfaces",
       "status": "completed",
-      "statusNote": "2026-09-04; PR #80 merged, Egg installer rebuilt as ~/Downloads/Bridge-Egg_0.1.0_aarch64.dmg — the 371 stale rows are withdrawn on the first scheduler tick after reinstall",
+      "statusNote": "2026-09-04; PR #80 merged, Egg installer rebuilt as ~/Downloads/Bridge-Egg_0.1.0_aarch64.dmg — the 371 stale rows are withdrawn on the first scheduler tick after reinstall; 2026-09-04 follow-up branch `claude/task-097-approval-ranking`: Home ranks waiting approvals by importance and the ledger reads `superseded` as withdrawn — not yet in the installer",
       "priority": "P0",
       "horizon": "Living Software",
       "outcome": "A launched Egg shows no inherited pile of approvals: an Automation never holds more than one undecided proposal per identical step, stale duplicates are withdrawn as `superseded`, Automations of Modules outside the profile do not tick, and every waiting approval is reachable from its Task (Task Page Approvals section) and named with its Task on Home — never from Settings.",
@@ -3601,7 +3590,9 @@
       "evidence": [
         "`automation-scheduler.test.ts` (waits on an undecided twin",
         "sweep keeps the newest and history reads `superseded`), `egg-profile.test.ts` (full-profile Local Plane booted as Egg parks foreign Automations), `chat-agentic-backend.test.ts`",
-        "Local Plane copy inspected 2026-09-04: 254 × digest, 117 × DevPilot poll undecided."
+        "Local Plane copy inspected 2026-09-04: 254 × digest, 117 × DevPilot poll undecided. Ranking: `apps/api/test/approval-importance.test.ts` (four tiers + untrusted-first + older-first, pure `rankPendingProposal`/`compareApprovalImportance` in `routers/approval-importance.ts`) and `apps/api/test/brief.test.ts` (an older share proposal leads a newer write in `brief.approvals.items`, each item carrying `importance: { tier, untrusted, rank }`",
+        "seen failing with the sort disabled before it was wired). Web: `Decision` gains `withdrawn`, `normalizeDecision('superseded') → 'withdrawn'`, Execution Ledger labels it \"Withdrawn (replaced by a newer identical proposal)\" and folds the withdrawal onto its proposal instead of leaving both rows \"Pending\"",
+        "web typecheck 0 errors, ui-rules/vocabulary gates pass."
       ],
       "requests": [
         "user report 2026-09-04 verbatim in BUGS 2026-09-04 \"255 pending approvals\"."
@@ -3618,14 +3609,14 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1611,
+      "sourceLine": 1595,
       "rank": 103
     },
     {
       "id": "TASK-098",
       "title": "TASK-098 — The agentic chat lane knows what a Module is: the Claude Code backend is briefed and registers what it builds",
       "status": "completed",
-      "statusNote": "2026-09-04; PR #80 merged, installer rebuilt",
+      "statusNote": "2026-09-04; PR #80 merged, installer rebuilt; second half — Modules and folders as data — landed 2026-09-04",
       "priority": "P0",
       "horizon": "Living Software",
       "outcome": "\"Build me a Module for X\" in the desktop chat starts the standard Module build process — the agent knows Bridge, the Module definition, the Organization folder, the process, and Commons prior art — and a `module.yaml` it writes becomes a pending Module the user installs from Modules.",
@@ -3634,7 +3625,10 @@
         "`packages/core/src/chat-backend.ts` (`system`), `apps/api/src/chat/claude-code-backend.ts`, `apps/api/src/builder/run.ts` (`moduleBuildBriefing`), `apps/api/src/routers/chat.ts`."
       ],
       "evidence": [
-        "`chat-agentic-backend.test.ts` \"the agentic backend is briefed on what a Module is, and a module.yaml it writes is registered\"."
+        "`chat-agentic-backend.test.ts` \"the agentic backend is briefed on what a Module is, and a module.yaml it writes is registered\" — its second turn proves the registered Module rides in `system` as `academics-manager (Academics, pending_review)` with `Database assignments: columns course:text, due:date`, and `JobManager/resume.pdf` is named `JobManager: plain folder of files, no Module` with no file name carried",
+        "seen failing unfixed 2026-09-04 ('the registered Module is listed with status'). `installedModulesForBriefing` / `organizationFoldersForBriefing` in `apps/api/src/builder/run.ts`, wired in `routers/chat.ts`",
+        "caps 30 Modules / 50 folders with \"…and N more\"",
+        "a failed read renders \"unavailable\"."
       ],
       "requests": [
         "user report 2026-09-04 verbatim in BUGS 2026-09-04 \"the desktop chat asked what a module is\"."
@@ -3650,7 +3644,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1625,
+      "sourceLine": 1609,
       "rank": 104
     },
     {
@@ -3688,7 +3682,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1640,
+      "sourceLine": 1624,
       "rank": 105
     },
     {
@@ -3724,7 +3718,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1654,
+      "sourceLine": 1638,
       "rank": 106
     }
   ]

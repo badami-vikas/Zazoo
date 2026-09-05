@@ -140,9 +140,6 @@ function commonsModuleRoutes(): RouteObject[] {
   const WhatsAppPage = lazy(() =>
     import("./pages/WhatsAppPage").then((m) => ({ default: m.WhatsAppPage })),
   );
-  const AcademicsPage = lazy(() =>
-    import("./pages/AcademicsPage").then((m) => ({ default: m.AcademicsPage })),
-  );
   const EventsPage = lazy(() =>
     import("./pages/EventsPage").then((m) => ({ default: m.EventsPage })),
   );
@@ -182,7 +179,6 @@ function commonsModuleRoutes(): RouteObject[] {
   const dealPilotModule = requireBuiltInModule("deal-pilot").manifest.module!;
   const jobPilotModule = requireBuiltInModule("job-pilot").manifest.module!;
   const relationshipModule = requireBuiltInModule("relationship").manifest.module!;
-  const academicsModule = requireBuiltInModule("academics").manifest.module!;
   const eventsModule = requireBuiltInModule("events").manifest.module!;
   const accountingModule = requireBuiltInModule("accounting").manifest.module!;
   const d2cModule = requireBuiltInModule("d2c").manifest.module!;
@@ -218,9 +214,8 @@ function commonsModuleRoutes(): RouteObject[] {
     { path: "module/whatsapp/chats", element: <WhatsAppPage page="chats" /> },
     { path: "module/whatsapp/tools", element: <WhatsAppPage page="tools" /> },
 
-    // Academics: three sibling toggles (Subjects/Sessions/Assignments),
-    // TASK-069. `:page` matches the manifest's page ids.
-    { path: `${childPath(academicsModule.route)}/:page`, Component: AcademicsPage },
+    // Academics (TASK-069) has no Page code: its three declared Databases
+    // render on the standard `module/:moduleName/:pageId` Module Page below.
     // Events sub-module of NetworkManager (TASK-070, ADR-236) — one Page.
     { path: childPath(eventsModule.route), Component: EventsPage },
 

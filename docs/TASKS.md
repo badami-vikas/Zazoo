@@ -432,14 +432,6 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Status: done
 - Priority: P2
 - Horizon: Convergence
-- Outcome: Learning Agent's LA3 research lane gains a governed `web-research` Skill backed by a provider-agnostic `SearchProvider` port (same shape as `ModelProvider`/`MemoryStore`/`ContentGuard`), wired only to current-rights-verified $0 Tier-1 direct access (currently anonymous Parallel Search MCP) with pre-vetted Tier-2 and Tier-3 expansion held behind fresh rights and cost/ROI gates, and every fetched result quarantined and tagged `untrusted_external` before Result, Memory, Event, or prompt sinks.
-- Prototype test: From a real Organization, Learning Agent runs a governed `web-research` Skill for an explicit bounded public objective, returns cited results from at least one permitted Tier-1 provider with provenance/taint recorded on Result, Memory, and Event, degrades explicitly if the provider is unavailable, and never silently escalates to credentialed, paid, Tier-2, Tier-3, or self-hosted access.
-- Scope: docs/raw/learning-agent-roadmap-2026-07.md §7 (LA3 provider survey + rollout phases)
-- Evidence: outputs/2026-07-17-learning-agent-recon-search-integrations.md — 178-candidate Parallel FindAll audit (46 matched + 132 unmatched reviewed), Tier 1/2/3 classification, grouped discard reasoning; outputs/2026-07-18-task023-governed-web-research.md — candidate-A selection, current-main reconciliation, shared net-guard/ContentGuard/Module-authority implementation, durable Result/Memory/Event provenance, bounded Parallel evidence, targeted validation, and changed-scope security review. PR #44 source `6e33f051b7e001efe25c949d4038730aee6a1292` / merge `b8e1db0b808806d45dd904270902dd77b132541c` passed the exact real Organization prototype: anonymous Parallel returned cited bounded public evidence; Result, Memory, and Event preserved provenance plus `untrusted_external`; unavailable-provider and no-paid-escalation paths failed explicitly. Jina/DuckDuckGo remain unregistered at rights gates. GitHub Actions run `29844324937` assigned no runner and executed zero steps; no CI success is claimed. Closed under AP-069.
-- Requests: user directive 2026-07-17 (recon-capability provider research, tiering, roadmap, task)
-- Approval: AP-039, AP-068, and AP-069 applied
-- Dependencies: TASK-007 (Agent/Skill/child-Run orchestration — Skill resolution this reuses)
-
 ## Zazoo public website cinematic implementation
 - ID: TASK-024
 - Status: done
@@ -635,25 +627,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Repository hygiene and unlanded work recovery
 - ID: TASK-037
-- Status: ready
+- Status: done (2026-09-04, with two items left to the user — see Evidence)
 - Priority: P3
 - Estimate: 1d
 - Horizon: Convergence
 - Outcome: No unlanded work exists only on one machine, dirty worktrees are either committed or discarded deliberately, and the branch list reflects real in-flight work.
 - Prototype test: Every branch carrying unique commits exists on the remote; `git stash list` is empty or its contents are landed on a branch; no worktree holds untracked source files; the stale local `main` is reset to `origin/main`.
 - Scope: `outputs/2026-08-03-unfinished-work-audit.md` Tier 0.1-0.2. DONE 2026-08-03: `claude/whatsapp-module-contact-extractor-9cfff3` (52 commits, the strict superset of all 13 WhatsApp branches — verified `git rev-list --count contact-extractor..<each>` = 0) was pushed to origin on the user's explicit go-ahead; the WhatsApp Module is no longer single-disk. STILL OPEN: (a) `stash@{0}` on `claude/xenodochial-lamarr-9e9247` holds 51 files / +3351-516 of dealpilot/jobpilot connector work from 2026-07-04 — land or drop explicitly; (b) uncommitted `platform/packages/db/migrations/002_add_location_geo.sql` + `Tools/recon/lib/geocode.ts` in worktree `romantic-kowalevski-2a3e18` — an uncommitted migration is the single most dangerous loose file; (c) uncommitted `platform/apps/api/test/authentication.test.ts` in worktree `codex-roadmap-batch-1`; (d) uncommitted doc work in `kind-volhard-17651e`; (e) unpushed single-commit branch `worktree-agent-a1b0df5fd0a4fa8a8` (2026-07-07) carrying `feat(core): foreign-capability importer (Track F3)`; (f) 15 of 35 worktrees dirty and ~20 clean agent worktrees prunable; (g) the MAIN checkout is 299 commits behind `origin/main` — do not build or deploy from it; (h) the twelve subsumed WhatsApp checkpoint branches are deletable once the superset lands; (i) `origin` still points at `github.com/badami-vikas/relationship-os`, which now reports the repository has MOVED to `github.com/manishsbhoopalam8498/relationship-os` — the remote URL should be updated deliberately.
-- Evidence: `outputs/2026-08-03-unfinished-work-audit.md`
+- Evidence: `outputs/2026-08-03-unfinished-work-audit.md`; 2026-09-04 sweep: every one of the 116 local branches (transient `worktree-agent-*` refs excluded) has 0 commits absent from `origin/main` (`git rev-list --count origin/main..<b>` = 0 for each local-only branch); the four stash entries were preserved WITHOUT dropping them as pushed branches `salvage/stash-{0..3}-<date>` (stash-3 = the 2026-07-05 xenodochial-lamarr connector work, 51 files; it also carries a `Tools/recorder/backend/.venv` — prune before landing); the `romantic-kowalevski-2a3e18` worktree item is moot — every `.claude/worktrees/*` tree and the `.git/worktrees` registry vanished on 2026-09-04 (see BUGS "the companion avatar activated on its own", second report, and memory). LEFT TO THE USER: (1) decide land-or-drop for the four salvage branches; (2) the main checkout sits on `claude/module-merge-accounting-d2c` with 7 dirty files that are not this session's — resetting it to `origin/main` is a deliberate discard.
 - Requests: user directive 2026-08-03
 - Approval: none
 - Dependencies: none
-
-- Outcome: Learning Agent's LA3 research lane gains a governed `web-research` Skill backed by a provider-agnostic `SearchProvider` port (same shape as `ModelProvider`/`MemoryStore`/`ContentGuard`), wired first to $0 Tier-1 direct-access sources (Parallel Search MCP, Jina AI keyless, DuckDuckGo Instant Answer API) with a pre-vetted Tier-2 (signup-gated free tier) and Tier-3 (paid/self-hosted-only) expansion path, and every fetched result tagged `untrusted_external` taint per PI-1/PI-2 before reaching a Memory or prompt.
-- Prototype test: From a real workspace, Learning Agent runs a `web-research` Skill call for a bounded research objective, returns cited results sourced from at least one Tier-1 provider with provenance/taint recorded on the resulting Memory/Result, degrades gracefully if a provider is unavailable, and never silently escalates to a paid Tier-3 provider without a prior `docs/APPROVALS.md` cost/ROI gate.
-- Scope: docs/raw/learning-agent-roadmap-2026-07.md §7 (LA3 provider survey + rollout phases)
-- Evidence: outputs/2026-07-17-learning-agent-recon-search-integrations.md — 178-candidate Parallel FindAll audit (46 matched + 132 unmatched reviewed), Tier 1/2/3 classification, grouped discard reasoning
-- Requests: user directive 2026-07-17 (recon-capability provider research, tiering, roadmap, task)
-- Approval: AP-039 applied
-- Dependencies: TASK-007 (Agent/Skill/child-Run orchestration — Skill resolution this reuses)
 
 ## Path-scoped Copilot instructions for developed Modules
 - ID: TASK-039
@@ -669,7 +653,6 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Dependencies: none
 - Verification: 2026-07-18 initial six adapters passed frontmatter/canonical-pointer/path-glob validation; every adapter matched current implementation paths; the regenerated Task Manager projection contained all 24 canonical tasks; `@bridge/web` passed 49/49 tests. AP-041 follow-up expands each adapter from current implementation evidence; follow-up verification is recorded in `outputs/2026-07-18-module-copilot-instructions.md`.
 
-- Dependencies: TASK-023 (done); TASK-007 (done); TASK-026 (done); TASK-027 (done 2026-07-31 — pointing accuracy resolved to ~12px; its residual checks are TASK-030 PT-3)
 ## LA3 Phase 2 — credentialed SearchProvider tier for the research lane
 - ID: TASK-040
 - Status: in_progress
@@ -937,7 +920,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
      Its companion ADR is grafted as ADR-217. -->
 ## Companion trigger and capture parity — Fn hold, double-click listen, on-request recording
 - ID: TASK-055
-- Status: in_progress (partly landed 2026-09-04; the Fn-hold summon shipped under TASK-099 as a sustained-hold poll of the Function flag, no Input Monitoring needed; double-click listen and on-request recording remain open)
+- Status: in_progress (2026-09-04; the Fn-hold summon shipped under TASK-099 as a sustained-hold poll of the Function flag, no Input Monitoring needed; double-click listen and on-request recording remain open)
 - Priority: P3
 - Estimate: 3d
 - Horizon: Convergence
@@ -1127,14 +1110,15 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Academics Module — Subjects/Lecture Sessions/Assignments vault
 - ID: TASK-069
-- Status: ready
+- Status: done
 - Priority: P2
 - Estimate: 3d
 - Horizon: Prototype
-- Outcome: a new `academics` Module (P1 of the plan) with three sibling toggles — Subjects, Lecture Sessions, Assignments — database-backed, using the shared `records`/`TableSpec` mechanism, no bespoke per-module data store. A Subject's Record Detail shows its own Lecture Sessions and Assignments as related Sections. Local Files land under `~/Documents/Bridge/<Organization>/Academics/`.
-- Prototype test: install the Module, add a Subject, add a Lecture Session and an Assignment related to it, reload — all three toggles show real rows (never dummy), the Subject's Record Detail shows both related rows, and the Module row passes `manifests/test/catalog.test.ts`.
-- Scope: manifest entry in `platform/modules/manifests/src/index.ts` (`BUILT_IN_MODULES`), catalog test name-list update, routes in `apps/web/src/app/routes.tsx`, page component(s) modeled on the existing toggle pattern, `BUILT_IN_SOURCE_REFS` entry. Study Steward Agent (`plane: local`) declared with no Skills wired yet — Skills (lecture-synthesis, syllabus-intake, recall-scheduler, reference-resolve, workload-forecast) and their Automations are follow-on tasks, not this one.
-- Evidence: none — greenfield. Confirmed via repo-wide grep that no academics/course/assignment/lecture Module, Page, route, or doc exists (`docs/wiki/`, `docs/TASKS.md`, `platform/`).
+- Outcome: a new `academics` Module (P1 of the plan) with three sibling toggles — Subjects, Lecture Sessions, Assignments — database-backed, using the shared `records`/`TableSpec` mechanism, no bespoke per-module data store. Local Files land under `~/Documents/Bridge/<Organization>/Academics/`. **Scope change 2026-09-04** (ADR 2026-09-04 "The Egg ships the kernel; Modules live in Commons"): the Module is a Commons manifest with three declared Databases (`module.databases[]`) and no code of its own — the standard Module Page (UI Rulebook §3d) renders each Page and `moduleRecords.*` serves the rows from the Local Plane. The Egg does not seed it (`EGG_MODULES` unchanged). The original "Subject's Record Detail shows related Sections" line is dropped: the standard Page has no Record Detail Sections and no relation picker yet.
+- Prototype test: boot the Egg profile, register the Academics manifest, approve the install proposal, insert a Subject, a Lecture Session and an Assignment through `moduleRecords.insert`, list each Page — real rows, never dummy; the Module row passes `packages/module-manifests/test/catalog.test.ts`.
+- Scope (as landed): `platform/packages/module-manifests/src/index.ts` — `academicsDatabases` (Subjects: name/code/term/instructor/credits; Lecture Sessions: subject `relation`→`academics.subjects`, date, topic, notes_summary, recording_link `url`; Assignments: subject relation, title, due_date, status select `not_started/in_progress/submitted/graded`, grade), Pages point at the declared Database ids, version 0.2.0, Commons entry with `need:coursework-vault`, `BUILT_IN_SOURCE_REFS` points at the manifest. Deleted the bespoke surface (`apps/web/src/app/pages/AcademicsPage.tsx`, `apps/api/src/routers/academics.ts`, `packages/db/src/academics-store.ts`, their router/wiring/deployment-boundary/route entries) so `/module/academics/:page` falls through to `ModulePage`. Study Steward Agent (`plane: local`) declared with no Skills wired yet — Skills (lecture-synthesis, syllabus-intake, recall-scheduler, reference-resolve, workload-forecast) and their Automations are follow-on tasks, not this one. Files: `module-files.ts` derives the folder from the Module display name ("Academics") — no extra code.
+- NOT LANDED: (1) the drizzle tables `academics_subjects`/`academics_lecture_sessions`/`academics_assignments` (migration 0042) stay in the schema — dropping them is a schema change that could destroy rows an install wrote through the old router; removal condition: a migration that copies any rows into `module:records:academics.*` first. (2) The `relation` columns are stored as declared but the standard Page has no relation picker (ADR 2026-09-04 consequences), so the Subject is typed by hand until the picker lands. (3) Records written through the old `academics.*` router are not migrated into the Local Plane namespace.
+- Evidence: `apps/api/test/academics-module.test.ts` and the catalog test seen failing before the manifest declared Databases ("Module academics declares no Database subjects in its manifest"; catalog `databases` deepEqual), green after; `node --test dist/test/module-records.test.js dist/test/egg-boot.test.js dist/test/egg-profile.test.js dist/test/modules.test.js dist/test/academics-module.test.js` 45/45; module-manifests 26/26; api + web typecheck clean; `check-retired-vocabulary` and `check-ui-rules` OK.
 - Requests: user directive 2026-08-13, verbatim: *"I want to create a new module called Academics. The main module should act like a vault where I have a toggle for Subjects inside which I can add and manage lecture sessions, then a toggle for assignments."*
 - Approval: AP-154 (2026-08-13) — recorded APPLIED
 - Dependencies: none
@@ -1609,31 +1593,31 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Approvals belong to Tasks: one open proposal per Automation, profile-parked Automations, Task Page and Home as the approval surfaces
 - ID: TASK-097
-- Status: done (2026-09-04; PR #80 merged, Egg installer rebuilt as ~/Downloads/Bridge-Egg_0.1.0_aarch64.dmg — the 371 stale rows are withdrawn on the first scheduler tick after reinstall)
+- Status: done (2026-09-04; PR #80 merged, Egg installer rebuilt as ~/Downloads/Bridge-Egg_0.1.0_aarch64.dmg — the 371 stale rows are withdrawn on the first scheduler tick after reinstall; 2026-09-04 follow-up branch `claude/task-097-approval-ranking`: Home ranks waiting approvals by importance and the ledger reads `superseded` as withdrawn — not yet in the installer)
 - Priority: P0
 - Horizon: Living Software
 - Outcome: A launched Egg shows no inherited pile of approvals: an Automation never holds more than one undecided proposal per identical step, stale duplicates are withdrawn as `superseded`, Automations of Modules outside the profile do not tick, and every waiting approval is reachable from its Task (Task Page Approvals section) and named with its Task on Home — never from Settings.
 - Prototype test: boot the Egg on a Local Plane holding the 371 duplicate rows → the first scheduler tick withdraws all but one per Automation and the DevPilot poll is `draft`; Home lists "learning.observationDigest · Learning observation digest outcome" linking to that Task's page, whose Approvals section approves or vetoes it; Settings → Governance shows only the Execution Ledger.
 - Scope: `packages/core/src/{types,pipeline,automation-executor}.ts`, `apps/api/src/{automation-scheduler,server,wiring}.ts`, `apps/api/src/routers/{action,brief}.ts`, `apps/web/src/app/pages/{TaskRecordDetailPage,HomePage,SettingsPage}.tsx`.
-- Evidence: `automation-scheduler.test.ts` (waits on an undecided twin; sweep keeps the newest and history reads `superseded`), `egg-profile.test.ts` (full-profile Local Plane booted as Egg parks foreign Automations), `chat-agentic-backend.test.ts`; Local Plane copy inspected 2026-09-04: 254 × digest, 117 × DevPilot poll undecided.
+- Evidence: `automation-scheduler.test.ts` (waits on an undecided twin; sweep keeps the newest and history reads `superseded`), `egg-profile.test.ts` (full-profile Local Plane booted as Egg parks foreign Automations), `chat-agentic-backend.test.ts`; Local Plane copy inspected 2026-09-04: 254 × digest, 117 × DevPilot poll undecided. Ranking: `apps/api/test/approval-importance.test.ts` (four tiers + untrusted-first + older-first, pure `rankPendingProposal`/`compareApprovalImportance` in `routers/approval-importance.ts`) and `apps/api/test/brief.test.ts` (an older share proposal leads a newer write in `brief.approvals.items`, each item carrying `importance: { tier, untrusted, rank }`; seen failing with the sort disabled before it was wired). Web: `Decision` gains `withdrawn`, `normalizeDecision('superseded') → 'withdrawn'`, Execution Ledger labels it "Withdrawn (replaced by a newer identical proposal)" and folds the withdrawal onto its proposal instead of leaving both rows "Pending"; web typecheck 0 errors, ui-rules/vocabulary gates pass.
 - Requests: user report 2026-09-04 verbatim in BUGS 2026-09-04 "255 pending approvals".
 - Approval: none needed (routine surfaces + a new ledger value; ADR 2026-09-04 "Approvals belong to Tasks" records it).
 - Dependencies: TASK-030 (Task Manager; anchor Tasks still live in kernel `goalTasks`, not Task Manager Records — the Task Page renders their approvals without a Record).
-- NOT LANDED (stated): no "importance" ranking on Home — every waiting approval is listed with its Task, capped at five, the rest behind `/approvals`.
+- NOT LANDED (stated): anchor Tasks are kernel Tasks without a Task Manager Record (TASK-030). Ranking landed 2026-09-04: Home lists the five most important of the first 50 undecided rows (external side effect > write > read, untrusted first, oldest first) with the tier as a label; the rest stay behind `/approvals`. Not landed: no per-user weighting of the tiers, and the `/approvals` page itself is still newest-first.
 
 ## The agentic chat lane knows what a Module is: the Claude Code backend is briefed and registers what it builds
 - ID: TASK-098
-- Status: done (2026-09-04; PR #80 merged, installer rebuilt)
+- Status: done (2026-09-04; PR #80 merged, installer rebuilt; second half — Modules and folders as data — landed 2026-09-04)
 - Priority: P0
 - Horizon: Living Software
 - Outcome: "Build me a Module for X" in the desktop chat starts the standard Module build process — the agent knows Bridge, the Module definition, the Organization folder, the process, and Commons prior art — and a `module.yaml` it writes becomes a pending Module the user installs from Modules.
 - Prototype test: in the installed Egg, a Claude Code thread asked "Can you build me a new module for managing my academics" creates `<Organization>/academics-manager/module.yaml`, the reply ends with "Registered the Module "academics-manager" (pending_review)", and Modules lists it.
 - Scope: `packages/core/src/chat-backend.ts` (`system`), `apps/api/src/chat/claude-code-backend.ts`, `apps/api/src/builder/run.ts` (`moduleBuildBriefing`), `apps/api/src/routers/chat.ts`.
-- Evidence: `chat-agentic-backend.test.ts` "the agentic backend is briefed on what a Module is, and a module.yaml it writes is registered".
+- Evidence: `chat-agentic-backend.test.ts` "the agentic backend is briefed on what a Module is, and a module.yaml it writes is registered" — its second turn proves the registered Module rides in `system` as `academics-manager (Academics, pending_review)` with `Database assignments: columns course:text, due:date`, and `JobManager/resume.pdf` is named `JobManager: plain folder of files, no Module` with no file name carried; seen failing unfixed 2026-09-04 ('the registered Module is listed with status'). `installedModulesForBriefing` / `organizationFoldersForBriefing` in `apps/api/src/builder/run.ts`, wired in `routers/chat.ts`; caps 30 Modules / 50 folders with "…and N more"; a failed read renders "unavailable".
 - Requests: user report 2026-09-04 verbatim in BUGS 2026-09-04 "the desktop chat asked what a module is".
 - Approval: none needed.
 - Dependencies: TASK-096 (Module manifest databases, `registerModuleManifest`).
-- NOT LANDED (stated): the briefing is static text plus prior art; it does not yet carry the installed Modules' manifests or the user's existing folders as data.
+- NOT LANDED (stated): the briefing is refreshed per turn from the store and disk, not on a change signal; the Egg prototype test (a live Claude Code thread on the rebuilt installer reading the listing) is not re-run here.
 - 2026-09-04 (TASK-100): the briefing now carries `MODULE_STRUCTURE_RULES` — the UI Rulebook's requirement → sub-module / toggle Page / List / Sections mapping — through the same `MODULE_BUILD_PROCESS` the primitive loop reads.
 
 ## The companion appears only when summoned: shortcut or open panel, never hover or launch

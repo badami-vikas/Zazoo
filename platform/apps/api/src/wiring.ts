@@ -199,7 +199,6 @@ import {
   DrizzleJobPilotStore,
   DrizzleHelpdeskStore,
   DrizzleResourcesStore,
-  DrizzleAcademicsStore,
   DrizzleEventsStore,
   DrizzleCapabilityStore,
   DrizzleEvalStore,
@@ -551,8 +550,6 @@ export interface Wiring {
   helpdeskStore: DrizzleHelpdeskStore;
   /** Resources catalog (replaces the prototype's Supabase-direct read). */
   resourcesStore: DrizzleResourcesStore;
-  /** Academics Module — Subjects/Lecture Sessions/Assignments (TASK-067). */
-  academicsStore: DrizzleAcademicsStore;
   /** NetworkManager's Events sub-module (TASK-068). */
   eventsStore: DrizzleEventsStore;
   /** Capability Trust Model — capability_manifests + capability_states (docs/wiki/vision.md). */
@@ -4554,7 +4551,6 @@ export interface ModePorts {
   dealPilotRecordStore?: DealPilotStore;
   helpdeskStore: DrizzleHelpdeskStore;
   resourcesStore: DrizzleResourcesStore;
-  academicsStore: DrizzleAcademicsStore;
   eventsStore: DrizzleEventsStore;
   capabilityStore: CapabilityStore;
   /** VAR-1 tunable space (ADR-169) — Drizzle-backed in BOTH modes. Its consumer
@@ -4708,7 +4704,6 @@ export function buildPersistentPorts(env: {
     dealPilotRecordStore: new DrizzleDealPilotStore(db),
     helpdeskStore: new DrizzleHelpdeskStore(db, PILOT_ORGANIZATION),
     resourcesStore: new DrizzleResourcesStore(db),
-    academicsStore: new DrizzleAcademicsStore(db),
     eventsStore: new DrizzleEventsStore(db),
     capabilityStore: new DrizzleCapabilityStore(db, PILOT_ORGANIZATION),
     evalStore: new DrizzleEvalStore(db, PILOT_ORGANIZATION),
@@ -4963,7 +4958,6 @@ export async function buildInMemoryPorts(env: {
     devpilotStore: new DrizzleDevpilotStore(localDb),
     helpdeskStore: new DrizzleHelpdeskStore(localDb, PILOT_ORGANIZATION),
     resourcesStore: new DrizzleResourcesStore(localDb),
-    academicsStore: new DrizzleAcademicsStore(localDb),
     eventsStore: new DrizzleEventsStore(localDb),
     capabilityStore: new DrizzleCapabilityStore(localDb, PILOT_ORGANIZATION),
     evalStore: new DrizzleEvalStore(localDb, PILOT_ORGANIZATION),
@@ -5837,7 +5831,6 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     devpilotStore,
     helpdeskStore,
     resourcesStore,
-    academicsStore,
     eventsStore,
     capabilityStore,
     organizationDefinitionStore,
@@ -7143,7 +7136,6 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     jobpilotStore,
     helpdeskStore,
     resourcesStore,
-    academicsStore,
     eventsStore,
     capabilityStore,
     organizationDefinitionStore,

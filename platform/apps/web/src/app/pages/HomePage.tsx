@@ -189,10 +189,15 @@ function MorningBriefCard() {
           )}
 
           {/* Approvals belong to Tasks (ADR 2026-09-04): each one waiting is named
-              with its Task and opens there; the count links to the full queue. */}
+              with its Task and opens there; the count links to the full queue.
+              TASK-097: ordered by the brief's `importance` (external > write >
+              read, untrusted first, oldest first) and labelled with its tier. */}
           {brief.approvals.total > 0 && (
             <div className="flex flex-col gap-1 text-xs">
-              {brief.approvals.items.slice(0, 5).map((item) => (
+              {[...brief.approvals.items]
+                .sort((a, b) => a.importance.rank - b.importance.rank || a.createdAt.localeCompare(b.createdAt))
+                .slice(0, 5)
+                .map((item) => (
                 <Link
                   key={item.proposalId}
                   to={item.task ? `/task-manager/${item.task.taskId}#approvals` : "/approvals"}
@@ -201,6 +206,9 @@ function MorningBriefCard() {
                 >
                   <span className="font-semibold">{item.skill ?? `${item.action} ${item.resourceType}`}</span>
                   {item.task ? ` · ${item.task.title}` : item.resource ? ` · ${item.resource}` : ""}
+                  <span className="ml-1.5 uppercase tracking-wide" style={{ color: "var(--color-warm-gray)" }}>
+                    {item.importance.tier}{item.importance.untrusted ? " · untrusted" : ""}
+                  </span>
                 </Link>
               ))}
               <Link to="/approvals" className="font-semibold" style={{ color: "var(--color-steel)" }}>

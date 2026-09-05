@@ -15,6 +15,16 @@
   targeted 44/44 (+1 records/structure test, briefing asserts), web 242/242 (+1 source test,
   `ModuleRecordDetailPage` exempted from the landing-shell ratchet as a Record Detail surface),
   api/web typecheck clean, vocabulary/ui-rules/agent-context gates.
+- **2026-09-04 — the agentic chat briefing carries the Organization's Modules and folders as data (TASK-098, second half)**:
+  `moduleBuildBriefing` had been static text plus Commons prior art, so a Claude Code turn could
+  not know what the Organization already had. `installedModulesForBriefing` (one row per Module
+  name from the store — `available`, else the newest not-retired version, so a just-registered
+  `private`/`pending_review` Module is listed with that status — with each declared Database's
+  column ids/kinds and each Page) and `organizationFoldersForBriefing` (top-level folder names,
+  each tagged Module (module.yaml) or plain folder of files; never file names or bodies) ride in the
+  `system` prompt as data (ADR-247), capped at 30/50 with "…and N more", and a failed read says
+  "unavailable" rather than vanishing. Evidence: `chat-agentic-backend.test.ts` second turn, seen
+  failing unfixed ('the registered Module is listed with status').
 - **2026-09-04 — first-launch reports: approvals belong to Tasks, the chat lane is briefed, the companion is summoned-only (TASK-097/098/099)**:
   the Egg's first launch showed 255 inherited approvals (254 identical learning-digest proposals
   and 117 DevPilot polls still ticking, from a Local Plane that once ran the full profile), the
@@ -4469,4 +4479,11 @@ WKWebView — the shell now opens https URLs via `open_external_url`. Both in BU
 ## 2026-09-04 — worktree cleanup: eight stray branches pushed, fifteen snapshots committed, one directive landed (AP-184)
 
 The disk hit zero mid-session with 27 GB of worktrees, 26 GB of it `node_modules`/`target`. Every local-only commit was pushed (eight branches), every dirty worktree got a `wip:` snapshot commit on its own branch so the folder could go, and each snapshot was checked against `main` before merging. Most were superseded: `worktree-agent-ad6eca` (TASK-081/089 rail presentation + Organization admin) and `academics-module-workflow` (module-scoped chat sessions) had already re-landed on `main` through later sessions, so their merges were aborted rather than fought. The June/July branches sit 350–815 commits behind and stay on their branches as history. **One thing was genuinely missing:** the 2026-08-30 directive "toggle options should always be in header" — the branch wrote it into `ui-architecture-rules-2026-07.md`, which ADR-260/AP-170 retired the same day, so it never reached `main`. Ported as raw `ui-rulebook.md` §5h + a wiki bullet (AP-184), plus the branch's `build.rs` fix: `tauri_build::build()` validates the `bundle.macOS.frameworks` list for every profile, so a fresh debug build failed on the not-yet-extracted `bridge-sqlite3.dylib`; an empty placeholder (same pattern as the keyring one above it) satisfies the manifest check and debug never loads that path. Preflight here was the doc gates (`check:agent-context`, `check:vocabulary`) only — the Rust side was not rebuilt on a full disk, so the `build.rs` change is proven by reading, not by a build. Still on their branches, not merged, each needing real work: `academics-canvas-integration` (new `integrations-canvas` package + migrations 0044/0045 that collide with `main`'s numbering) and `ox-alpha-groq-fallback` (model-provider keys/OpenRouter, conflicts in `router.ts`/`ChatView.tsx`).
+
+## 2026-09-04 — TASK-097 follow-up: Home ranks waiting approvals; the ledger reads `superseded`
+
+The brief's approval nudges now carry `importance` as data (`routers/approval-importance.ts`: external side effect > write > read, untrusted above trusted, older above newer), computed over the first 50 undecided rows and cut to five; Home sorts by it and shows the tier as a label, the count still opens `/approvals`. The web `Decision` vocabulary gains `withdrawn` so a `superseded` ledger row reads "Withdrawn (replaced by a newer identical proposal)" and closes its proposal in the Execution Ledger fold instead of both rows showing "Pending". Tests: `approval-importance.test.ts`, `brief.test.ts` (seen failing with the sort disabled). Left NOT LANDED on TASK-097: anchor Tasks without a Task Manager Record (TASK-030). Pre-existing on this branch, untouched: `pending-work.test.mjs` "the committed projection imports whole" fails 104 ≠ 105 against the committed `pending-work.ts` projection.
+## 2026-09-04 — TASK-069 Academics lands as a Commons manifest with declared Databases, no code
+
+Per ADR 2026-09-04 "The Egg ships the kernel; Modules live in Commons", Academics is now three `module.databases[]` (Subjects, Lecture Sessions, Assignments) on the `academics` manifest, rendered by the standard Module Page and served by `moduleRecords.*`; it joins `COMMONS_BUILT_IN_MODULES` (`need:coursework-vault`) and stays out of `EGG_MODULES`. The bespoke `AcademicsPage.tsx`, `routers/academics.ts`, and `DrizzleAcademicsStore` are deleted so `/module/academics/:page` reaches `ModulePage`. Not landed: the 0042 drizzle tables stay (dropping them could lose rows), rows written through the old router are not migrated, and `relation` columns have no picker on the standard Page yet. New `apps/api/test/academics-module.test.ts` (Egg boot → register → approve → insert one row per Database → list) and a catalog test, both seen red before the manifest change.
 
