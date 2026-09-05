@@ -920,7 +920,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
      Its companion ADR is grafted as ADR-217. -->
 ## Companion trigger and capture parity — Fn hold, double-click listen, on-request recording
 - ID: TASK-055
-- Status: partly landed (2026-09-04; the Fn-hold summon shipped under TASK-099 as a sustained-hold poll of the Function flag, no Input Monitoring needed; double-click listen and on-request recording remain open)
+- Status: in_progress (2026-09-04; the Fn-hold summon shipped under TASK-099 as a sustained-hold poll of the Function flag, no Input Monitoring needed; double-click listen and on-request recording remain open)
 - Priority: P3
 - Estimate: 3d
 - Horizon: Convergence
