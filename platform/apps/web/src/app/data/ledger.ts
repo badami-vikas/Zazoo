@@ -58,14 +58,19 @@ function normalizeDecision(value: unknown): Decision {
     case 'auto':
     case 'auto_approved':
       return 'auto_approved';
+    case 'superseded':
+    case 'withdrawn':
+      return 'withdrawn';
     default:
       return null;
   }
 }
 
+/** A decision row that closes its proposal — a Human review, or the machine's
+ * `superseded` withdrawal, which resolves the row without anyone deciding it. */
 function isReviewDecision(value: unknown): boolean {
   const decision = normalizeDecision(value);
-  return decision === 'approved' || decision === 'vetoed' || decision === 'edited_approved';
+  return decision === 'approved' || decision === 'vetoed' || decision === 'edited_approved' || decision === 'withdrawn';
 }
 
 function isRejectedAuditRow(row: { diff?: unknown }): boolean {
