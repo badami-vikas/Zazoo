@@ -163,7 +163,7 @@ function IntakeReviewSection() {
           <h2 id="identity-review-title" className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>Intake and identity review</h2>
           <p className="mt-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>Bounded Gmail, Calendar, and capture proposals. Source bodies stay in the Local Plane.</p>
         </div>
-        <Link to="/approvals" className="text-xs font-semibold no-underline hover:underline" style={{ color: "var(--color-steel)" }}>Open Approvals</Link>
+        <Link to="/task-manager" className="text-xs font-semibold no-underline hover:underline" style={{ color: "var(--color-steel)" }}>Open Task Manager</Link>
       </div>
       {error ? (
         <p role="alert" className="mt-3 text-sm text-red-600 break-words">{error}</p>

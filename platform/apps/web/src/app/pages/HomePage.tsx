@@ -22,6 +22,14 @@ const BUCKET_LABELS = [
  * hint only preselects when exactly one Person matches), Accept materializes
  * through the governed pipeline, Reject silences that sentence forever.
  */
+/** The count opens the one Task every waiting approval shares; otherwise the
+ * queue, whose top section holds the unanchored ones. */
+function approvalsQueueLink({ items, total }: MorningBrief["approvals"]): string {
+  const taskIds = new Set(items.map((item) => item.task?.taskId ?? null));
+  const [only] = taskIds;
+  return taskIds.size === 1 && only && total === items.length ? `/task-manager/${only}#approvals` : "/task-manager";
+}
+
 function MorningBriefCard() {
   const [brief, setBrief] = useState<MorningBrief | null>(null);
   const [people, setPeople] = useState<BriefPerson[]>([]);
@@ -200,7 +208,7 @@ function MorningBriefCard() {
                 .map((item) => (
                 <Link
                   key={item.proposalId}
-                  to={item.task ? `/task-manager/${item.task.taskId}#approvals` : "/approvals"}
+                  to={item.task ? `/task-manager/${item.task.taskId}#approvals` : "/task-manager"}
                   className="no-underline hover:underline"
                   style={{ color: "var(--color-navy)" }}
                 >
@@ -211,7 +219,7 @@ function MorningBriefCard() {
                   </span>
                 </Link>
               ))}
-              <Link to="/approvals" className="font-semibold" style={{ color: "var(--color-steel)" }}>
+              <Link to={approvalsQueueLink(brief.approvals)} className="font-semibold" style={{ color: "var(--color-steel)" }}>
                 {brief.approvals.total} approval{brief.approvals.total === 1 ? "" : "s"} waiting →
               </Link>
             </div>

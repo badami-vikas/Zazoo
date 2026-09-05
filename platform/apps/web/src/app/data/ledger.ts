@@ -390,48 +390,6 @@ export async function loadPendingApprovals(): Promise<{
   }
 }
 
-export type OutstandingRelationshipMaterialization = Awaited<
-  ReturnType<typeof trpc.relationship.outstandingMaterializations.query>
->['items'][number];
-
-export async function loadOutstandingRelationshipMaterializations(): Promise<{
-  items: OutstandingRelationshipMaterialization[];
-  error?: string;
-}> {
-  try {
-    const items: OutstandingRelationshipMaterialization[] = [];
-    const seenCursors = new Set<string>();
-    let cursor: { id: string } | undefined;
-    do {
-      const page = await trpc.relationship.outstandingMaterializations.query({
-        organizationId: PILOT_ORGANIZATION,
-        limit: 100,
-        ...(cursor ? { cursor } : {}),
-      });
-      items.push(...page.items);
-      if (!page.nextCursor) return { items };
-      if (seenCursors.has(page.nextCursor.id)) {
-        throw new Error("Outstanding Relationship pagination did not advance");
-      }
-      seenCursors.add(page.nextCursor.id);
-      cursor = page.nextCursor;
-    } while (cursor);
-    return { items };
-  } catch (cause) {
-    return {
-      items: [],
-      error: cause instanceof Error ? cause.message : String(cause),
-    };
-  }
-}
-
-export async function retryRelationshipMaterialization(proposalId: string) {
-  return trpc.relationship.retryMaterialization.mutate({
-    organizationId: PILOT_ORGANIZATION,
-    proposalId,
-  });
-}
-
 function editedProposalOutput(
   originalRecord: Record<string, unknown> | null,
   nextText: string,

@@ -9,6 +9,7 @@ import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
 import { ModuleGovernanceSection } from "../components/shared/ModuleGovernanceSection";
 import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
+import { TaskApprovalsSection } from "./TaskRecordDetailPage";
 import { DataViews } from "../dataviews/DataViews";
 import { computeEligibleKinds, viewConfigForKind } from "../dataviews/eligibility";
 import type { DataRow } from "../dataviews/types";
@@ -256,15 +257,24 @@ export function TaskManagerPage() {
       )}
       <ModuleSurfaceLayout
         above={
-          /* Notion-like: the table is always present. When no Database is
-             connected we show an honest banner above the (empty) table
-             rather than hiding it. It sits in the first screen, so it
-             shrinks the table instead of pushing it out of view. */
-          !API_TRANSPORT_CONFIGURED && !loading && !error ? (
-            <div className="mx-3 mt-3 rounded-lg border border-dashed p-3 text-xs text-muted-foreground sm:mx-4 sm:mt-4">
-              No Task Database is connected. Start the Bridge API to create the first real Task.
-            </div>
-          ) : null
+          <>
+            {/* Approvals with no Task behind them (ADR 2026-09-04): the one
+                place a direct Human action's proposal waits for a decision. */}
+            {API_TRANSPORT_CONFIGURED && (
+              <div className="mx-3 mt-3 sm:mx-4 sm:mt-4">
+                <TaskApprovalsSection taskId={null} />
+              </div>
+            )}
+            {/* Notion-like: the table is always present. When no Database is
+               connected we show an honest banner above the (empty) table
+               rather than hiding it. It sits in the first screen, so it
+               shrinks the table instead of pushing it out of view. */}
+            {!API_TRANSPORT_CONFIGURED && !loading && !error ? (
+              <div className="mx-3 mt-3 rounded-lg border border-dashed p-3 text-xs text-muted-foreground sm:mx-4 sm:mt-4">
+                No Task Database is connected. Start the Bridge API to create the first real Task.
+              </div>
+            ) : null}
+          </>
         }
         table={
           loading ? (

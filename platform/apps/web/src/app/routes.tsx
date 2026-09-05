@@ -2,7 +2,6 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { createBrowserRouter, Navigate, useParams, type RouteObject } from "react-router";
 import { moduleNavTarget, requireBuiltInModule } from "@bridge/module-manifests";
 import Layout from "./Layout";
-import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { OrganizationPage } from "./pages/OrganizationPage";
 // TASK-089: the Organization's own admin surface — its installed Modules,
 // their mount state/scopes/versions, and its membership. Reached from the
@@ -316,7 +315,10 @@ export const router = createBrowserRouter([
       { path: "task-manager", Component: TaskManagerPage },
       { path: "task-manager/:taskId", Component: TaskRecordDetailPage },
 
-      { path: "approvals", Component: ApprovalsPage },
+      // Approvals belong to Tasks (ADR 2026-09-04): each proposal is decided on
+      // the Task it waits under, unanchored ones at the top of the queue. The
+      // path survives for old links but never renders a page of its own.
+      { path: "approvals", element: <Navigate to="/task-manager" replace /> },
 
       { path: "organization", Component: OrganizationPage },
       { path: "organization/admin", Component: OrganizationAdminPage },

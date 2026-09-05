@@ -469,8 +469,13 @@ type PendingForTask = Awaited<ReturnType<typeof trpc.action.listPendingForTask.q
  * Approvals belong to Tasks (ADR 2026-09-04): every undecided proposal an
  * Automation Run raised under this Task, decided right here. The section is
  * present with nothing in it when nothing waits — the same surface, empty.
+ *
+ * `taskId: null` is the queue's own copy: proposals with no Task behind them
+ * (a direct Human action has no Automation Run). Those render at the top of
+ * the Task Manager index and only when something waits, so the queue is not
+ * headed by an empty box every morning.
  */
-function TaskApprovalsSection({ taskId }: { taskId: string }) {
+export function TaskApprovalsSection({ taskId }: { taskId: string | null }) {
   const [items, setItems] = useState<PendingForTask[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deciding, setDeciding] = useState<string | null>(null);
@@ -501,11 +506,13 @@ function TaskApprovalsSection({ taskId }: { taskId: string }) {
     }
   }
 
+  if (taskId === null && !error && (items?.length ?? 0) === 0) return null;
+
   return (
     <section id="approvals" className="rounded-lg border p-4">
       <div className="mb-3 flex items-center gap-2">
         <ShieldCheck className="size-4 text-[var(--color-steel)]" />
-        <h2 className="text-sm font-semibold">Approvals</h2>
+        <h2 className="text-sm font-semibold">{taskId === null ? "Waiting for your yes" : "Approvals"}</h2>
         {items && items.length > 0 && (
           <span className="text-xs text-muted-foreground">{items.length} waiting on you</span>
         )}

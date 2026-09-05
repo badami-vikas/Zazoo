@@ -21,7 +21,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -355,6 +355,22 @@ test("Second Brain has exactly one entry point — Intelligence (ADR-224)", () =
   assert.doesNotMatch(routes, /path: "second-brain", Component/);
   // Intelligence mounts the ONE renderer, embedded.
   assert.match(read("src/app/pages/IntelligencePage.tsx"), /<SecondBrainPage embedded \/>/);
+});
+
+test("Approvals belong to Tasks — no standalone page, /approvals only redirects (ADR 2026-09-04, user report 2026-09-05)", () => {
+  const routes = read("src/app/routes.tsx");
+  assert.doesNotMatch(routes, /ApprovalsPage/);
+  assert.match(routes, /path: "approvals",[^\n]*<Navigate to="\/task-manager" replace \/>/);
+  assert.ok(!existsSync(join(PAGES, "ApprovalsPage.tsx")), "the standalone Approvals page must be deleted");
+  // Every link that used to open the page now opens the Task (or the queue).
+  for (const file of readdirSync(PAGES).filter((name) => name.endsWith(".tsx"))) {
+    assert.doesNotMatch(readFileSync(join(PAGES, file), "utf8"), /to="\/approvals"/, `${file} still links to /approvals`);
+  }
+  // Unanchored proposals (a direct Human action has no Automation Run, so no
+  // Task) still have ONE home: the same section the Task page renders.
+  assert.match(read("src/app/pages/TaskManagerPage.tsx"), /<TaskApprovalsSection taskId=\{null\} \/>/);
+  // The dead Egg call the red banner came from is gone with the page.
+  assert.doesNotMatch(read("src/app/data/ledger.ts"), /outstandingMaterializations/);
 });
 
 test("the insights row is ONE component everywhere (§5, user directive 2026-08-10)", () => {

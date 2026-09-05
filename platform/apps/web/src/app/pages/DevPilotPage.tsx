@@ -277,8 +277,8 @@ export function DevPilotPage({ page }: { page: DevpilotPageId }) {
                         )}
                         <p className="mt-2 text-xs text-muted-foreground">
                           This is a draft proposal — nothing was sent to GitHub. Review, edit, or veto it on{" "}
-                          <Link to="/approvals" className="underline">
-                            Approvals
+                          <Link to="/task-manager" className="underline">
+                            Task Manager
                           </Link>
                           .
                         </p>
