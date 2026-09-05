@@ -3300,3 +3300,42 @@ reaches it and a deliberate Fn hold still does. A panel opened by push-to-talk (
 itself once the dictation is typed (`onTaskDone`) or the answer is delivered and spoken
 (`dismissAfterTask`), and the companion conceals with it. Not automated: the flag poll is macOS-only
 runtime behaviour; confirmed on the rebuilt installer or reopened.
+
+### 2026-09-05 — the Builder designed without discovering: no Commons match, no Integrations, no Skills or Automations (FIXED, TASK-101; attach also TASK-098)
+
+User report, verbatim: *"Did the module builder do research on opensource solutions that are similar to my
+requested module or the academics modules in commons? Because it didnt ask for any integrations or ask
+for softwares I use that it can connect with or research relevant skills or propose relevant
+automations? The builder in myzazoo used to do these, why is this builder not doing it despite me
+asking you to refer myzazoo repo before building this builder agent"*
+
+What the user saw: in the desktop chat (Claude Code backend, Chief of Staff), "build me a module for my
+academics" produced two Databases + Pages, "No Agents/Automations for now", no mention of the Academics
+Module already in Commons, no question about the software they use, no open-source prior art, no
+proposed Skills or Automations.
+
+**Evidence:** (1) `MODULE_BUILD_PROCESS` began at "1. … write module.yaml first" — no discovery step
+existed as data, so the agent did exactly what it was told: write. (2) `commonsPriorArt` asked only the
+`HttpCommonsClient` (`COMMONS_URL`, default `localhost:4780`); with no Commons service running — every
+test, and the installed Egg — `listAvailable` threw and the briefing said "registry unreachable; build
+without it", so the Commons Academics Module (`academics@0.2.0`, compiled in as
+`COMMONS_BUILT_IN_MODULES`) never reached the prompt. (3) The briefing carried no Integrations at all,
+though the manifests declare `google-gmail`, `google-calendar`, `github` and `bizbuysell-alerts`
+connectors. (4) Prior-art entries carried Pages only in the chat lane — no Skills/Agents/Automations,
+no governance — so "none for now" was the path of least resistance. (5) On the myzazoo claim: its
+`src/prompt.md` (read 2026-09-05) has no discovery, prior-art or integration step either; what it does
+do is list each Module's Skills by name + description in the system prompt and tell the agent to read
+them before working, and to recall memories before acting — the shape reused here for Skills,
+Agents and Automations as data. No older "zazoo" reference repo exists beside it.
+
+**Fix (2026-09-05):** `MODULE_DISCOVERY_STEPS` (restate → prior art with OFFER-install → software the
+user uses, ASK before designing → Skills/Automations with read/write/egress governance → structure and
+a plan the user confirms, all questions in ONE message) rides at the head of `MODULE_BUILD_PROCESS`,
+before the write steps, in both the primitive-loop prompt and the Claude Code briefing.
+`commonsPriorArt` ranks the built-in Commons catalogue alongside the registry listing (registry status
+still reported honestly); every prior-art entry carries its declared Skills, Agents, Automations and
+Integrations with `read`/`write`/`egress`. `integrationsForBriefing()` reads the `integration`
+capabilities + connectors from the manifests into an "Integrations Bridge can connect today" list.
+Not fabricated: the Academics manifest declares `automations: []` and no Canvas connector, so the
+briefing says "Study Steward (agent; read, write)" and nothing about Canvas. ADR 2026-09-05 "The
+Builder discovers before it designs".

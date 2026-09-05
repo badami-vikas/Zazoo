@@ -9,7 +9,7 @@ import { MAX_TRANSCRIPTION_AUDIO_BYTES, transcribeAudio, VoiceTranscriptionError
 import { organizationFilesRoot } from "../module-files.js";
 import { relative, sep } from "node:path";
 import { BUILT_IN_MODULES } from "@bridge/module-manifests";
-import { commonsPriorArt, installedModulesForBriefing, moduleBuildBriefing, organizationFoldersForBriefing } from "../builder/run.js";
+import { commonsPriorArt, installedModulesForBriefing, integrationsForBriefing, moduleBuildBriefing, organizationFoldersForBriefing } from "../builder/run.js";
 import { readModuleManifestFile, registerModuleManifest } from "../module-register.js";
 import { ClaudeSignInRequiredError } from "../chat/claude-code-backend.js";
 import { deterministicUuid } from "../deterministic-uuid.js";
@@ -654,6 +654,9 @@ export const chatRouter = t.router({
               priorArtUnavailable: priorArt.unavailable,
               installedModules,
               folders,
+              // What Bridge can connect today, from the manifests — so the agent
+              // asks about the user's software instead of designing blind.
+              integrations: integrationsForBriefing(),
             });
 
             let backendTurn: ChatBackendTurn;

@@ -1,5 +1,23 @@
 # Change Log
 
+- **2026-09-05 — the Builder discovers before it designs (TASK-101)**: the user asked why "build me
+  a module for my academics" designed two Databases with "No Agents/Automations for now", no mention
+  of the Commons Academics Module, no question about their software, no open-source prior art. Root
+  causes were data, not the model: `MODULE_BUILD_PROCESS` began at "write module.yaml"; `commonsPriorArt`
+  asked only the HTTP registry, unreachable in every no-service boot, so the compiled-in Commons
+  catalogue was never read; the briefing carried no Integrations and prior art carried Pages only.
+  Now `MODULE_DISCOVERY_STEPS` (restate → prior art with OFFER-install → ASK about software against
+  the manifests' Integrations → Skills/Agents/Automations with read/write/egress → structure + plan,
+  ONE message) head the process in both Builder lanes; `commonsPriorArt` ranks
+  `COMMONS_BUILT_IN_MODULES` beside the registry and reports registry status honestly; each entry
+  lists its declared capabilities with `governanceOf`; `integrationsForBriefing()` reads
+  `integration` connectors from the manifests (`google-gmail`, `google-calendar`, `github`,
+  `bizbuysell-alerts`). myzazoo's `src/prompt.md` was read as asked: no discovery step there either;
+  its Skills-as-listed-data shape is what was reused. Evidence: `chat-agentic-backend.test.ts`
+  briefing asserts + ordering unit test, both seen failing first as missing exports; targeted api
+  35/35; typecheck/build clean; vocabulary gate flagged "project"/"tool" in the new copy → reworded,
+  then OK; agent-context OK. ADR 2026-09-05 "The Builder discovers before it designs"; BUGS
+  2026-09-05; TASK-098 note. Not done: a live Claude Code turn on the installed Egg.
 - **2026-09-04 — pending-task batch by subagents, merged in order and shipped in one installer**: PR #81 (TASK-098: the agentic briefing carries installed Modules with Databases/columns/Pages and the Organization folders tagged Module-or-plain, as data), PR #82 (TASK-097: Home ranks waiting approvals by tier external > write > read, untrusted first, oldest first; `superseded` reads as withdrawn in the ledger), PR #83 (TASK-069: Academics is a Commons manifest with three declared Databases and no bespoke code; the old page/router/store deleted; drizzle tables kept until a copying migration exists), PR #84 (TASK-100: `module.sub_modules[]` and per-Database `sections`, rail disclosure, scoped header toggles, `ModuleRecordDetailPage`, `MODULE_STRUCTURE_RULES` in the Builder prompt and briefing, ADR 2026-09-04 "The Builder's Module has the Rulebook's structure"). TASK-037 closed (stashes preserved as pushed `salvage/stash-*` branches, 116 local branches verified contained in main). Merged main verified: turbo build 26/26, api + web typecheck clean, core 805/805, web 242/242, full api suite no failures, vocabulary/ui-rules/agent-context OK. Egg installer rebuilt from main 1e86eaca → `~/Downloads/Bridge-Egg_0.1.0_aarch64.dmg` (22:35). Not done: live walk of any of it on the installed app (user's machine).
 - **2026-09-04 — the Builder's Module has the Rulebook's structure (TASK-100)**: asked whether the
   Builder maps a requirement onto Module → sub-module → toggle → Section → element page, the answer
