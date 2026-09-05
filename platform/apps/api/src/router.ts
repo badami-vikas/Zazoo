@@ -39,7 +39,6 @@ import { d2cRouter } from "./routers/d2c.js";
 import { d2cResearchRouter } from "./routers/d2cResearch.js";
 import { d2cNotesRouter } from "./routers/d2cNotes.js";
 import { resourcesRouter } from "./routers/resources.js";
-import { academicsRouter } from "./routers/academics.js";
 import { eventsRouter } from "./routers/events.js";
 import { capabilityRouter } from "./routers/capability.js";
 import { modulesRouter } from "./routers/modules.js";
@@ -97,7 +96,6 @@ const commonsModuleNamespaces = {
   d2cResearch: d2cResearchRouter,
   d2cNotes: d2cNotesRouter,
   resources: resourcesRouter,
-  academics: academicsRouter,
   events: eventsRouter,
 };
 

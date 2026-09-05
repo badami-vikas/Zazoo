@@ -3,7 +3,7 @@
  * manifests the module store installs; no frontend inventory is hardcoded.
  */
 import { TASK_PLAYBOOKS } from "@bridge/core";
-import type { CapabilityManifest, CommonsProvenance, ModuleManifest, RiskBand } from "@bridge/core";
+import type { CapabilityManifest, CommonsProvenance, ModuleDatabaseBinding, ModuleManifest, RiskBand } from "@bridge/core";
 
 export type BuiltInModule = {
   manifest: ModuleManifest;
@@ -265,7 +265,8 @@ const BUILT_IN_SOURCE_REFS: Readonly<Record<string, string>> = {
   "deal-pilot": "platform/modules/dealpilot/src/manifest.ts",
   "job-pilot": "platform/modules/jobpilot/src/manifest.ts",
   relationship: "platform/apps/web/src/app/pages/RelationshipPage.tsx",
-  academics: "platform/apps/web/src/app/pages/AcademicsPage.tsx",
+  // Academics ships no code: the manifest's declared Databases ARE the Module.
+  academics: "platform/packages/module-manifests/src/index.ts",
   events: "platform/apps/web/src/app/pages/EventsPage.tsx",
   "task-manager": "platform/packages/core/src/task-manager.ts",
   whatsapp: "platform/modules/whatsapp/src/index.ts",
@@ -544,11 +545,18 @@ const relationshipCapabilities = [
 
 /**
 /**
- * Academics Module capabilities (TASK-067, ADR-231). Three private
+ * Academics Module capabilities (TASK-069, ADR-231). Three private
  * database Pages over the owner's own coursework Records — no egress. The
  * Study Steward Agent is declared with no `skillIds` yet: lecture-synthesis,
  * syllabus-intake, recall-scheduler, reference-resolve, and workload-forecast
  * are later phases of this same Task, not a separate Module version.
+ *
+ * Since ADR 2026-09-04 "The Egg ships the kernel; Modules live in Commons"
+ * this Module ships NO code: `academicsDatabases` below is the whole surface —
+ * the standard Module Page renders each declared Database and
+ * `moduleRecords.*` serves its rows from the Local Plane. The manifest is a
+ * Commons entry (it carries no personal data; the owner's coursework Records
+ * never leave the Local Plane), and the Egg does not seed it (`EGG_MODULES`).
  */
 const academicsCapabilities = [
   capability("academics.page.subjects", "Subjects", "database", [readPrivate("record"), writePrivate("record")]),
@@ -564,6 +572,50 @@ const academicsCapabilities = [
     readPrivate("record"),
     writePrivate("record"),
   ]),
+];
+
+const academicsDatabases: ModuleDatabaseBinding[] = [
+  {
+    id: "subjects",
+    name: "Subjects",
+    columns: [
+      { id: "name", label: "Name", kind: "text", required: true },
+      { id: "code", label: "Code", kind: "text" },
+      { id: "term", label: "Term", kind: "text" },
+      { id: "instructor", label: "Instructor", kind: "text" },
+      { id: "credits", label: "Credits", kind: "number" },
+    ],
+  },
+  {
+    id: "lecture-sessions",
+    name: "Lecture Sessions",
+    columns: [
+      // A relation column is stored as declared; the standard Page has no
+      // relation picker yet (ADR 2026-09-04 consequences), so the Subject is
+      // typed by hand until it does.
+      { id: "subject", label: "Subject", kind: "relation", relationTarget: "academics.subjects", required: true },
+      { id: "date", label: "Date", kind: "date" },
+      { id: "topic", label: "Topic", kind: "text", required: true },
+      { id: "notes_summary", label: "Notes summary", kind: "text" },
+      { id: "recording_link", label: "Recording link", kind: "url" },
+    ],
+  },
+  {
+    id: "assignments",
+    name: "Assignments",
+    columns: [
+      { id: "subject", label: "Subject", kind: "relation", relationTarget: "academics.subjects", required: true },
+      { id: "title", label: "Title", kind: "text", required: true },
+      { id: "due_date", label: "Due date", kind: "date" },
+      {
+        id: "status",
+        label: "Status",
+        kind: "select",
+        options: ["not_started", "in_progress", "submitted", "graded"],
+      },
+      { id: "grade", label: "Grade", kind: "text" },
+    ],
+  },
 ];
 
 /**
@@ -1151,11 +1203,13 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     computedRisk: "operational",
     manifest: {
       name: "academics",
-      version: "0.1.0",
+      // 0.2.0: declared Databases replace the bespoke Page/router/store
+      // (ADR 2026-09-04 "The Egg ships the kernel; Modules live in Commons").
+      version: "0.2.0",
       kind: "organization_definition",
       summary: "Subjects, Lecture Sessions, and Assignments — the owner's coursework vault.",
       description:
-        "Three sibling toggles over the owner's own coursework Records: Subjects, Lecture Sessions, Assignments. A Subject's Record Detail carries its own Sessions and Assignments as related Sections (ui-architecture-rules — toggles stay one level; nesting is a sub-module concern, not this Module's). Local Files land under `~/Documents/Bridge/<Organization>/Academics/`.",
+        "Three sibling toggles over the owner's own coursework Records: Subjects, Lecture Sessions, Assignments — each a declared Database rendered by the standard Module Page (UI Rulebook §3d). Local Files land under `~/Documents/Bridge/<Organization>/Academics/`.",
       lineageManifestId: null,
       dependencies: [],
       capabilities: academicsCapabilities,
@@ -1167,26 +1221,27 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
         // as NetworkManager's own multi-Page `route: "/module/relationship"`
         // (a single-Page sub-module like Helpdesk uses its own Page route).
         route: "/module/academics",
+        databases: academicsDatabases,
         pages: [
           {
             id: "subjects",
             name: "Subjects",
             route: "/module/academics/subjects",
-            databaseId: "academics.subjects",
+            databaseId: "subjects",
             capabilityId: "academics.page.subjects",
           },
           {
             id: "sessions",
             name: "Lecture Sessions",
             route: "/module/academics/sessions",
-            databaseId: "academics.lecture-sessions",
+            databaseId: "lecture-sessions",
             capabilityId: "academics.page.lecture-sessions",
           },
           {
             id: "assignments",
             name: "Assignments",
             route: "/module/academics/assignments",
-            databaseId: "academics.assignments",
+            databaseId: "assignments",
             capabilityId: "academics.page.assignments",
           },
         ],
@@ -1935,8 +1990,6 @@ export const COMMONS_BUILT_IN_MODULES: readonly CommonsBuiltInModule[] = [
       // capability another Organization could install. Commons never carries
       // personal data.
       pkg.manifest.name !== "helpdesk" &&
-      // Academics is the owner's own coursework — personal data, same reasoning.
-      pkg.manifest.name !== "academics" &&
       // Events resolves speakers into the owner's own private People, same as
       // Helpdesk's reasoning above (TASK-070, ADR-236).
       pkg.manifest.name !== "events" &&
@@ -1965,7 +2018,9 @@ export const COMMONS_BUILT_IN_MODULES: readonly CommonsBuiltInModule[] = [
             "need:agent-task-routing",
             "need:planning-playbooks",
           ]
-        : ["built-in", pkg.manifest.kind],
+        : pkg.manifest.name === "academics"
+          ? ["built-in", pkg.manifest.kind, "coursework", "study", "need:coursework-vault"]
+          : ["built-in", pkg.manifest.kind],
     },
   })),
   {

@@ -228,6 +228,18 @@
   },
   {
    "family": "avatar_lifecycle",
+   "pathPrefix": "apps/api/test/academics-module.test.ts",
+   "reason": "Boots the Egg profile (ADR 2026-09-04) and installs Academics from its Commons manifest. Kernel-install sense.",
+   "reviewed": "AP-183 · 2026-09-04 · TASK-069"
+  },
+  {
+   "family": "avatar_lifecycle",
+   "pathPrefix": "packages/module-manifests/test/catalog.test.ts",
+   "reason": "Asserts Academics is absent from EGG_MODULES (ADR 2026-09-04). Kernel-install sense.",
+   "reviewed": "AP-183 · 2026-09-04 · TASK-069"
+  },
+  {
+   "family": "avatar_lifecycle",
    "pathPrefix": "apps/web/src/app/routes.tsx",
    "reason": "VITE_BRIDGE_PROFILE=egg drops Commons Module Pages from the build (ADR 2026-09-04). Kernel-install sense.",
    "reviewed": "AP-183 · 2026-09-04 · TASK-096"
@@ -260,12 +272,6 @@
    "family": "project",
    "pathPrefix": "apps/api/src/routers/academics.ts",
    "reason": "(Path moved from router.ts by the 2026-09-03 router split, TASK-031.) Academic domain Record label, not the retired Bridge product noun. The two occurrences are the assignment-type enum literal in the Academics procedures' zod schemas — z.enum([\"problem_set\", \"essay\", \"project\", \"exam\", \"lab\"]) — where 'project' names a kind of school assignment alongside essays and labs. Domain Record labels never become kernel primitives (CLAUDE.md), and renaming the academic concept would misname the domain to dodge a product-vocabulary rule about a different noun. Found as a pre-existing main breakage by TASK-042's verify (the Academics merge landed without the gate re-running); absorbed per the TASK-036 blocker convention.",
-   "reviewed": "AP-155 · 2026-08-14 · TASK-036"
-  },
-  {
-   "family": "project",
-   "pathPrefix": "apps/web/src/app/pages/AcademicsPage.tsx",
-   "reason": "Same academic assignment-type domain label as the router.ts entry above — the page's options array for the assignment form mirrors the API enum and must match it exactly.",
    "reviewed": "AP-155 · 2026-08-14 · TASK-036"
   },
   {

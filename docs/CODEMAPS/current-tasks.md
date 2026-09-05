@@ -16,7 +16,6 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-032 | in_progress | P2 | Deal Copilot learning observation loop (generic Egg baseline v1) | TASK-002 |
 | TASK-033 | in_progress | P2 | Universal Commons capability archetypes (roadmap-v2 Phase 4) | TASK-032 |
 | TASK-037 | ready | P3 | Repository hygiene and unlanded work recovery | none |
-| TASK-069 | ready | P2 | Academics Module — Subjects/Lecture Sessions/Assignments vault | none |
 | TASK-070 | ready | P2 | Events sub-module (NetworkManager) — speaker extraction + LinkedIn outreach queue | none |
 | TASK-073 | ready | P2 | Retrofit the newly-adopted UI conventions against every pre-existing Module | none |
 | TASK-040 | in_progress | P2 | LA3 Phase 2 — credentialed SearchProvider tier for the research lane | TASK-023 |
