@@ -23,6 +23,7 @@ import {
 import { InMemorySourceCredentialVault } from "@bridge/dealpilot";
 
 import { appRouter } from "../src/router.js";
+import { MODULE_STRUCTURE_RULES } from "../src/builder/run.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
 import { makeCaller } from "./caller.js";
 
@@ -362,6 +363,16 @@ test("the agentic backend is briefed on what a Module is, and a module.yaml it w
     assert.match(system, /module\.yaml/);
     assert.match(system, /do not ask what a Module is/);
     assert.ok(system.includes(backend.calls[0]!.workingDirectory), "the briefing names the Organization folder");
+    // The Rulebook's mapping rules ride in the same briefing (TASK-100): the
+    // structure a requirement maps onto, stated as the Rulebook states them.
+    for (const rule of MODULE_STRUCTURE_RULES) {
+      assert.ok(system.includes(rule), `the briefing carries the mapping rule: ${rule.slice(0, 60)}`);
+    }
+    assert.match(system, /shares the Module's primary Record/);
+    assert.match(system, /its own toolbar, Lists and Files/);
+    assert.match(system, /sub_modules/);
+    assert.match(system, /sections/);
+    assert.match(system, /never a Page/);
 
     // What the agent wrote is a pending Module now, and the reply says so.
     const assistant = view.turns[view.turns.length - 1];

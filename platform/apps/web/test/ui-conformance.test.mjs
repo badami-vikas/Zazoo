@@ -42,6 +42,7 @@ const EXEMPT = {
   "PublicHelpdesk.tsx": "Unauthenticated surface outside the authed nav shell entirely.",
   "SettingsPage.tsx": "Preferences form; not a Database view.",
   "TaskRecordDetailPage.tsx": "Record Detail surface (§3b) — sections, not a landing view.",
+  "ModuleRecordDetailPage.tsx": "Record Detail surface (§3b, C-15) of a Builder-built Module — fields + Sections, not a landing view.",
   "IntelligencePage.tsx": "Agents/Automations/Integrations inventory (§4b), manifest-sourced.",
   "ChiefOfStaffPage.tsx": "Agent conversation surface, not a Database page.",
   "WhatsAppPage.tsx": "Live session surface driven by the WhatsApp engine, not a table.",

@@ -172,6 +172,86 @@ test("a registered, installed Module serves its definition and rows; an undeclar
   }
 });
 
+/** The invoice tracker grown along the Rulebook's structure (TASK-100): a
+ * Payments Database that needs its own toolbar becomes a sub-module, and the
+ * Invoices Database switches Intelligence off for every one of its Records. */
+function structuredModuleManifest(name = "invoice-tracker") {
+  const manifest = builtModuleManifest(name);
+  const surface = manifest.module.module as typeof manifest.module.module & {
+    sub_modules?: { id: string; name: string; pages: string[] }[];
+  };
+  (surface.databases[0] as { sections?: Record<string, boolean> }).sections = { intelligence: false };
+  surface.databases.push({
+    id: "payments",
+    name: "Payments",
+    columns: [
+      { id: "invoice", label: "Invoice", kind: "text", required: true },
+      { id: "amount", label: "Amount", kind: "number" },
+    ],
+  });
+  surface.pages.push({
+    id: "payments",
+    name: "Payments",
+    route: `/module/${name}/payments`,
+    database_id: "payments",
+    capability_id: `${name}.invoices`,
+  });
+  surface.sub_modules = [{ id: "billing", name: "Billing", pages: ["payments"] }];
+  return manifest;
+}
+
+test("the resolved structure is served, and a declared Database's Sections are the default the Record page reads (TASK-100)", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    const { installation } = await caller.modules.register({
+      organizationId: PILOT_ORGANIZATION,
+      manifest: structuredModuleManifest(),
+    });
+    await approveInstall(caller, installation.id);
+
+    const structure = await caller.moduleRecords.structure({
+      organizationId: PILOT_ORGANIZATION,
+      moduleName: "invoice-tracker",
+    });
+    assert.deepEqual(structure.rootPages.map((page) => page.id), ["invoices"]);
+    assert.deepEqual(
+      structure.subModules.map((sub) => [sub.id, sub.name, sub.pages.map((page) => page.id)]),
+      [["billing", "Billing", ["payments"]]],
+    );
+    assert.deepEqual(structure.databases, [
+      { id: "invoices", name: "Invoices", sections: { notes: true, intelligence: false, governance: true } },
+      { id: "payments", name: "Payments", sections: { notes: true, intelligence: true, governance: true } },
+    ]);
+
+    const definition = await caller.moduleRecords.definition({
+      organizationId: PILOT_ORGANIZATION,
+      moduleName: "invoice-tracker",
+      databaseId: "invoices",
+    });
+    assert.deepEqual(definition.sections, { notes: true, intelligence: false, governance: true });
+
+    // What every Record page of the Database shows comes from the manifest
+    // until the owner switches a Section, and switching one keeps the rest.
+    const specId = "invoice-tracker.invoices";
+    assert.deepEqual(
+      await caller.records.sections({ organizationId: PILOT_ORGANIZATION, specId }),
+      { notes: true, intelligence: false, governance: true },
+    );
+    assert.deepEqual(
+      await caller.records.setSection({ organizationId: PILOT_ORGANIZATION, specId, section: "governance", enabled: false }),
+      { notes: true, intelligence: false, governance: false },
+    );
+    // A built-in Database that declares nothing keeps the all-off default.
+    assert.deepEqual(
+      await caller.records.sections({ organizationId: PILOT_ORGANIZATION, specId: "task-manager.tasks" }),
+      { notes: false, intelligence: false, governance: false },
+    );
+  } finally {
+    await wiring.close();
+  }
+});
+
 /** Install is a governed proposal. A Module that writes Records is
  * transformational, so it parks for the human's decision rather than
  * auto-installing — the same path every non-informational Module takes. */

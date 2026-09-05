@@ -149,6 +149,38 @@ test("no trace of the Module Detail PAGE remains — the bare module path only r
   assert.match(routes, /function ModuleRootRedirect[\s\S]{0,1200}<Navigate/);
 });
 
+test("a Builder-built Module's sub-modules are nav children, its toggles are scoped, and its Records have a detail route (TASK-100)", () => {
+  // The rail reuses the ADR-178 disclosure: a manifest sub-module becomes a
+  // nav entry whose parent is its Module, keyed `<module>/<sub-module id>`.
+  const layout = readFileSync(new URL("../src/app/Layout.tsx", import.meta.url), "utf8");
+  assert.match(layout, /moduleStructure\(/, "the rail resolves the manifest through the one core resolver");
+  assert.match(layout, /structure\.subModules\.map\(/);
+  assert.match(layout, /moduleName: `\$\{p\.moduleName\}\/\$\{sub\.id\}`/);
+  assert.match(layout, /parentModule: p\.moduleName/);
+  // The Module lands on its first ROOT Page, not on a sub-module's.
+  assert.match(layout, /structure\.rootPages\[0\]/);
+
+  // The header toggles are the Pages of the current scope — the sub-module's
+  // when the Page belongs to one, the root's otherwise (UI Rulebook §5h).
+  const page = readFileSync(new URL("../src/app/pages/ModulePage.tsx", import.meta.url), "utf8");
+  assert.match(page, /moduleStructure\(/);
+  assert.match(page, /const scopePages = scope \? scope\.pages : structure\.rootPages/);
+  assert.match(page, /tabs=\{scopePages\.map\(/);
+  // A row opens the standard Record detail page — write on Save only (C-34).
+  assert.match(page, /onOpenRecord=/);
+  assert.match(page, /moduleRecordRoute\(moduleName, page\.id, /);
+
+  const routes = readFileSync(new URL("../src/app/routes.tsx", import.meta.url), "utf8");
+  assert.match(routes, /path: "module\/:moduleName\/:pageId\/:recordId", Component: ModuleRecordDetailPage/);
+  const detail = readFileSync(new URL("../src/app/pages/ModuleRecordDetailPage.tsx", import.meta.url), "utf8");
+  // C-15: sticky back + path header; the enabled Sections come from the one
+  // per-Database component every Record page shares.
+  assert.match(detail, /sticky top-0/);
+  assert.match(detail, /<RecordSections specId=\{specId\} moduleName=\{moduleName\} recordId=\{recordId\} \/>/);
+  assert.match(detail, /trpc\.moduleRecords\.update\.mutate/);
+  assert.doesNotMatch(detail, /onChange=\{[^}]*mutate/, "typing never writes; only Save does");
+});
+
 test("Commons discovery stays Module-scoped; Intelligence stays manifest-sourced (ADR-154)", () => {
   const routes = readFileSync(new URL("../src/app/routes.tsx", import.meta.url), "utf8");
   // ADR-154 reintroduces /intelligence as something different in kind: the

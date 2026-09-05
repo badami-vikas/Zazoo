@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { Link, Outlet, useLocation } from "react-router";
 import { Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles, ChevronRight, Building2 } from "lucide-react";
 import { moduleNavTarget, buildModuleNavTree } from "@bridge/module-manifests";
+import { moduleStructure } from "@bridge/core";
 import { trpc, PILOT_ORGANIZATION } from "./lib/trpc";
 import { useAppFocusCapture } from "./lib/app-focus-capture";
 import { useInputCaptureDrain } from "./lib/input-capture-drain";
@@ -71,6 +72,10 @@ type NavModule = {
   icon: typeof Boxes;
   /** Set when this Module declares a nav parent (ADR-178) — it renders nested. */
   parentModule?: string | undefined;
+  /** Set for a manifest sub-module (TASK-100): a nav child grouping some of
+   *  its Module's Pages, keyed `<module>/<sub-module id>`, not an installation
+   *  of its own. These are its Page routes, for the active highlight. */
+  routes?: string[] | undefined;
 };
 
 // TaskManager is a default Module: it always appears under Home regardless of
@@ -222,7 +227,7 @@ export default function Layout() {
   // TASK-001 VOCAB6: installed modules from modules.list (real API, not
   // hardcoded). Only `available` state modules appear in the nav.
   const [installedModules, setInstalledModules] = useState<
-    { moduleName: string; displayName: string; parentModule?: string | undefined; landing?: string | undefined; base?: string | undefined }[] | null
+    { moduleName: string; displayName: string; parentModule?: string | undefined; landing?: string | undefined; base?: string | undefined; routes?: string[] | undefined }[] | null
   >(null);
   const [expandedModules, setExpandedModules] = useState<string[]>(() => loadExpandedModules());
 
@@ -272,22 +277,38 @@ export default function Layout() {
               p.manifest?.module !== undefined &&
               p.moduleAttachment === undefined,
           )
-          .map((p) => ({
-            moduleName: p.moduleName,
-            // TASK-081: the Organization's own name for the Module wins. It is
-            // durable (module_installations.display_name_override) and moves the
-            // local Files folder with it, so it is the label on every machine —
-            // the localStorage copy below is only this browser's optimistic echo.
-            displayName: p.displayNameOverride
-              ?? p.manifest?.module?.displayName ?? p.manifest?.name ?? p.moduleName,
-            parentModule: p.manifest?.module?.parentModule,
-            // ADR 2026-09-04: a Module outside the built-in catalog lands on the
-            // first Page its installed manifest declares, in the standard shell.
-            landing: p.manifest?.module?.pages[0]
-              ? `/module/${p.moduleName}/${p.manifest.module.pages[0].id}`
-              : undefined,
-            base: p.manifest?.module?.pages[0] ? `/module/${p.moduleName}` : undefined,
-          }));
+          .flatMap((p) => {
+            // ADR 2026-09-04 / TASK-100: a Module outside the built-in catalog
+            // lands on its first ROOT Page in the standard shell, and each
+            // manifest sub-module is a nav child of it — the same disclosure a
+            // hand-written sub-module gets (ADR-178), keyed `<module>/<sub id>`.
+            const structure = moduleStructure(p.manifest);
+            const landingPage = structure.rootPages[0] ?? p.manifest?.module?.pages[0];
+            const parent = {
+              moduleName: p.moduleName,
+              // TASK-081: the Organization's own name for the Module wins. It is
+              // durable (module_installations.display_name_override) and moves the
+              // local Files folder with it, so it is the label on every machine —
+              // the localStorage copy below is only this browser's optimistic echo.
+              displayName: p.displayNameOverride
+                ?? p.manifest?.module?.displayName ?? p.manifest?.name ?? p.moduleName,
+              parentModule: p.manifest?.module?.parentModule,
+              landing: landingPage ? `/module/${p.moduleName}/${landingPage.id}` : undefined,
+              base: landingPage ? `/module/${p.moduleName}` : undefined,
+            };
+            const children = structure.subModules.map((sub) => {
+              const routes = sub.pages.map((page) => `/module/${p.moduleName}/${page.id}`);
+              return {
+                moduleName: `${p.moduleName}/${sub.id}`,
+                displayName: sub.name,
+                parentModule: p.moduleName,
+                landing: routes[0],
+                base: routes[0],
+                routes,
+              };
+            });
+            return [parent, ...children];
+          });
         setInstalledModules(available);
       })
       .catch((failure) => {
@@ -419,6 +440,7 @@ export default function Layout() {
       base: nav?.base ?? mod.base ?? "/home",
       icon: Boxes,
       parentModule: mod.parentModule,
+      routes: mod.routes,
     };
   });
   const navModules: NavModule[] = [
@@ -438,7 +460,9 @@ export default function Layout() {
   // chat instead of whatever thread happened to be last (ADR-267e). Longest
   // base wins so a sub-module's page does not resolve to its parent.
   const activeModuleName: string | undefined = navModules
-    .filter((mod) => isActive(mod.base))
+    // A manifest sub-module is a grouping of its Module's Pages, not a Module
+    // with a chat of its own, so it never becomes the bound Module.
+    .filter((mod) => !mod.routes && isActive(mod.base))
     .sort((left, right) => right.base.length - left.base.length)[0]?.moduleName;
   // ADR-178: roots first, sub-modules nested one level under their parent.
   const navTree = buildModuleNavTree(presentedModules).filter((node) => !node.module.hidden);
@@ -477,6 +501,10 @@ export default function Layout() {
     else delete names[moduleName];
     updatePresentation({ ...presentation, names });
     setRenamingModule(null);
+    // ponytail: a manifest sub-module (`<module>/<sub id>`) has no installation
+    // row to rename, so its label stays this browser's; a durable rename lands
+    // when the Builder can edit module.yaml from the rail.
+    if (moduleName.includes("/")) return;
     trpc.modules.rename
       .mutate({ organizationId: PILOT_ORGANIZATION, moduleName, displayName: trimmed || null })
       .then((result) => {
@@ -516,7 +544,9 @@ export default function Layout() {
   // Highlight for the Module's data Pages (base). Module Detail (/module/:name)
   // was removed 2026-08-10 — there is no separate overview route to also match.
   function moduleActive(mod: NavModule): boolean {
-    return isActive(mod.base);
+    // A manifest sub-module lights up on any of its Pages; its Pages share the
+    // Module's `/module/<name>` prefix, so a prefix test would light the whole rail.
+    return mod.routes ? mod.routes.some(isActive) : isActive(mod.base);
   }
 
   /** One rail entry. `disclosure` adds the sub-module expand/collapse control;

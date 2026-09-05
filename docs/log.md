@@ -1,5 +1,20 @@
 # Change Log
 
+- **2026-09-04 — the Builder's Module has the Rulebook's structure (TASK-100)**: asked whether the
+  Builder maps a requirement onto Module → sub-module → toggle → Section → element page, the answer
+  was "Databases and toggles only". Now `module.sub_modules[]` (collapsible nav children grouping a
+  Module's Pages; unknown or twice-listed page ids refused) and `databases[].sections` (per-Database
+  Notes/Intelligence/Governance, default all on) are parsed in core; `moduleStructure` is the one
+  resolver the rail (reusing the ADR-178 disclosure, keyed `<module>/<sub id>`), `ModulePage` (header
+  toggles = the current scope's Pages), the new `ModuleRecordDetailPage` at
+  `/module/<name>/<page>/<recordId>` (C-15 sticky back + path, fields, `RecordSections`, Save-only
+  writes) and `moduleRecords.structure` read; `records.sections` defaults from the declared Sections;
+  `MODULE_STRUCTURE_RULES` carries §2's decision rules into `MODULE_BUILD_PROCESS` for both the
+  primitive loop and the Claude Code briefing. ADR 2026-09-04 "The Builder's Module has the Rulebook's
+  structure", Rulebook §3d addendum, glossary "Sub-module". Evidence: core manifest 19/19 (+2), api
+  targeted 44/44 (+1 records/structure test, briefing asserts), web 242/242 (+1 source test,
+  `ModuleRecordDetailPage` exempted from the landing-shell ratchet as a Record Detail surface),
+  api/web typecheck clean, vocabulary/ui-rules/agent-context gates.
 - **2026-09-04 — the agentic chat briefing carries the Organization's Modules and folders as data (TASK-098, second half)**:
   `moduleBuildBriefing` had been static text plus Commons prior art, so a Claude Code turn could
   not know what the Organization already had. `installedModulesForBriefing` (one row per Module

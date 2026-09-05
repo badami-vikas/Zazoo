@@ -63,6 +63,34 @@ export interface ModuleDatabaseBinding {
   id: string;
   name: string;
   columns: BlueprintColumnSpec[];
+  /**
+   * Which Sections every Record page of this Database shows (UI Rulebook
+   * Part IV §1: switched per DATABASE, never per Record, never in code). The
+   * parser fills all three `true` when absent — Notes and Governance are
+   * mandatory by default and the owner switches them off from the Page's
+   * ⋮ menu. Optional on the type so a code-built manifest still compiles;
+   * `moduleStructure().sections()` applies the default.
+   */
+  sections?: ModuleDatabaseSections;
+}
+
+export interface ModuleDatabaseSections {
+  notes: boolean;
+  intelligence: boolean;
+  governance: boolean;
+}
+
+/**
+ * A sub-module (UI Rulebook §2 rule 3): related data that needs its own
+ * toolbar, Lists and Files but is not strongly related to the root. It is a
+ * NAVIGATION grouping of this Module's own Pages — a collapsible child in the
+ * left nav — not a Module of its own (that is `parentModule`). A Page id
+ * belongs to at most one sub-module; Pages listed nowhere are the root's.
+ */
+export interface ModuleSubModuleBinding {
+  id: string;
+  name: string;
+  pages: string[];
 }
 
 export interface ModuleAgentBinding {
@@ -173,6 +201,9 @@ export interface ModuleSurfaceManifest {
   pages: ModulePageBinding[];
   /** Declared Databases with their columns; absent for a Module whose specs are code. */
   databases?: ModuleDatabaseBinding[];
+  /** Sub-modules grouping this Module's Pages under collapsible nav children
+   * (TASK-100). Absent means every Page belongs to the root. */
+  subModules?: ModuleSubModuleBinding[];
   agents: ModuleAgentBinding[];
   automations: ModuleAutomationBinding[];
   /** Versioned methodologies this Module ships. Optional: most Modules have

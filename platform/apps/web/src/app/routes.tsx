@@ -23,6 +23,7 @@ import { ResearchRunsPage } from "./pages/ResearchRunsPage";
 // ADR 2026-09-04: the standard Module Page — every manifest-declared Page of
 // an installed Module renders here, Builder-built Modules included.
 import { ModulePage, modulePageRoute } from "./pages/ModulePage";
+import { ModuleRecordDetailPage } from "./pages/ModuleRecordDetailPage";
 import { InstalledModuleBoundary } from "./components/InstalledModuleBoundary";
 import { PILOT_ORGANIZATION, trpc } from "./lib/trpc";
 import { AuthGate } from "./auth/AuthSession";
@@ -300,6 +301,8 @@ export const router = createBrowserRouter([
       // Module routes so a built-in's hand-written Page at the same shape
       // (e.g. /module/whatsapp/chats) keeps winning in the full profile.
       { path: "module/:moduleName/:pageId", Component: ModulePage },
+      // The standard Record detail page of a declared Page (TASK-100, C-15).
+      { path: "module/:moduleName/:pageId/:recordId", Component: ModuleRecordDetailPage },
 
       // Second Brain is Intelligence's first tab, not a surface of its own
       // (ADR-224). The path stays so existing links keep working, but it

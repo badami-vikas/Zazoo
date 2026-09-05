@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { moduleStructure } from "@bridge/core";
+import { installedManifest } from "./moduleRecords.js";
+import type { Wiring } from "../wiring.js";
 import {
   RECORD_NOTES_NAMESPACE_PREFIX,
   RECORD_SECTIONS,
@@ -27,12 +30,44 @@ import {
 // presentation state about a shipped Database, and unlike the overlay it must
 // answer for EVERY Database, including the ones this process holds no spec
 // for, so there is nothing to register it against.
+/**
+ * What a Database's Record pages show before the owner has switched anything
+ * (TASK-100). A Database a manifest DECLARES (`<module>.<database>` of a
+ * Builder-built Module) starts from the Sections its manifest declares —
+ * Notes and Governance on by default (UI Rulebook Part IV §1); everything
+ * else keeps the all-off default. The stored choice, once made, wins.
+ */
+async function resolvedRecordSections(
+  ctx: { wiring: Wiring },
+  organizationId: string,
+  specId: string,
+  stored: unknown,
+) {
+  if (stored && typeof stored === "object") return readRecordSections(stored);
+  const dot = specId.indexOf(".");
+  if (dot <= 0) return readRecordSections(stored);
+  try {
+    const manifest = await installedManifest(ctx, organizationId, specId.slice(0, dot));
+    const databaseId = specId.slice(dot + 1);
+    if (!manifest.module?.databases?.some((database) => database.id === databaseId)) {
+      return readRecordSections(stored);
+    }
+    return moduleStructure(manifest).sections(databaseId);
+  } catch {
+    // Not an installed Module's Database: the built-in default stands.
+    return readRecordSections(stored);
+  }
+}
+
 export const recordsRouter = t.router({
   sections: procedure
     .input(z.object({ organizationId: z.string().min(1), specId: z.string().trim().min(1) }))
     .query(async ({ input, ctx }) => {
       assertPilotOrganization(input.organizationId);
-      return readRecordSections(
+      return resolvedRecordSections(
+        ctx,
+        input.organizationId,
+        input.specId,
         await ctx.wiring.localPlane.state.read(
           input.organizationId,
           `${RECORD_SECTIONS_NAMESPACE_PREFIX}${input.specId}`,
@@ -55,12 +90,16 @@ export const recordsRouter = t.router({
       // decides — same floor as the column overlay next door.
       assertHumanIdentity(ctx, "Changing which Sections a Database's Records show");
       await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      // The first switch starts from the declared default, so turning one
+      // Section off does not silently turn the other two off with it.
+      const declared = await resolvedRecordSections(ctx, input.organizationId, input.specId, null);
       return ctx.wiring.localPlane.state.update(
         input.organizationId,
         `${RECORD_SECTIONS_NAMESPACE_PREFIX}${input.specId}`,
         null,
         (current) => {
-          const next = { ...readRecordSections(current), [input.section]: input.enabled };
+          const base = current && typeof current === "object" ? readRecordSections(current) : declared;
+          const next = { ...base, [input.section]: input.enabled };
           return { state: next, result: next };
         },
       );

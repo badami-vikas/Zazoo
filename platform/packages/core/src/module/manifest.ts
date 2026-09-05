@@ -15,6 +15,8 @@ import type {
   ModuleCapabilityNeed,
   ModulePageBinding,
   ModuleDatabaseBinding,
+  ModuleDatabaseSections,
+  ModuleSubModuleBinding,
   ModuleSurfaceManifest,
   ModuleDependency,
   ModuleKind,
@@ -301,7 +303,19 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
         ...(typeof column.relation_target === "string" ? { relationTarget: column.relation_target } : {}),
       };
     });
-    return { id, name: requiredString(database.name, `module.module.databases[${index}].name`), columns };
+    // Sections per DATABASE (UI Rulebook Part IV §1). Absent = all on: Notes
+    // and Governance are mandatory by default; the owner switches them off
+    // per Database, and a manifest may pre-set that choice, never a Record's.
+    const sectionsRaw = database.sections ?? {};
+    if (!isPlainObject(sectionsRaw)) fail(`module.module.databases[${index}].sections must be an object`);
+    const sections: ModuleDatabaseSections = { notes: true, intelligence: true, governance: true };
+    for (const section of ["notes", "intelligence", "governance"] as const) {
+      const value = sectionsRaw[section];
+      if (value === undefined) continue;
+      if (typeof value !== "boolean") fail(`module.module.databases[${index}].sections.${section} must be a boolean`);
+      sections[section] = value;
+    }
+    return { id, name: requiredString(database.name, `module.module.databases[${index}].name`), columns, sections };
   });
   if (databases.length > 0) {
     const declared = new Set(databases.map((database) => database.id));
@@ -311,6 +325,35 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
       }
     }
   }
+
+  // Sub-modules (UI Rulebook §2 rule 3, TASK-100): collapsible nav children
+  // that group this Module's own Pages. Every listed Page must be declared
+  // above and may belong to ONE sub-module — a Page under two children would
+  // light two rail rows for one surface. Unlisted Pages are the root's.
+  const subModulesRaw = raw.subModules ?? raw.sub_modules ?? [];
+  if (!Array.isArray(subModulesRaw)) fail("module.module.sub_modules must be an array");
+  const pageIds = new Set(pages.map((page) => page.id));
+  const pageOwner = new Map<string, string>();
+  const subModuleIds = new Set<string>();
+  const subModules: ModuleSubModuleBinding[] = subModulesRaw.map((sub, index) => {
+    if (!isPlainObject(sub)) fail(`module.module.sub_modules[${index}] must be an object`);
+    const id = requiredString(sub.id, `module.module.sub_modules[${index}].id`);
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(id)) fail(`module.module.sub_modules[${index}].id must be kebab-case`);
+    if (subModuleIds.has(id)) fail(`module.module.sub_modules[${index}].id duplicates ${id}`);
+    subModuleIds.add(id);
+    const subPages = parseStringArray(sub.pages, `module.module.sub_modules[${index}].pages`);
+    for (const [pageIndex, pageId] of subPages.entries()) {
+      if (!pageIds.has(pageId)) {
+        fail(`module.module.sub_modules[${index}].pages[${pageIndex}] ${pageId} is not a declared page`);
+      }
+      const owner = pageOwner.get(pageId);
+      if (owner !== undefined) {
+        fail(`module.module.sub_modules[${index}].pages[${pageIndex}] ${pageId} already belongs to sub-module ${owner}`);
+      }
+      pageOwner.set(pageId, id);
+    }
+    return { id, name: requiredString(sub.name, `module.module.sub_modules[${index}].name`), pages: subPages };
+  });
 
   const agentsRaw = raw.agents ?? [];
   if (!Array.isArray(agentsRaw)) fail("module.module.agents must be an array");
@@ -448,6 +491,7 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
     ...(parentModule !== undefined ? { parentModule } : {}),
     pages,
     ...(databases.length > 0 ? { databases } : {}),
+    ...(subModules.length > 0 ? { subModules } : {}),
     agents,
     automations,
     ...(playbooks.length > 0 ? { playbooks } : {}),

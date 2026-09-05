@@ -3682,8 +3682,44 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1623,
+      "sourceLine": 1624,
       "rank": 105
+    },
+    {
+      "id": "TASK-100",
+      "title": "TASK-100 — The Builder's Module has the Rulebook's structure: sub-modules, scoped toggles, Sections per Database, a standard Record page",
+      "status": "completed",
+      "statusNote": "2026-09-04; PR pending merge",
+      "priority": "P0",
+      "horizon": "Living Software",
+      "outcome": "A Module the Builder writes expresses UI Rulebook §2/§3d structure in `module.yaml` — Module → `sub_modules[]` (collapsible nav children) → Pages (header toggles of the current scope, one per Database) → `databases[].sections` (Notes / Intelligence / Governance switched per Database) → the standard Record detail page at `/module/<name>/<page>/<recordId>` — and the standard build process maps a requirement onto it with the Rulebook's own decision rules.",
+      "prototypeTest": "register and install a manifest with a root `invoices` Page, a `billing` sub-module holding `payments`, and `invoices.sections.intelligence: false` → the rail shows the Module with a collapsible \"Billing\" child; opening Invoices shows only the root toggles and Payments only the sub-module's; a row opens `/module/invoice-tracker/invoices/<id>` with back + path, the columns as fields (written on Save only), Notes and Governance but no Intelligence; `moduleRecords.structure` answers the same tree; a Builder Run's prompt and the Claude Code briefing carry the mapping rules.",
+      "scope": [
+        "`packages/core/src/module/{types,manifest,structure}.ts` (`ModuleSubModuleBinding`, `ModuleDatabaseSections`, `moduleStructure`), `apps/api/src/routers/{moduleRecords,records}.ts` (`structure`, `definition.sections`, declared Sections as the `records.sections` default), `apps/api/src/builder/run.ts` (`MODULE_STRUCTURE_RULES` inside `MODULE_BUILD_PROCESS`, read by `builderSystemPrompt` and `moduleBuildBriefing`), `apps/web/src/app/{Layout.tsx,routes.tsx,pages/ModulePage.tsx,pages/ModuleRecordDetailPage.tsx}`, UI Rulebook §3d addendum, glossary \"Sub-module\"."
+      ],
+      "evidence": [
+        "`packages/core/test/module-manifest.test.ts` (+2: sub_modules/sections parse and resolve",
+        "unknown page id, a page in two sub-modules, a non-kebab id and a non-boolean section refused — seen failing as a missing export first), `apps/api/test/module-records.test.ts` (+1: `moduleRecords.structure`, `definition.sections`, `records.sections` defaulting from the manifest and `setSection` keeping the rest",
+        "seen failing as a missing procedure first), `apps/api/test/chat-agentic-backend.test.ts` (briefing carries every `MODULE_STRUCTURE_RULES` entry",
+        "seen failing as a missing export first), `apps/web/test/panel-and-commons.test.mjs` (+1 source test: rail sub-modules via `moduleStructure`, scoped toggles, Record route, sticky header, Save-only write",
+        "seen failing first). Targeted api 44/44, core manifest 19/19, web 242/242 after regenerating the projection."
+      ],
+      "requests": [
+        "user directive 2026-09-04 verbatim: \"Would I be able to create new moduled with builder agent now? Does it map the requirement to module sub module, toggle, sections and element page structure?\""
+      ],
+      "approval": "none needed (additive manifest fields, every existing manifest parses unchanged; ADR 2026-09-04 \"The Builder's Module has the Rulebook's structure\" records it).",
+      "dependencies": [
+        "TASK-096 (manifest Databases, standard Module Page), TASK-098 (briefing)."
+      ],
+      "isGoal": false,
+      "path": "8.9",
+      "level": 1,
+      "canonicalStatus": "done",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1638,
+      "rank": 106
     }
   ]
 }
