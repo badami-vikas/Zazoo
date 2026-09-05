@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   BUILT_IN_MODULES,
   COMMONS_BUILT_IN_MODULES,
+  EGG_MODULES,
   moduleNavTarget,
   requireBuiltInModule,
 } from "../src/index.js";
@@ -280,5 +281,54 @@ test("the Task Manager Commons entry is discoverable and carries no personal dat
   assert.ok(
     !/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(serialized),
     "a UUID in a Commons entry is a runtime row that escaped into a published Module",
+  );
+});
+
+// ---------------------------------------------------------------------
+// TASK-069 in the ADR 2026-09-04 ("The Egg ships the kernel; Modules live
+// in Commons") form: Academics is a Commons manifest with declared Databases
+// and no code of its own, and the Egg does not seed it.
+// ---------------------------------------------------------------------
+
+test("Academics declares three Databases, one Page each, and lives in Commons but not the Egg", () => {
+  const academics = requireBuiltInModule("academics").manifest;
+  assert.deepEqual(
+    academics.module?.databases?.map((database) => database.id),
+    ["subjects", "lecture-sessions", "assignments"],
+  );
+  assert.deepEqual(
+    academics.module?.pages.map((page) => page.databaseId),
+    ["subjects", "lecture-sessions", "assignments"],
+  );
+  const columns = (databaseId: string) =>
+    academics.module?.databases?.find((database) => database.id === databaseId)?.columns ?? [];
+  assert.deepEqual(columns("subjects").map((column) => column.id), ["name", "code", "term", "instructor", "credits"]);
+  assert.deepEqual(
+    columns("lecture-sessions").map((column) => [column.id, column.kind]),
+    [["subject", "relation"], ["date", "date"], ["topic", "text"], ["notes_summary", "text"], ["recording_link", "url"]],
+  );
+  assert.deepEqual(
+    columns("assignments").find((column) => column.id === "status")?.options,
+    ["not_started", "in_progress", "submitted", "graded"],
+  );
+  // Study Steward: Local Plane, no Skills yet (they are follow-on Tasks).
+  assert.deepEqual(
+    academics.module?.agents.map((agent) => [agent.id, agent.plane, agent.skillIds]),
+    [["study-steward", "local", []]],
+  );
+  for (const capability of academics.capabilities) {
+    for (const permission of capability.permissions) {
+      assert.equal(permission.egress, false, `${capability.id} declares egress`);
+      assert.equal(permission.dataScope, "private", `${capability.id} is not private-scoped`);
+    }
+  }
+  const entry = COMMONS_BUILT_IN_MODULES.find((candidate) => candidate.manifest.name === "academics");
+  assert.ok(entry, "Academics is a Commons entry");
+  assert.ok(entry.commons.tags.some((tag) => tag.startsWith("need:")));
+  assert.ok(!EGG_MODULES.has("academics"), "the Egg ships the kernel only");
+  const normalized = parseModuleManifest({ module: academics });
+  assert.equal(
+    canonicalizeManifest(parseModuleManifest({ module: normalized })),
+    canonicalizeManifest(normalized),
   );
 });
