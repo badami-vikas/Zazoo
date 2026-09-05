@@ -635,14 +635,14 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Repository hygiene and unlanded work recovery
 - ID: TASK-037
-- Status: ready
+- Status: done (2026-09-04, with two items left to the user — see Evidence)
 - Priority: P3
 - Estimate: 1d
 - Horizon: Convergence
 - Outcome: No unlanded work exists only on one machine, dirty worktrees are either committed or discarded deliberately, and the branch list reflects real in-flight work.
 - Prototype test: Every branch carrying unique commits exists on the remote; `git stash list` is empty or its contents are landed on a branch; no worktree holds untracked source files; the stale local `main` is reset to `origin/main`.
 - Scope: `outputs/2026-08-03-unfinished-work-audit.md` Tier 0.1-0.2. DONE 2026-08-03: `claude/whatsapp-module-contact-extractor-9cfff3` (52 commits, the strict superset of all 13 WhatsApp branches — verified `git rev-list --count contact-extractor..<each>` = 0) was pushed to origin on the user's explicit go-ahead; the WhatsApp Module is no longer single-disk. STILL OPEN: (a) `stash@{0}` on `claude/xenodochial-lamarr-9e9247` holds 51 files / +3351-516 of dealpilot/jobpilot connector work from 2026-07-04 — land or drop explicitly; (b) uncommitted `platform/packages/db/migrations/002_add_location_geo.sql` + `Tools/recon/lib/geocode.ts` in worktree `romantic-kowalevski-2a3e18` — an uncommitted migration is the single most dangerous loose file; (c) uncommitted `platform/apps/api/test/authentication.test.ts` in worktree `codex-roadmap-batch-1`; (d) uncommitted doc work in `kind-volhard-17651e`; (e) unpushed single-commit branch `worktree-agent-a1b0df5fd0a4fa8a8` (2026-07-07) carrying `feat(core): foreign-capability importer (Track F3)`; (f) 15 of 35 worktrees dirty and ~20 clean agent worktrees prunable; (g) the MAIN checkout is 299 commits behind `origin/main` — do not build or deploy from it; (h) the twelve subsumed WhatsApp checkpoint branches are deletable once the superset lands; (i) `origin` still points at `github.com/badami-vikas/relationship-os`, which now reports the repository has MOVED to `github.com/manishsbhoopalam8498/relationship-os` — the remote URL should be updated deliberately.
-- Evidence: `outputs/2026-08-03-unfinished-work-audit.md`
+- Evidence: `outputs/2026-08-03-unfinished-work-audit.md`; 2026-09-04 sweep: every one of the 116 local branches (transient `worktree-agent-*` refs excluded) has 0 commits absent from `origin/main` (`git rev-list --count origin/main..<b>` = 0 for each local-only branch); the four stash entries were preserved WITHOUT dropping them as pushed branches `salvage/stash-{0..3}-<date>` (stash-3 = the 2026-07-05 xenodochial-lamarr connector work, 51 files; it also carries a `Tools/recorder/backend/.venv` — prune before landing); the `romantic-kowalevski-2a3e18` worktree item is moot — every `.claude/worktrees/*` tree and the `.git/worktrees` registry vanished on 2026-09-04 (see BUGS "the companion avatar activated on its own", second report, and memory). LEFT TO THE USER: (1) decide land-or-drop for the four salvage branches; (2) the main checkout sits on `claude/module-merge-accounting-d2c` with 7 dirty files that are not this session's — resetting it to `origin/main` is a deliberate discard.
 - Requests: user directive 2026-08-03
 - Approval: none
 - Dependencies: none

@@ -15,7 +15,6 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-031 | in_progress | P2 | Platform bloat cleanup and table-renderer standardization | TASK-027, TASK-028 |
 | TASK-032 | in_progress | P2 | Deal Copilot learning observation loop (generic Egg baseline v1) | TASK-002 |
 | TASK-033 | in_progress | P2 | Universal Commons capability archetypes (roadmap-v2 Phase 4) | TASK-032 |
-| TASK-037 | ready | P3 | Repository hygiene and unlanded work recovery | none |
 | TASK-069 | ready | P2 | Academics Module — Subjects/Lecture Sessions/Assignments vault | none |
 | TASK-070 | ready | P2 | Events sub-module (NetworkManager) — speaker extraction + LinkedIn outreach queue | none |
 | TASK-073 | ready | P2 | Retrofit the newly-adopted UI conventions against every pre-existing Module | none |
@@ -42,6 +41,3 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-093 | in_progress | P1 | The conversation survives a model switch, and each Module reopens its own session | TASK-090 |
 | TASK-095 | in_progress | P1 | The Avatar has hands — Hey Clicky parity: a real pointer that glides, clicks, and types, behind explicit control consent | TASK-027, TASK-054 |
 | TASK-096 | in_progress | P1 | The installable Egg: kernel-only profile, Commons directory, and the Builder's standard build process | TASK-092, TASK-031 |
-| TASK-097 | in_progress | P0 | Approvals belong to Tasks: one open proposal per Automation, profile-parked Automations, Task Page and Home as the approval surfaces | TASK-030 |
-| TASK-098 | in_progress | P0 | The agentic chat lane knows what a Module is: the Claude Code backend is briefed and registers what it builds | TASK-096 |
-| TASK-099 | in_progress | P0 | The companion appears only when summoned: shortcut or open panel, never hover or launch | non-task gate (see TASKS.md) |
