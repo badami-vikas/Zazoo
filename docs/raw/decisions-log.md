@@ -7008,3 +7008,61 @@ handoff in this change would ship routing the directive did not describe.
 `@learning`/`@builder` route stays where it is; when the lane handoff lands it must be ONE seam
 serving both procedures. A retry re-sends without `mentions`; the original ref is kept. Cited by date
 and title.
+## 2026-09-05 — The Builder discovers before it designs: prior art it can see, Integrations it can name, Skills and Automations it proposes, questions in one message (TASK-102)
+
+**Context:** user report 2026-09-05, verbatim in BUGS 2026-09-05 "the Builder designed without
+discovering": *"Did the module builder do research on opensource solutions that are similar to my
+requested module or the academics modules in commons? Because it didnt ask for any integrations or
+ask for softwares I use that it can connect with or research relevant skills or propose relevant
+automations? …"* "Build me a module for my academics" in the desktop chat produced two Databases and
+"No Agents/Automations for now". Three causes, none of them the model: `MODULE_BUILD_PROCESS` started
+at "write module.yaml first" with no discovery step as data; `commonsPriorArt` asked only the HTTP
+registry, which every no-service boot (tests, the Egg) cannot reach, so the Commons Academics Module
+compiled in as `COMMONS_BUILT_IN_MODULES` never reached the prompt; and the briefing carried no
+Integrations and no Skills/Agents/Automations, so "none for now" was the path of least resistance.
+myzazoo's `src/prompt.md`, read as the user asked, holds no discovery step either; what it does is
+list Skills as name + description in the system prompt and say "read them before working".
+
+**Decision:**
+1. **Discovery is data, and it comes first.** `MODULE_DISCOVERY_STEPS` — restate the requirement;
+   prior art in order (Commons, with an OFFER to install a matching Module before building; the
+   user's Modules and folders; open-source references); the software the user already uses, ASKED
+   before designing against the Integrations Bridge can connect today; Skills and Automations
+   proposed from the prior art with the governance each needs (read / write / egress); only then
+   structure and a short plan the user confirms, every question in ONE message — sits at the head
+   of `MODULE_BUILD_PROCESS`, before the write steps, so both Builder lanes (the primitive loop's
+   `builderSystemPrompt` and the Claude Code `moduleBuildBriefing`) carry it verbatim.
+2. **The built-in Commons catalogue is always a prior-art candidate.** `commonsPriorArt` ranks the
+   registry listing and `COMMONS_BUILT_IN_MODULES` together (registry entries win on a name clash);
+   an unreachable registry is still reported, as "the entries below are the built-in Commons
+   catalogue", never as "nothing related". Commons content carries no personal data, so reading it
+   locally crosses no boundary.
+3. **Prior art carries what it declares, with governance.** Each entry lists its Skills, Agents,
+   Automations and Integrations as `name (type; read, write, egress)` — the three words governance
+   speaks in, derived from the capability's permissions by `governanceOf`, "unknown" when none.
+4. **Integrations are read from the manifests.** `integrationsForBriefing()` collects every
+   `integration` capability's connectors across the Module manifests (today `google-gmail`,
+   `google-calendar`, `github`, `bizbuysell-alerts`) with the declaring Module and its governance,
+   capped at 20 — never a hand-kept list, so a new connector appears the day a manifest declares it.
+5. **Honesty about research.** This chat lane has no research capability of its own; the
+   `web-research` Skill is the Learning Agent's, invoked inside a governed Agent Run. The briefing
+   says so, tells the agent to ask before any web search it can make itself (egress), to record
+   provenance — source name, URL, license — and never copy, paraphrase or translate code
+   (clean-room protocol), and otherwise to ask the user what they use instead of pretending it looked.
+
+**Rejected alternatives:** (a) a hard-coded academics template (Canvas connector, LMS Automations)
+— the Academics manifest declares `automations: []` and no Canvas connector; writing one into the
+prompt would be a fabricated figure (ADR-247) and would fix one domain, not the process; (b)
+auto-running web research in the chat lane without consent — egress the user did not approve, and
+a research tool the lane does not have; the honest version is the instruction to ask; (c) starting
+a Commons service in the Egg so the registry is reachable — an infrastructure dependency for a
+list already compiled in; the catalogue fallback is a few lines and the registry still wins when
+present; (d) a per-turn questionnaire (one question per turn) — the user's own complaint is the
+number of things the Builder never asked; a single discovery message is the consultant's shape.
+
+**Consequences:** the prototype test proves the discovery steps, the Academics prior art, the
+Integrations and the governed capability list are PRESENT in the briefing; whether a given model
+asks in one message is a live-Run question. The primitive-loop lane receives the same steps but has
+no user turn to answer them mid-Run — it should stop with its questions (BA4's durable-workflow
+problem, not this one). `MODULE_BUILD_PROCESS` grew to ~5.7 KB; the Claude Code lane's own
+context is not budgeted by `check-agent-context-budget`. Cited by date and title.

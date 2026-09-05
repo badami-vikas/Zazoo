@@ -98,10 +98,13 @@ test("the Builder is told what Commons already holds that resembles its task, ra
     { name: "accounting", summary: "Clients, invoices and reports", tags: ["finance"] },
     { name: "job-pilot", summary: "Track job applications", tags: ["jobs"] },
   ]);
+  // No built-in catalogue here: this test is about ranking what the REGISTRY
+  // holds; the compiled-in Commons fallback is proven in chat-agentic-backend.
   const { items, unavailable } = await commonsPriorArt(
     registry,
     "invoice-tracker",
     "build a Module that tracks client invoices and monthly reports",
+    [],
   );
   assert.equal(unavailable, null);
   assert.deepEqual(items.map((item) => item.name), ["accounting"]);

@@ -23,7 +23,7 @@ import {
 import { InMemorySourceCredentialVault } from "@bridge/dealpilot";
 
 import { appRouter } from "../src/router.js";
-import { MODULE_STRUCTURE_RULES } from "../src/builder/run.js";
+import { MODULE_BUILD_PROCESS, MODULE_DISCOVERY_STEPS, MODULE_STRUCTURE_RULES } from "../src/builder/run.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
 import { makeCaller } from "./caller.js";
 
@@ -373,6 +373,21 @@ test("the agentic backend is briefed on what a Module is, and a module.yaml it w
     assert.match(system, /sub_modules/);
     assert.match(system, /sections/);
     assert.match(system, /never a Page/);
+    // Discovery rides before any write (2026-09-05): the Commons Academics
+    // Module is named as prior art even with no registry running (the built-in
+    // catalogue answers), the Integrations Bridge can connect today are listed
+    // by name, and the agent is told to ask about software before designing.
+    for (const step of MODULE_DISCOVERY_STEPS) {
+      assert.ok(system.includes(step), `the briefing carries the discovery step: ${step.slice(0, 60)}`);
+    }
+    assert.match(system, /academics@0\.2\.0 \(organization_definition\)/, "the Commons Academics Module is named as prior art");
+    assert.match(system, /OFFER installing/);
+    assert.match(system, /Integrations Bridge can connect today/);
+    assert.match(system, /google-calendar/);
+    assert.match(system, /github/);
+    assert.match(system, /ASK which of them .* before designing/);
+    assert.match(system, /Study Steward \(agent; read, write\)/, "prior-art Agents ride with their governance");
+    assert.match(system, /in ONE message/);
 
     // What the agent wrote is a pending Module now, and the reply says so.
     const assistant = view.turns[view.turns.length - 1];
@@ -403,4 +418,16 @@ test("the agentic backend is briefed on what a Module is, and a module.yaml it w
     assert.match(second, /academics-manager: Module \(module\.yaml\)/, "the Module folder is named as a Module");
     assert.doesNotMatch(second, /resume\.pdf/, "file names inside a plain folder never ride along");
   });
+});
+
+test("discovery precedes every write step in the standard Module build process (2026-09-05)", () => {
+  assert.ok(MODULE_DISCOVERY_STEPS.length >= 5, "restate, prior art, software, Skills/Automations, structure");
+  const lastDiscovery = MODULE_BUILD_PROCESS.indexOf(MODULE_DISCOVERY_STEPS[MODULE_DISCOVERY_STEPS.length - 1]!);
+  const firstWrite = MODULE_BUILD_PROCESS.indexOf("1. Read the Module folder");
+  assert.ok(lastDiscovery >= 0, "the process carries the discovery steps");
+  assert.ok(firstWrite >= 0, "the process carries the write steps");
+  assert.ok(lastDiscovery < firstWrite, "discovery comes before writing");
+  // The structure mapping is a discovery step too, and it sits AFTER the questions.
+  const structure = MODULE_BUILD_PROCESS.indexOf(MODULE_STRUCTURE_RULES[0]!);
+  assert.ok(lastDiscovery < structure && structure < firstWrite, "structure rules sit between discovery and writing");
 });

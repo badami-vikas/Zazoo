@@ -3675,7 +3675,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1625,
+      "sourceLine": 1626,
       "rank": 105
     },
     {
@@ -3711,7 +3711,7 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1639,
+      "sourceLine": 1640,
       "rank": 106
     },
     {
@@ -3748,8 +3748,44 @@
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1653,
+      "sourceLine": 1654,
       "rank": 107
+    },
+    {
+      "id": "TASK-102",
+      "title": "TASK-102 — The Builder discovers before it designs: prior art it can see, Integrations it can name, Skills and Automations it proposes, questions in one message",
+      "status": "completed",
+      "statusNote": "2026-09-05; PR pending merge",
+      "priority": "P0",
+      "horizon": "Living Software",
+      "outcome": "\"Build me a Module for X\" in either Builder lane (Claude Code chat or the primitive loop) starts with discovery as data — restate the requirement; name the matching Commons Modules (even with no Commons service running) and offer installing one before building; list the Integrations Bridge can connect today from the manifests and ask which the user uses before designing; propose the prior art's Skills, Agents and Automations with the governance each needs (read / write / egress) instead of \"none for now\"; state honestly that this lane has no research capability of its own and how to record open-source provenance clean-room; then map structure and give a short plan the user confirms — all questions in ONE message.",
+      "prototypeTest": "in the installed Egg with no Commons service, a Claude Code thread asked \"Can you build me a new module for managing my academics\" replies with one message that names the Commons Academics Module and offers to install it, asks which of Google Calendar / Gmail / GitHub (and which LMS, calendar, notes app) the user uses, proposes the Study Steward Agent with its read/write governance, and gives a plan — and writes no module.yaml until the user confirms.",
+      "scope": [
+        "`apps/api/src/builder/run.ts` (`MODULE_DISCOVERY_STEPS`, exported `MODULE_BUILD_PROCESS`, `commonsPriorArt` ranking the built-in Commons catalogue with the registry, `PriorArtCapability` + `governanceOf`, shared `priorArtBlock`, `integrationsForBriefing`, `moduleBuildBriefing.integrations`), `apps/api/src/routers/chat.ts` (wires `integrationsForBriefing()`), `apps/api/test/chat-agentic-backend.test.ts`."
+      ],
+      "evidence": [
+        "`chat-agentic-backend.test.ts` — the TASK-098 briefing test now asserts every `MODULE_DISCOVERY_STEPS` entry, `academics@0.2.0 (organization_definition)` as prior art, `Integrations Bridge can connect today` with `google-calendar` and `github`, `ASK which of them … before designing`, `Study Steward (agent",
+        "read, write)` and `in ONE message`",
+        "a new unit test proves the last discovery step and the structure rules precede \"1. Read the Module folder\" in `MODULE_BUILD_PROCESS`. Both seen failing first as missing exports (`MODULE_DISCOVERY_STEPS`, unexported `MODULE_BUILD_PROCESS`). Targeted `chat-agentic-backend` + `egg-boot` + `chat`: 35/35",
+        "api typecheck + build clean",
+        "vocabulary and agent-context gates OK (first vocabulary run flagged \"project\"/\"tool\" in the new copy — reworded)."
+      ],
+      "requests": [
+        "user report 2026-09-05 verbatim in BUGS 2026-09-05 \"the Builder designed without discovering\"."
+      ],
+      "approval": "none needed (prompt data + a read-only fallback to compiled-in Commons content; ADR 2026-09-05 \"The Builder discovers before it designs\" records it).",
+      "dependencies": [
+        "TASK-098 (briefing), TASK-100 (structure rules), TASK-096 (Commons catalogue)."
+      ],
+      "isGoal": false,
+      "path": "8.11",
+      "level": 1,
+      "canonicalStatus": "done",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1667,
+      "rank": 108
     }
   ]
 }
