@@ -234,9 +234,11 @@ export const actionRouter = t.router({
   /** Every undecided proposal that belongs to one Task (ADR 2026-09-04
    * "Approvals belong to Tasks"): an Automation Run is anchored to a Task, and
    * a proposal remembers its Run, so the Task Page can show and decide what
-   * waits on it. Bounded by the same pending list Approvals reads. */
+   * waits on it. Bounded by the same pending list Approvals reads. `taskId:
+   * null` lists the proposals with no Task behind them (a direct Human action
+   * has no Run), which the Task Manager index shows at its top. */
   listPendingForTask: authenticatedProcedure
-    .input(z.object({ organizationId: z.string().min(1), taskId: z.string().min(1) }))
+    .input(z.object({ organizationId: z.string().min(1), taskId: z.string().min(1).nullable() }))
     .use(organizationGuard).query(async ({ input, ctx }) => {
       const { items } = await ctx.wiring.pipeline.listPending(input.organizationId, {
         limit: 200,
@@ -247,7 +249,7 @@ export const actionRouter = t.router({
       return {
         items: items
           .map((entry, index) => ({ ...entry, task: located[index], copy: describeProposal(entry.request) }))
-          .filter((entry) => entry.task?.taskId === input.taskId),
+          .filter((entry) => (entry.task?.taskId ?? null) === input.taskId),
       };
     }),
 
