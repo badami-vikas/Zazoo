@@ -31,7 +31,7 @@ import {
   type AskHistorySession,
 } from "./ask-history";
 import { isNearChatBottom } from "./chat-state.mjs";
-import { type ChatSurfaceKind, type ChatTurn, useChat } from "./useChat";
+import { type ChatSurfaceKind, type ChatThread, type ChatTurn, useChat } from "./useChat";
 
 const RECORDER_MIME_PREFERENCE = ["audio/mp4", "audio/webm", "audio/ogg"];
 
@@ -477,8 +477,8 @@ export function ChatView({
   const autoSentRef = useRef(false);
   const lastTurn = chat.view?.turns.at(-1);
 
-  // Installed Modules, for the attach control. Same filter the nav uses, so
-  // the list offered here is exactly the list of Modules a user can open.
+  // Installed Modules, for the session name. Same filter the nav uses, so
+  // the display name here is exactly the one the sidebar shows.
   useEffect(() => {
     let active = true;
     trpc.modules.list
@@ -505,7 +505,7 @@ export function ChatView({
         );
       })
       .catch(() => {
-        // The attach control simply has nothing to offer; the Chat still works.
+        // The session name falls back to the Module id; the Chat still works.
         if (active) setInstalledModules([]);
       });
     return () => {
@@ -513,19 +513,16 @@ export function ChatView({
     };
   }, []);
 
-  /** Modules currently on this conversation — the Module that owns the thread
-   * first, then everything attached to it. */
-  const threadModules = useMemo(() => {
-    const thread = chat.view?.thread;
-    if (!thread) return [] as string[];
-    return [
-      ...(thread.moduleName ? [thread.moduleName] : []),
-      ...(thread.attachedModules ?? []),
-    ];
-  }, [chat.view?.thread]);
-
   const moduleLabel = (name: string) =>
     installedModules.find((module) => module.moduleName === name)?.displayName ?? name;
+
+  /** Session name: the thread's own title, else "<Module display name> · <date>"
+   * (the same name the sidebar shows) or "Chief of Staff · <date>" for the
+   * standalone Chat. The Module is said here, once, instead of a footer and a
+   * dropdown in the composer (BUGS 2026-09-05). */
+  const sessionLabel = (thread: ChatThread) =>
+    thread.title ??
+    `${thread.moduleName ? moduleLabel(thread.moduleName) : "Chief of Staff"} · ${new Date(thread.createdAt).toLocaleDateString()}`;
 
   // ---- `@` mentions (2026-09-05) ----------------------------------------
   // Chief of Staff is the one face of this panel. Another Agent is reached by
@@ -861,7 +858,7 @@ export function ChatView({
             {!chat.view && <option value="">No chat selected</option>}
             {chat.threads.map((thread) => (
               <option key={thread.id} value={thread.id}>
-                {thread.title ?? `Chat · ${new Date(thread.createdAt).toLocaleDateString()}`}
+                {sessionLabel(thread)}
               </option>
             ))}
           </optgroup>
@@ -1245,34 +1242,6 @@ export function ChatView({
                   </option>
                 ))}
               </select>
-              {/* TASK-093 — attach another Module to THIS conversation. The
-                  thread keeps its own Module; this adds others so one session
-                  can span several, the way a coding session spans projects. */}
-              <select
-                aria-label="Attach a Module"
-                className="min-w-0 max-w-[9rem] truncate rounded-full border bg-background px-2 py-1 text-xs disabled:opacity-50"
-                value=""
-                disabled={chat.sending || !chat.view}
-                onChange={(event) => {
-                  const chosen = event.target.value;
-                  event.target.value = "";
-                  if (chosen) void chat.attachModule(chosen);
-                }}
-                title="Adds a Module to this conversation — nothing is removed"
-              >
-                <option value="">
-                  {threadModules.length > 0
-                    ? `Modules · ${threadModules.length}`
-                    : "Add a Module"}
-                </option>
-                {installedModules
-                  .filter((module) => !threadModules.includes(module.moduleName))
-                  .map((module) => (
-                    <option key={module.moduleName} value={module.moduleName}>
-                      {module.displayName}
-                    </option>
-                  ))}
-              </select>
             </div>
             <div className="flex items-center gap-1">
               <Button
@@ -1309,19 +1278,6 @@ export function ChatView({
             </div>
           </div>
         </div>
-        {threadModules.length > 0 && (
-          <p
-            className="mt-1 flex flex-wrap items-center gap-1 px-1 text-xs text-[var(--color-navy-mid)]"
-            title="These are the Modules whose data and files this conversation may use — not Agents. Type @ in the message to address another Agent."
-          >
-            <span>Working in:</span>
-            {threadModules.map((name) => (
-              <Badge key={name} variant="secondary" className="text-[0.7rem]">
-                {moduleLabel(name)}
-              </Badge>
-            ))}
-          </p>
-        )}
         {composerNote && (
           <p className="mt-1 px-1 text-xs text-[var(--color-navy-mid)]" role="status">
             {composerNote}

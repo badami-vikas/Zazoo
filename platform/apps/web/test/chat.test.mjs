@@ -191,32 +191,33 @@ test("the mic runs on every surface, and still only fills the draft (TASK-082)",
   assert.match(view, /voiceUnavailableReason/);
 });
 
-test("one conversation can hold several Modules, and says which (TASK-093)", () => {
-  // The server has carried `moduleName` + `attachedModules` since ADR-267e and
-  // `useChat` has called `attachModule` since; what was missing was any way for
-  // a person to reach it. A thread that can span Modules but offers no control
-  // to attach one is a capability only a test can use.
-  assert.match(hook, /trpc\.chat\.thread\.attachModule\.mutate/);
-  assert.match(view, /aria-label="Attach a Module"/);
-  assert.match(view, /chat\.attachModule\(/);
-  // The Modules already on the thread are not offered again...
-  assert.match(view, /!threadModules\.includes\(module\.moduleName\)/);
-  // ...and the ones that ARE on it are visible, which is what the exit test
-  // ("confirm both are listed on the thread") actually checks. The line says
-  // what it lists — Modules — after the user read "On this conversation:
-  // TaskManager" as Agents (BUGS 2026-09-05).
+test("the Module rides the route, not a dropdown; the session is named for it (TASK-093, BUGS 2026-09-05)", () => {
+  // The panel binds the conversation to the Module of the Page the user is on:
+  // AgentPanel passes the route's Module and `useChat` resumes-or-starts that
+  // Module's own thread on the server (ADR-267e). No control is needed for it.
+  assert.match(panel, /<ChatView surface="chat_panel" compact moduleName=\{moduleName\}/);
+  assert.match(hook, /trpc\.chat\.thread\.forModule\.mutate/);
+  // The user read "Working in: TaskManager" and the "Mod..." dropdown as noise
+  // (verbatim report 2026-09-05). Both are gone from the composer.
+  assert.doesNotMatch(view, /Working in:/);
   assert.doesNotMatch(view, /On this conversation/);
-  assert.match(view, /Working in:/);
-  assert.match(view, /threadModules\.map\(/);
-  // Only Modules this Organization has installed can be attached from here —
-  // the same filter the nav uses, so the offer matches what a user can open.
+  assert.doesNotMatch(view, /aria-label="Attach a Module"/);
+  assert.doesNotMatch(view, /chat\.attachModule\(/);
+  // The Module is said once, where it belongs: the session name is
+  // "<Module display name> · <date>" — the same display name the sidebar
+  // shows — and "Chief of Staff · <date>" for the standalone Chat. A bare
+  // "Chat · <date>" no longer appears.
+  assert.match(view, /const sessionLabel = \(thread: ChatThread\)/);
+  assert.match(view, /thread\.moduleName \? moduleLabel\(thread\.moduleName\) : "Chief of Staff"/);
+  assert.match(view, /\{sessionLabel\(thread\)\}/);
+  assert.doesNotMatch(view, /Chat · \$\{/);
+  // The display name comes from the same installed-Module read the nav uses.
   assert.match(view, /trpc\.modules\.list/);
   assert.match(view, /item\.state === "available"/);
+  assert.match(view, /item\.displayNameOverride \?\?/);
 });
 
 test("Chief of Staff is the one face; other Agents are reached by typing @ (2026-09-05)", () => {
-  // The footer names Modules as Modules, with the reason on the element.
-  assert.match(view, /the Modules whose data and files this conversation may use/);
   // `@` opens a picker bound to a REAL read of the Organization's active
   // Agents — never a hard-coded list — and the picker is keyboard-driven.
   assert.match(view, /trpc\.chat\.agents\.list\.query/);
