@@ -338,8 +338,8 @@ export function JobPilotPage() {
       {/* The "All Jobs" bar is gone for the same reason as Signals': the tab
           strip already names the surface, and the row existed only to carry a
           labelled insights toggle that now sits inside the section.
-          ADR-180 removed the 3-dots menu — its one item duplicated the
-          Intelligence Section's "Manage in Module Detail". */}
+          ADR-180 removed the 3-dots menu — its one item linked to Module
+          Detail, a Page that shows the Sections already below this table. */}
       <ModuleSurfaceLayout
         table={
           <section aria-label="Jobs Database" className="h-full">

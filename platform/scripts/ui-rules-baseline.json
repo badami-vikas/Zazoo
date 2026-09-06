@@ -4,7 +4,7 @@
     "apps/web/src/app/avatar/AvatarOverlay.tsx": 1,
     "apps/web/src/app/components/shared/DashboardRow.tsx": 2,
     "apps/web/src/app/components/shared/ModuleFilesSection.tsx": 3,
-    "apps/web/src/app/components/shared/ModuleGovernanceSection.tsx": 4,
+    "apps/web/src/app/components/shared/ModuleGovernanceSection.tsx": 2,
     "apps/web/src/app/components/shared/ModuleIntelligenceSection.tsx": 1,
     "apps/web/src/app/components/shared/RedFlagControl.tsx": 2,
     "apps/web/src/app/dataviews/views/FormView.tsx": 4,

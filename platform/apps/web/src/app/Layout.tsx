@@ -46,10 +46,11 @@ import {
  * Shell IA v3 — TASK-001 / VOCAB6 (2026-07-16): installed Modules are
  * first-class left-nav items, sourced from modules.list (not hardcoded).
  * Each Module links to its PRIMARY data Page (ADR-152/AP-084 — the first
- * manifest Page, buttons-at-top), not the /module/:name capability inventory;
- * the inventory stays reachable via each data Page's Intelligence Section
- * ("Manage in Module Detail"); the duplicate 3-dots Control Panel entry was
- * dropped in ADR-180.
+ * manifest Page, buttons-at-top), not the /module/:name capability inventory —
+ * which is no loss, because that Page renders the same Intelligence and
+ * Governance Sections every data Page already carries. The link to it was
+ * dropped on 2026-09-06 (user directive), as was the duplicate 3-dots Control
+ * Panel entry in ADR-180.
  * Deprecated surfaces (Knowledge, Intelligence, standalone Tools,
  * Projects) are removed from primary nav. Settings moves to its own section.
  *
