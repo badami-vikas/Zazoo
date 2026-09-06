@@ -43,6 +43,7 @@ const EXEMPT = {
   "SettingsPage.tsx": "Preferences form; not a Database view.",
   "TaskRecordDetailPage.tsx": "Record Detail surface (§3b) — sections, not a landing view.",
   "ModuleRecordDetailPage.tsx": "Record Detail surface (§3b, C-15) of a Builder-built Module — fields + Sections, not a landing view.",
+  "ModuleNewRecordPage.tsx": "The new-Record page (C-34) of a declared Page — the Database's fields before Save, not a view of its rows.",
   "IntelligencePage.tsx": "Agents/Automations/Integrations inventory (§4b), manifest-sourced.",
   "ChiefOfStaffPage.tsx": "Agent conversation surface, not a Database page.",
   "WhatsAppPage.tsx": "Live session surface driven by the WhatsApp engine, not a table.",
@@ -150,8 +151,9 @@ test("there is ONE toolbar, and it is <DataViews>'s (§5, TASK-061)", () => {
     "A second toolbar component is back. The canonical row lives in <DataViews>.",
   );
   const shell = read("src/app/dataviews/DataViews.tsx");
-  // §5 slot order, read off the one row that survives.
-  const order = ["List", "Switch view", "searchPlaceholder", "Filter", "{actions}", "View actions"];
+  // §5 slot order, read off the one row that survives. `actions` left the row
+  // for the ⋮ menu on 2026-09-05 — the alignment test below owns that.
+  const order = ["List", "Switch view", "searchPlaceholder", "Filter", "View actions"];
   let cursor = 0;
   for (const slot of order) {
     const at = shell.indexOf(slot, cursor);
@@ -298,7 +300,9 @@ test("New is always present, states a reason when disabled, and opens the Record
   // cannot grow two different create surfaces again.
   const shell = read("src/app/dataviews/DataViews.tsx");
   assert.match(shell, /<RecordPage/);
-  assert.match(shell, /onRequestCreate=\{\(\) => setCreating\(true\)\}/);
+  // The shell owns the create surface either way: it navigates when the caller
+  // gave it a Record route, and renders the same page inline when it did not.
+  assert.match(shell, /setCreating\(true\)/);
 });
 
 test("the Record page shows every field and writes nothing before Save (C-34, TASK-083)", () => {
@@ -497,4 +501,85 @@ test("§5's List slot is a real control, not a placeholder (TASK-062)", () => {
   assert.match(dataViews, /setHiddenColumns\(new Set\(chosen\.hiddenColumns\)\)/);
   // Unreachable store => the row stays visible and says why, never vanishes.
   assert.match(dataViews, /Saved Lists are unavailable/);
+});
+
+test("the toolbar is left dropdowns + search, right Filter + ⋮, and nothing else (user report 2026-09-05)", () => {
+  const shell = read("src/app/dataviews/DataViews.tsx");
+  // §5 slot order after the alignment fix: List, View and Search on the LEFT;
+  // Filter and the ⋮ on the RIGHT, pushed there by `ml-auto` on the second
+  // group. `actions` is no longer a third button between them — it is a
+  // labelled group inside the ⋮ menu, so the row only ever shows these five.
+  const order = ["List", "Switch view", "searchPlaceholder", "ml-auto", "Filter", "View actions"];
+  let cursor = 0;
+  for (const slot of order) {
+    const at = shell.indexOf(slot, cursor);
+    assert.ok(at > 0, `§5 slot "${slot}" is missing or out of order in the toolbar row.`);
+    cursor = at;
+  }
+  // The custom-actions slot renders INSIDE the menu, after its trigger.
+  const trigger = shell.indexOf("View actions");
+  const menuActions = shell.indexOf("{actions}", trigger);
+  assert.ok(menuActions > trigger, "`actions` must render inside the ⋮ menu, not in the row.");
+  assert.match(shell, /Actions<\/div>/, "The moved `actions` need a labelled group in the menu.");
+  // The row still never wraps and still stages its overflow.
+  assert.match(shell, /flex-nowrap/);
+  assert.match(shell, /useToolbarOverflow\(rowRef\)/);
+});
+
+test("a column menu opens on right-click and by keyboard, with no resident ⋮ (user report 2026-09-05)", () => {
+  const menu = read("src/app/components/shared/StandardColumnMenu.tsx");
+  // The always-visible per-column trigger is gone — the user asked not to see
+  // a ⋮ next to every column name.
+  assert.doesNotMatch(menu, /MoreVertical/, "The per-column ⋮ trigger must be gone.");
+  assert.doesNotMatch(menu, /Open \$\{props\.label\} column menu/);
+  // Right-click is the gesture, positioned by the shared clamp.
+  assert.match(menu, /onContextMenu=\{\(event\) => \{/);
+  assert.match(menu, /clampMenuPosition\(\{ x: event\.clientX, y: event\.clientY \}\)/);
+  // Accessibility is not dropped with the button: the header is focusable and
+  // opens the same menu from the keyboard.
+  assert.match(menu, /tabIndex=\{0\}/);
+  assert.match(menu, /aria-haspopup="menu"/);
+  assert.match(menu, /"Enter"/);
+  assert.match(menu, /"ContextMenu"/);
+});
+
+test("table columns are separated by a vertical rule (user report 2026-09-05)", () => {
+  const table = read("src/app/dataviews/views/TableView.tsx");
+  const rules = table.match(/borderRight: "1px solid var\(--color-border\)"/g) ?? [];
+  assert.ok(
+    rules.length >= 2,
+    "Header AND body cells need a right border, or the columns run together.",
+  );
+  // No double line at the last column: the sticky row-actions cell already
+  // draws that edge with its own borderLeft.
+  assert.match(table, /colIndex < columns\.length - 1/);
+});
+
+test("New opens the Record page as a PAGE when the caller can route to one (user report 2026-09-05)", () => {
+  const shell = read("src/app/dataviews/DataViews.tsx");
+  // The caller's navigation wins; the inline Record page stays only as the
+  // fallback for surfaces that have no Record route.
+  assert.match(shell, /onOpenNewRecord/);
+  assert.match(shell, /onRequestCreate=\{onOpenNewRecord \?\? \(\(\) => setCreating\(true\)\)\}/);
+
+  // The standard shell has a route for a new Record of a declared Page.
+  const routes = read("src/app/routes.tsx");
+  assert.match(routes, /module\/:moduleName\/:pageId\/new/);
+  // Declared BEFORE the :recordId route, or "new" is read as a Record id.
+  assert.ok(
+    routes.indexOf(":pageId/new") < routes.indexOf(":pageId/:recordId"),
+    "The new-Record route must precede the :recordId route.",
+  );
+
+  // And the Module Page hands the shell that route, so New lands on a real
+  // page with ONE set of Sections rather than an inline page under the
+  // Module Page's own Intelligence + Governance.
+  const modulePage = read("src/app/pages/ModulePage.tsx");
+  assert.match(modulePage, /onOpenNewRecord=\{/);
+
+  // The new-Record page shows no Record Sections at all: there is no Record
+  // for them to be about until Save, and rendering them under a Module Page
+  // that already shows them is what the user saw twice.
+  const recordPage = read("src/app/dataviews/RecordPage.tsx");
+  assert.doesNotMatch(recordPage, /<RecordSections/);
 });

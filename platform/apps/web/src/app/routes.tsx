@@ -23,6 +23,7 @@ import { ResearchRunsPage } from "./pages/ResearchRunsPage";
 // an installed Module renders here, Builder-built Modules included.
 import { ModulePage, modulePageRoute } from "./pages/ModulePage";
 import { ModuleRecordDetailPage } from "./pages/ModuleRecordDetailPage";
+import { ModuleNewRecordPage } from "./pages/ModuleNewRecordPage";
 import { InstalledModuleBoundary } from "./components/InstalledModuleBoundary";
 import { PILOT_ORGANIZATION, trpc } from "./lib/trpc";
 import { AuthGate } from "./auth/AuthSession";
@@ -300,6 +301,10 @@ export const router = createBrowserRouter([
       // Module routes so a built-in's hand-written Page at the same shape
       // (e.g. /module/whatsapp/chats) keeps winning in the full profile.
       { path: "module/:moduleName/:pageId", Component: ModulePage },
+      // A NEW Record of a declared Page (user report 2026-09-05). Declared
+      // BEFORE the :recordId route or "new" is matched as a Record id, and the
+      // page would look for a Record nobody has created yet.
+      { path: "module/:moduleName/:pageId/new", Component: ModuleNewRecordPage },
       // The standard Record detail page of a declared Page (TASK-100, C-15).
       { path: "module/:moduleName/:pageId/:recordId", Component: ModuleRecordDetailPage },
 

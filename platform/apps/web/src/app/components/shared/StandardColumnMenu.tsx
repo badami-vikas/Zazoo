@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { MoreVertical } from "lucide-react";
 import { Button } from "../ui/button.js";
 import {
   Dialog,
@@ -508,33 +507,48 @@ export function StandardColumnMenuPanel({
   );
 }
 
-/** The DOM header's trigger + panel. Unchanged behaviour: click or right-click
- * opens the SAME `StandardColumnMenuPanel` the canvas renderer opened. */
+/**
+ * The DOM header's trigger + panel.
+ *
+ * THE COLUMN NAME IS THE TRIGGER (user report 2026-09-05: "I dont want to see 3
+ * dots next to every column name, the those options should appear alongside
+ * other options upon right click of column name"). The resident ⋮ is gone; the
+ * gesture is right-click, the SAME gesture and the SAME positioned panel the
+ * row body's cell menu uses.
+ *
+ * A gesture is not a keyboard route, so the header stays a real control: it is
+ * focusable, announces itself as a menu button, and Enter / Space / the
+ * context-menu key open the identical panel anchored under the header. Removing
+ * the button removed a click target, never the accessibility.
+ */
 export function StandardColumnMenu(props: StandardColumnMenuItemProps) {
   const [position, setPosition] = useState<MenuPosition | null>(null);
   const close = useCallback(() => setPosition(null), []);
 
   return (
-    <div
-      className="flex items-center gap-1"
-      onContextMenu={(event) => {
-        event.preventDefault();
-        setPosition(clampMenuPosition({ x: event.clientX, y: event.clientY }));
-      }}
-    >
-      <span>{props.label}</span>
-      <button
-        type="button"
-        aria-label={`Open ${props.label} column menu`}
-        className="rounded p-0.5 hover:bg-black/5 dark:hover:bg-white/10"
-        onClick={(event) => {
+    <>
+      <span
+        role="button"
+        tabIndex={0}
+        aria-haspopup="menu"
+        aria-expanded={position !== null}
+        aria-label={`${props.label} column actions`}
+        title="Right-click for column actions"
+        className="cursor-context-menu rounded outline-none focus-visible:ring-1 focus-visible:ring-current"
+        onContextMenu={(event) => {
+          event.preventDefault();
+          setPosition(clampMenuPosition({ x: event.clientX, y: event.clientY }));
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " " && event.key !== "ContextMenu") return;
+          event.preventDefault();
           const rect = event.currentTarget.getBoundingClientRect();
           setPosition(clampMenuPosition({ x: rect.left, y: rect.bottom + 4 }));
         }}
       >
-        <MoreVertical className="h-3.5 w-3.5" />
-      </button>
+        {props.label}
+      </span>
       {position && <StandardColumnMenuPanel {...props} position={position} onClose={close} />}
-    </div>
+    </>
   );
 }

@@ -157,15 +157,23 @@ export interface DataViewsProps
   insights?: ReactNode;
   /**
    * §5's "Custom actions" slot: page-specific controls (scope toggles, a
-   * governed action button) that belong IN the sandwich row, between Filter
-   * and the 3-dots. This slot exists because its absence is what made pages
-   * diverge — with nowhere to put a Goals/Candidates toggle, TaskManager
-   * built a second bordered row of its own beneath the toolbar, and the
-   * "one line between toggle and dashboard" rule was broken by the kit, not
-   * by the page. Anything passed here must stay compact; long lists belong
-   * in the 3-dots menu.
+   * governed action button). This slot exists because its absence is what made
+   * pages diverge — with nowhere to put a Goals/Candidates toggle, TaskManager
+   * built a second bordered row of its own beneath the toolbar.
+   *
+   * IT NO LONGER RENDERS IN THE ROW (user report 2026-09-05: "no other buttons
+   * should appear … If necessary, add additional options inside 3 dots"). The
+   * row is exactly List + View + Search on the left and Filter + ⋮ on the
+   * right; whatever a page passes here becomes a labelled group at the top of
+   * the ⋮ menu, reaching the same handler from a different address.
    */
   actions?: ReactNode;
+  /**
+   * How this surface opens a Record page for a NEW Record. Supplying it makes
+   * New navigate; without it the shell falls back to rendering the Record page
+   * in place of the view (the surfaces that have no Record route of their own).
+   */
+  onOpenNewRecord?: () => void;
   /**
    * The Module this Database belongs to, for an Record page's Sections.
    * Defaults to the spec id's own prefix (`deal-pilot.deals` → `deal-pilot`),
@@ -194,6 +202,7 @@ export function DataViews({
   onAddView,
   insights,
   actions,
+  onOpenNewRecord,
   moduleName,
   recordEntityType,
   ...viewProps
@@ -341,10 +350,15 @@ export function DataViews({
           staged, not a wrap: the search box narrows first (`ToolbarSearch`),
           then button labels drop to icon-only, and only once that's
           exhausted does a Record move into the 3-dots overflow menu — see
-          `useToolbarOverflow` below. This was specified in
-          ui-architecture-rules-2026-07.md long before this fix; the row had
-          drifted back to `flex-wrap` and a two-group split, which is exactly
-          the erosion this rewrite closes. */}
+          `useToolbarOverflow` below.
+
+          §5 SLOT ORDER (user report 2026-09-05: "the three dots and filter
+          should be right aligned and search bar and list and view dropdowns
+          should be left aligned and no other buttons should appear"):
+            LEFT  — List dropdown, View dropdown, Search.
+            RIGHT — Filter, then the ⋮ (pushed over by `ml-auto`).
+          Nothing else. A page's `actions` are a group inside the ⋮ menu, not a
+          third button between Filter and it. */}
       <div ref={rowRef} className="flex flex-none flex-nowrap items-center gap-2 overflow-hidden">
         {/* §5: List dropdown ALWAYS renders first, View dropdown second — this is
             the enforcement point, not StandardToolbar (which almost nothing
@@ -545,7 +559,10 @@ export function DataViews({
           />
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        {/* THE RIGHT GROUP. `ml-auto` is what right-aligns it, so the two
+            groups stay pinned to their own edges however wide the search box
+            grows or shrinks. */}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           {/* ONE Filter control, not two (user report 2026-08-10: "Why are
               there 2 filters, retain only the button. Currently its not
               clickable, why?"). There used to be a always-visible draft input
@@ -608,9 +625,6 @@ export function DataViews({
             </Popover>
           )}
 
-          {/* §5 slot order: Custom actions sit after Filter, before the 3-dots. */}
-          {actions}
-
           {/* The overflow menu, in the Avilo shape: the view-level commands
               collect behind one ⋮ instead of each claiming a toolbar button.
               "Columns" was the only one that had, and it is now "View options"
@@ -624,6 +638,21 @@ export function DataViews({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-60">
+              {/* §5's Custom actions slot, moved here from the row. Same node,
+                  same handler — a page's control is still one click away, it
+                  just no longer adds a button to a row the user asked to hold
+                  only List/View/Search and Filter/⋮. Key events are stopped so
+                  Radix's type-ahead does not eat an input a page passes. */}
+              {actions && (
+                <div
+                  className="space-y-1.5 border-b p-2"
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
+                  <div className="text-xs font-medium text-muted-foreground">Actions</div>
+                  {actions}
+                </div>
+              )}
+
               {/* When the row has no space left, Filter drops out of the row
                   and lives here instead — same input, same handler, just a
                   different address (user directive 2026-08-10: "the Records
@@ -819,7 +848,12 @@ export function DataViews({
             setHiddenColumns((current) => new Set(current).add(columnId));
             viewProps.onHideColumn?.(columnId);
           }}
-          onRequestCreate={() => setCreating(true)}
+          // New opens a PAGE wherever the surface has a Record route (user
+          // report 2026-09-05: "shouldnt I be taken to the element page when
+          // adding a new element?"). The inline Record page below stays as the
+          // fallback for the hand-written surfaces that have no such route —
+          // there it is still a whole-view swap, never a half-page.
+          onRequestCreate={onOpenNewRecord ?? (() => setCreating(true))}
         />
         )}
       </div>

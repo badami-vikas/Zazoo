@@ -172,6 +172,8 @@ export function ModulePage() {
                 onOpenRecord={(row) => {
                   if (typeof row.id === "string") navigate(moduleRecordRoute(moduleName, page.id, row.id));
                 }}
+                // New is a page, not an inline mode (user report 2026-09-05).
+                onOpenNewRecord={() => navigate(moduleRecordRoute(moduleName, page.id, "new"))}
                 onInsert={async (draft) => {
                   await trpc.moduleRecords.insert.mutate({
                     organizationId: PILOT_ORGANIZATION,

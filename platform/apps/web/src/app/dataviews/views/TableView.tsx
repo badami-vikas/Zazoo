@@ -333,7 +333,7 @@ export function TableView({
             >
               <span className="sr-only">Select rows</span>
             </th>
-            {columns.map((col) => {
+            {columns.map((col, colIndex) => {
               const activeSort = view.sorts.find((sort) => sort.id === col.id);
               const numeric = isNumericColumn(col);
               return (
@@ -350,6 +350,15 @@ export function TableView({
                     paddingRight: CELL_PAD_X,
                     color: "var(--color-warm-gray)",
                     borderBottom: "1px solid var(--color-border)",
+                    // COLUMN SEPARATORS (user report 2026-09-05: "I need
+                    // vertical lines seperating columns"). The token is the
+                    // same one the horizontal rules use, so light and dark
+                    // stay consistent. The LAST column gets none: the sticky
+                    // row-actions cell already draws that edge with its own
+                    // borderLeft, and both would read as a double rule.
+                    ...(colIndex < columns.length - 1
+                      ? { borderRight: "1px solid var(--color-border)" }
+                      : {}),
                   }}
                   className={`whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.07em] ${
                     numeric ? "text-right" : "text-left"
@@ -537,7 +546,7 @@ export function TableView({
                     }}
                   />
                 </td>
-                {columns.map((col) => {
+                {columns.map((col, colIndex) => {
                   const value = row[col.id];
                   const numeric = isNumericColumn(col);
                   const isEditing = editing?.key === key && editing.col === col.id;
@@ -557,6 +566,11 @@ export function TableView({
                         color: "var(--color-navy)",
                         paddingLeft: CELL_PAD_X,
                         paddingRight: CELL_PAD_X,
+                        // The body half of the column separator — same rule,
+                        // same last-column exception, as the header above.
+                        ...(colIndex < columns.length - 1
+                          ? { borderRight: "1px solid var(--color-border)" }
+                          : {}),
                       }}
                       // Every tap on a row's cells goes through the reducer,
                       // not straight to open: it decides whether this click is

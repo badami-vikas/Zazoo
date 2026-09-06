@@ -16,13 +16,18 @@
  * A DEFAULT IS NOT A WRITE (ADR-259/AP-169). Column defaults are pre-filled in
  * the draft, which lives in React state; leaving without Save leaves no row, no
  * partial Record and no request.
+ *
+ * NO RECORD SECTIONS HERE (user report 2026-09-05: Intelligence and Governance
+ * showing twice). This page is the fields of a Record that does not exist yet —
+ * `RecordSections` had nothing to be about, and inline under a Module Page it
+ * repeated the two Sections that page already renders below. Sections belong on
+ * the saved Record's own page.
  */
 import { useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { isMetadataColumn, type ColumnSpec, type TableSpec } from "@bridge/tables";
 import { Button } from "../components/ui/button.js";
 import { Label } from "../components/ui/label.js";
-import { RecordSections } from "../components/shared/RecordSections";
 import { FieldInput, isFormEditable } from "./views/FormView.js";
 import type { DataRow } from "./types.js";
 
@@ -49,7 +54,9 @@ export function initialRecordDraft(columns: readonly ColumnSpec[]): Record<strin
 
 export interface RecordPageProps {
   spec: TableSpec;
-  /** The Module this Database belongs to, for its Sections. */
+  /** The Module this Database belongs to. Carried by every call site (and by
+   * the Record page route) for context; this page renders no Module-scoped
+   * Sections of its own — see the header block. */
   moduleName: string;
   /** Absent when this surface has no governed create path — Save then states why. */
   onSave?: (draft: Partial<DataRow>) => void | Promise<void>;
@@ -60,7 +67,6 @@ export interface RecordPageProps {
 
 export function RecordPage({
   spec,
-  moduleName,
   onSave,
   saveDisabledReason,
   onCancel,
@@ -116,10 +122,6 @@ export function RecordPage({
           New {title}
         </h2>
       </div>
-      <p className="mt-1 pl-7 text-xs" style={{ color: "var(--color-warm-gray)" }}>
-        Nothing is written until you press Save. Leaving this page leaves no Record behind.
-      </p>
-
       <div className="mt-4 space-y-4 rounded-xl border p-5" style={{ borderColor: "var(--color-border)" }}>
         {spec.columns.map((column) => {
           const reason = nonEditableReason(column);
@@ -154,11 +156,19 @@ export function RecordPage({
             size="sm"
             onClick={() => void save()}
             disabled={!onSave || saving}
-            title={onSave ? undefined : saveDisabledReason}
+            // The "nothing is written until Save" note used to be a standing
+            // paragraph under the heading. It is the same fact, told where it
+            // matters (user directive 2026-09-05: tooltips, not explainers).
+            title={onSave ? "Nothing is written until you press Save" : saveDisabledReason}
           >
             {saving ? "Saving…" : "Save"}
           </Button>
-          <Button size="sm" variant="outline" onClick={onCancel}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onCancel}
+            title="Leaves no Record behind"
+          >
             Cancel
           </Button>
           {!onSave && saveDisabledReason && (
@@ -173,9 +183,6 @@ export function RecordPage({
           )}
         </div>
       </div>
-
-      {/* The same Sections every other Record page of this Database shows. */}
-      <RecordSections specId={spec.id} moduleName={moduleName} recordId={null} />
     </div>
   );
 }
