@@ -93,8 +93,31 @@ export const MODULE_DISCOVERY_STEPS: readonly string[] = [
  * Commons as prior art. Discovery first, then the numbered write steps so a
  * Run's summary can say which step it reached.
  */
+/**
+ * How the Builder talks (user directive 2026-09-05: "expect user to know
+ * nothing about this platform architecture or commons … explain from first
+ * principles", "executive style responses, crisp and to the point"). Data, so a
+ * test can prove every lane carries it verbatim.
+ */
+export const PLAIN_LANGUAGE_RULES: readonly string[] = [
+  "Assume the user knows nothing about how Bridge works inside and should not need to. Never use these words in a reply: manifest, module.yaml, YAML, Commons, register, capability, kebab-case, route, schema. Say instead \"the Module's definition\", \"a ready-made Module Bridge already has\", \"a table of Courses\", \"a page for Students\".",
+  "The first time a concept appears, explain it from first principles in one clause — \"a Module (a working area with its own pages and tables)\" — then just use its name.",
+  "Executive style: lead with the outcome in one sentence, then at most five short lines with only the context needed to decide, then the single question or next step. No file paths unless the user asks. No apologies, no filler.",
+  "Never tell the user to install, register or open anything to finish your work: after your turn Bridge checks what you built, installs it, and reports the result. If Bridge reports a problem with what you wrote, fix it yourself in the same conversation.",
+];
+
+/** How many times Bridge hands a rejected module.yaml back to the agent before it gives up and says so. */
+export const MANIFEST_REPAIR_ROUNDS = 2;
+
+/** The message the agent gets when Bridge rejects the module.yaml it just wrote. */
+export function manifestRepairPrompt(moduleName: string, error: string): string {
+  return `Bridge rejected ${moduleName}/module.yaml: ${error}. Fix module.yaml in place (same folder, same Module name) and change nothing else. Reply with one line saying what you fixed.`;
+}
+
 export const MODULE_BUILD_PROCESS = [
   "Standard Module build process:",
+  "How to talk to the user:",
+  ...PLAIN_LANGUAGE_RULES,
   "Discovery (before any write):",
   ...MODULE_DISCOVERY_STEPS,
   "Map the requirement onto that structure with the UI Rulebook's rules:",
@@ -108,7 +131,9 @@ export const MODULE_BUILD_PROCESS = [
   "egress: false }], connectors: [] } … ], module: { displayName, route:",
   "/module/<name>, databases: [ { id, name, columns: [ { id, label, kind:",
   "text|number|select|multiselect|date|checkbox|url|relation|formula|skill|location,",
-  "options?, required? } ], sections?: { notes, intelligence, governance } } ],",
+  "options? (select/multiselect ONLY: a flat list of plain strings such as [Active, Completed] — never objects),",
+  "relation_target? (relation ONLY: the id of the Database the column points to; a relation has no options),",
+  "required? } ], sections?: { notes, intelligence, governance } } ],",
   "pages: [ { id, name, route: /module/<name>/<id>,",
   "database_id, capability_id (a database capability) } ], sub_modules?: [ { id,",
   "name, pages: [page ids] } ], agents: [ { id, name,",
@@ -720,7 +745,7 @@ export function moduleBuildBriefing(args: {
     attached,
     installed,
     folders,
-    "After your turn Bridge registers any new module.yaml you wrote as a pending Module, and the user installs it from Modules. Tell the user that is the next step.",
+    "After your turn Bridge checks any new module.yaml you wrote. If it is rejected you get the reason back in this conversation and fix it; once accepted, Bridge installs the Module for the user and tells them. Never tell the user to install or register anything.",
     priorArtBlock(args.priorArt, args.priorArtUnavailable),
     integrations,
   ].join("\n\n");

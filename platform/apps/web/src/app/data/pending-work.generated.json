@@ -3578,8 +3578,8 @@
     {
       "id": "TASK-097",
       "title": "TASK-097 — Approvals belong to Tasks: one open proposal per Automation, profile-parked Automations, Task Page and Home as the approval surfaces",
-      "status": "completed",
-      "statusNote": "2026-09-05 — reopened and closed the same day: the installed Egg still showed 257 rows: migration 0015's check constraint refused `superseded`, so the sweep threw and the scheduler tick died every minute; fixed by migration 0049, a non-fatal sweep, parking foreign-Module Automations, and plain-language `describeProposal` copy; installer rebuild pending. Earlier: PR #80 merged; 2026-09-04 follow-up branch `claude/task-097-approval-ranking`: Home ranks waiting approvals by importance and the ledger reads `superseded` as withdrawn — not yet in the installer",
+      "status": "in-progress",
+      "statusNote": "REOPENED again 2026-09-05 — the user found the Approvals page (BUGS 2026-09-05 \"the Builder wrote a definition Bridge rejected…\"): the standalone page and every link to it go, approvals live only on Tasks; the earlier reopen closed the same day: the installed Egg still showed 257 rows: migration 0015's check constraint refused `superseded`, so the sweep threw and the scheduler tick died every minute; fixed by migration 0049, a non-fatal sweep, parking foreign-Module Automations, and plain-language `describeProposal` copy; installer rebuild pending. Earlier: PR #80 merged; 2026-09-04 follow-up branch `claude/task-097-approval-ranking`: Home ranks waiting approvals by importance and the ledger reads `superseded` as withdrawn — not yet in the installer",
       "priority": "P0",
       "horizon": "Living Software",
       "outcome": "A launched Egg shows no inherited pile of approvals: an Automation never holds more than one undecided proposal per identical step, stale duplicates are withdrawn as `superseded`, Automations of Modules outside the profile do not tick, and every waiting approval is reachable from its Task (Task Page Approvals section) and named with its Task on Home — never from Settings.",
@@ -3598,7 +3598,7 @@
       "isGoal": false,
       "path": "8.6",
       "level": 1,
-      "canonicalStatus": "done",
+      "canonicalStatus": "in_progress",
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
@@ -3732,7 +3732,9 @@
         "the `@` picker is bound to `chat.agents.list`, has the listbox and the Escape/ArrowDown cases, and the send carries `mentions` — seen failing 2/9 before the change, 9/9 after)",
         "`apps/api/test/chat-mentions.test.ts` (2 tests: the picker lists the Learning Agent with a role and never Chief of Staff, every row an active Agent of the Organization",
         "`turn.send` with `mentions` records the `addressed_agent` ref on the assistant turn, and a stranger id is refused with no turn written). api + web typecheck clean",
-        "vocabulary and UI-rules gates."
+        "vocabulary and UI-rules gates. 2026-09-05 (BUGS 2026-09-05 \"the Builder wrote a definition Bridge rejected…\", PR #87): the composer footer \"Working in: <Module>\" and the Module dropdown are removed — the panel attaches the current Page's Module by route (`chat.thread.forModule`), so the dropdown only ever added extra Modules",
+        "sessions are named `<Module display name> · <date>` (or `Chief of Staff · <date>`), a persisted title still wins",
+        "`chat.test.mjs` 9/9 after being seen 8/9."
       ],
       "requests": [
         "user directive 2026-09-05, verbatim: *\"Why does it show on this conversation task manager? If its showing agents involved, should the user be able to pick and choose agents in which case its multi select dropdown. Also is task manager handling the work of the builder? Because I thought chief of staff will be user facing and then it internally directs to different agents based on need. WHy do we even need to show other agent? If user wants to call other agents, pressing @ in chatbot should show agents that can be called\"*"
@@ -3786,6 +3788,38 @@
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1667,
       "rank": 108
+    },
+    {
+      "id": "TASK-103",
+      "title": "TASK-103 — The Builder finishes the job: repairs a rejected definition, installs the Module, speaks plainly",
+      "status": "in-progress",
+      "statusNote": "2026-09-05",
+      "priority": "P0",
+      "horizon": "Living Software",
+      "outcome": "the Builder FINISHES: a rejected module.yaml goes back to the agent (same session, verbatim reason, bounded rounds) to fix; an accepted Module is installed through the governed install path without the user opening Modules; replies follow `PLAIN_LANGUAGE_RULES` (no internals vocabulary, first principles, executive style, never \"go install it\").",
+      "prototypeTest": "in the installed Egg, \"Yes, looks right\" after the plan ends with \"Built and installed \\\"Academics\\\" — it is in your sidebar now.\" and the Module is in the left nav with no further click; a wrong column is repaired in the same turn; no reply says manifest, module.yaml, Commons or register.",
+      "scope": [
+        "`apps/api/src/builder/run.ts` (`PLAIN_LANGUAGE_RULES`, `MANIFEST_REPAIR_ROUNDS`, `manifestRepairPrompt`, column grammar `options`/`relation_target`, briefing close), `apps/api/src/routers/chat.ts` (repair loop + `modulesRouter.createCaller(ctx).install`), `apps/api/test/chat-agentic-backend.test.ts`."
+      ],
+      "evidence": [
+        "EVIDENCE_TASK103"
+      ],
+      "requests": [
+        "user report 2026-09-05 verbatim in BUGS 2026-09-05 \"the Builder wrote a definition Bridge rejected…\"."
+      ],
+      "approval": "none needed (install goes through the existing governed `modules.install` proposal; ADR 2026-09-05 \"The Builder installs what it builds and speaks plainly\").",
+      "dependencies": [
+        "TASK-102 (discovery), TASK-098 (briefing)."
+      ],
+      "isGoal": false,
+      "path": "8.12",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1682,
+      "rank": 109
     }
   ]
 }

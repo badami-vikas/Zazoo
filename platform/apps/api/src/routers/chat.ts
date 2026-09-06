@@ -2,14 +2,16 @@ import { TRPCError } from "@trpc/server";
 import { mkdir } from "node:fs/promises";
 import { z } from "zod";
 import { INTERNAL_STRATEGIST_AGENT, chatCaptureSignalId } from "../wiring.js";
-import { ChatCloudGrantError, ChatStoreConflictError, ChatStoreScopeError, CHAT_BACKEND_IDS, FOUNDATIONAL_AGENTS, type ChatBackendTurn, type FoundationalAgentId } from "@bridge/core";
+import { ChatCloudGrantError, ChatStoreConflictError, ChatStoreScopeError, CHAT_BACKEND_IDS, FOUNDATIONAL_AGENTS, type ChatBackendTurn, type ModuleInstallationRow, type FoundationalAgentId } from "@bridge/core";
 import { createModelRouter, MANAGED_LLAMA_PROVIDER_ID } from "@bridge/models";
 import { captureAllowed, chatTurnCaptureSignal, detectCommitmentCandidates, proposeCommitmentSuggestions, recordSignal as recordCaptureSignal } from "@bridge/core";
 import { MAX_TRANSCRIPTION_AUDIO_BYTES, transcribeAudio, VoiceTranscriptionError } from "../voice-transcription.js";
 import { organizationFilesRoot } from "../module-files.js";
 import { relative, sep } from "node:path";
 import { BUILDER_AGENT_RUNTIME_ID, BUILT_IN_MODULES, CHIEF_OF_STAFF_AGENT_RUNTIME_ID, GOVERNANCE_AGENT_RUNTIME_ID, INTERNAL_STRATEGIST_AGENT_RUNTIME_ID, LEARNING_AGENT_RUNTIME_ID, resolveModuleAgentRuntimeId } from "@bridge/module-manifests";
-import { commonsPriorArt, installedModulesForBriefing, integrationsForBriefing, moduleBuildBriefing, organizationFoldersForBriefing } from "../builder/run.js";
+import { commonsPriorArt, installedModulesForBriefing, integrationsForBriefing, MANIFEST_REPAIR_ROUNDS, manifestRepairPrompt, moduleBuildBriefing, organizationFoldersForBriefing } from "../builder/run.js";
+import { modulesRouter } from "./modules.js";
+import { actionRouter } from "./action.js";
 import { readModuleManifestFile, registerModuleManifest } from "../module-register.js";
 import { ClaudeSignInRequiredError } from "../chat/claude-code-backend.js";
 import { deterministicUuid } from "../deterministic-uuid.js";
@@ -740,23 +742,93 @@ export const chatRouter = t.router({
             }
 
             // A module.yaml the agent wrote for a Module Bridge does not know yet
-            // enters the governed lifecycle here, the same way a Builder Run's
-            // does (ADR 2026-09-04): registered private and pending review;
-            // `modules.install` stays the proposal that decides whether it runs.
+            // enters the governed lifecycle here (ADR 2026-09-04) and, since
+            // 2026-09-05, FINISHES here: a definition Bridge rejects goes back to
+            // the agent to repair (bounded), and an accepted one is installed
+            // through `modules.install` — the same governed proposal the Modules
+            // page runs — so the user never has to find and press anything. The
+            // notes speak to a person, not to a developer.
             const registrationNotes: string[] = [];
-            for (const changed of backendTurn.changedPaths ?? []) {
+            let repairsLeft = MANIFEST_REPAIR_ROUNDS;
+            for (const changed of [...(backendTurn.changedPaths ?? [])]) {
               const rel = relative(workingDirectory, changed).split(sep);
               const [moduleName, file] = rel;
               if (rel.length !== 2 || file !== "module.yaml" || !moduleName || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(moduleName)) continue;
               if (BUILT_IN_MODULES.some((entry) => entry.manifest.name === moduleName)) continue;
               if ((await ctx.wiring.moduleStore.listVersions(thread.organizationId, moduleName)).length > 0) continue;
+              let installation: ModuleInstallationRow | null = null;
+              let missing = false;
+              let lastError = "";
+              while (installation === null && !missing) {
+                try {
+                  const raw = await readModuleManifestFile(ctx.wiring, organizationName, moduleName);
+                  if (raw === null) {
+                    missing = true;
+                    break;
+                  }
+                  installation = await registerModuleManifest(ctx.wiring, thread.organizationId, raw);
+                } catch (error) {
+                  lastError = error instanceof Error ? error.message : String(error);
+                  if (repairsLeft <= 0) break;
+                  repairsLeft -= 1;
+                  const repaired = await backend.send({
+                    text: manifestRepairPrompt(moduleName, lastError),
+                    backendSessionId: backendTurn.backendSessionId ?? thread.backendSessionId ?? null,
+                    workingDirectory,
+                    organizationId: thread.organizationId,
+                    signal: controller.signal,
+                    system,
+                  });
+                  backendTurn = {
+                    ...backendTurn,
+                    backendSessionId: repaired.backendSessionId ?? backendTurn.backendSessionId,
+                    changedPaths: [...new Set([...(backendTurn.changedPaths ?? []), ...(repaired.changedPaths ?? [])])],
+                  };
+                }
+              }
+              if (missing) continue;
+              if (installation === null) {
+                registrationNotes.push(
+                  `I built "${moduleName}" but Bridge could not accept its definition after ${MANIFEST_REPAIR_ROUNDS} repair attempts. Say "fix it" and I will try again.\nDetails for support: ${lastError}`,
+                );
+                continue;
+              }
+              const label = installation.manifest.module?.displayName ?? moduleName;
               try {
-                const raw = await readModuleManifestFile(ctx.wiring, organizationName, moduleName);
-                if (raw === null) continue;
-                const installation = await registerModuleManifest(ctx.wiring, thread.organizationId, raw);
-                registrationNotes.push(`Registered the Module "${moduleName}" (${installation.status}) — install it from Modules to make it live.`);
+                // exactOptionalPropertyTypes: the guarded ctx types `reauthenticatedAt` as
+                // `number | undefined`; ApiContext wants it present or absent.
+                const { reauthenticatedAt, ...baseCtx } = ctx;
+                const routerCtx = reauthenticatedAt === undefined ? baseCtx : { ...baseCtx, reauthenticatedAt };
+                const result = await modulesRouter.createCaller(routerCtx).install({
+                  organizationId: thread.organizationId,
+                  installationId: installation.id,
+                  todayKey: new Date().toISOString().slice(0, 10),
+                });
+                let installed = result.installed;
+                if (!installed && result.decision.requirement === "user_pref" && result.proposal) {
+                  // A Module that writes its own private Records is banded
+                  // transformational, whose base ask is the USER's preference.
+                  // The user raised this install from their own chat turn and
+                  // confirmed the plan, so that same user answers it here, as a
+                  // recorded Human decision through the ordinary decide path
+                  // (AP-182: only the critical four block). `governance` and
+                  // `explicit_human` requirements still wait under Tasks.
+                  await actionRouter.createCaller(routerCtx).decide({
+                    proposalId: result.proposal.id,
+                    decision: "approve",
+                    reason: "Approved in chat: the user asked for this Module and confirmed its plan.",
+                  });
+                  installed = true;
+                }
+                registrationNotes.push(
+                  installed
+                    ? `Built and installed "${label}" — it is in your sidebar now.`
+                    : `Built "${label}". It waits for your yes under Tasks before it goes live.`,
+                );
               } catch (error) {
-                registrationNotes.push(`Could not register ${moduleName}/module.yaml: ${error instanceof Error ? error.message : String(error)}`);
+                registrationNotes.push(
+                  `Built "${label}", but Bridge could not switch it on. Say "fix it" and I will try again.\nDetails for support: ${error instanceof Error ? error.message : String(error)}`,
+                );
               }
             }
             if (registrationNotes.length > 0) {

@@ -6,7 +6,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -23,9 +23,10 @@ import {
 import { InMemorySourceCredentialVault } from "@bridge/dealpilot";
 
 import { appRouter } from "../src/router.js";
-import { MODULE_BUILD_PROCESS, MODULE_DISCOVERY_STEPS, MODULE_STRUCTURE_RULES } from "../src/builder/run.js";
+import { MANIFEST_REPAIR_ROUNDS, MODULE_BUILD_PROCESS, MODULE_DISCOVERY_STEPS, MODULE_STRUCTURE_RULES, PLAIN_LANGUAGE_RULES } from "../src/builder/run.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
 import { makeCaller } from "./caller.js";
+import { stableModuleInstallProposalId } from "../src/router-shared.js";
 
 /** Stands in for Claude Code: records what it was asked, returns prose and a
  * session handle, and never sees Bridge's assistant envelope. */
@@ -391,10 +392,11 @@ test("the agentic backend is briefed on what a Module is, and a module.yaml it w
 
     // What the agent wrote is a pending Module now, and the reply says so.
     const assistant = view.turns[view.turns.length - 1];
-    assert.match(assistant?.content ?? "", /Registered the Module "academics-manager" \(pending_review\)/);
+    assert.match(assistant?.content ?? "", /Built and installed "Academics" — it is in your sidebar now\./);
+    assert.doesNotMatch(assistant?.content ?? "", /install it from Modules|Registered the Module/);
     const modules = await caller.modules.list({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 });
     const mine = modules.items.find((item) => item.moduleName === "academics-manager");
-    assert.equal(mine?.status, "pending_review");
+    assert.equal(mine?.status, "installed");
     assert.equal(mine?.manifest.module?.databases?.[0]?.id, "assignments");
 
     // The next turn is briefed on what already exists, as data (ADR-247): the
@@ -412,7 +414,7 @@ test("the agentic backend is briefed on what a Module is, and a module.yaml it w
       surface: { kind: "chat_panel" },
     });
     const second = backend.calls[1]?.system ?? "";
-    assert.match(second, /academics-manager \(Academics, pending_review\)/, "the registered Module is listed with status");
+    assert.match(second, /academics-manager \(Academics, installed\)/, "the registered Module is listed with status");
     assert.match(second, /Database assignments: columns course:text, due:date/, "its Database columns ride as data");
     assert.match(second, /JobManager: plain folder of files, no Module/, "the plain folder is named as not a Module");
     assert.match(second, /academics-manager: Module \(module\.yaml\)/, "the Module folder is named as a Module");
@@ -430,4 +432,164 @@ test("discovery precedes every write step in the standard Module build process (
   // The structure mapping is a discovery step too, and it sits AFTER the questions.
   const structure = MODULE_BUILD_PROCESS.indexOf(MODULE_STRUCTURE_RULES[0]!);
   assert.ok(lastDiscovery < structure && structure < firstWrite, "structure rules sit between discovery and writing");
+});
+
+/**
+ * Writes a relation column the way the live Builder did on 2026-09-05
+ * (`options: { database_id }`), which Bridge rejects ("options must be an
+ * array of strings"); fixes it only when Bridge hands the rejection back.
+ */
+class RepairingBackend implements ChatBackend {
+  readonly id = "claude_code" as const;
+  readonly label = "Claude Code";
+  readonly plane = "cloud" as const;
+  readonly agentic = true;
+  readonly calls: ChatBackendSendArgs[] = [];
+
+  constructor(private readonly fixes: boolean) {}
+
+  async readiness() {
+    return { ready: true };
+  }
+
+  async send(args: ChatBackendSendArgs) {
+    this.calls.push(args);
+    const repair = /Bridge rejected academics-manager\/module\.yaml/.test(args.text);
+    const folder = join(args.workingDirectory, "academics-manager");
+    await mkdir(folder, { recursive: true });
+    const path = join(folder, "module.yaml");
+    const course =
+      repair && this.fixes
+        ? ["          - { id: course, label: Course, kind: relation, relation_target: courses }"]
+        : ["          - id: course", "            label: Course", "            kind: relation", "            options:", "              database_id: courses"];
+    await writeFile(
+      path,
+      [
+        "module:",
+        "  name: academics-manager",
+        "  version: 0.1.0",
+        "  kind: organization_definition",
+        "  summary: Courses and assignments",
+        "  description: Built from the user's request in chat",
+        "  dependencies: []",
+        "  capabilities:",
+        "    - id: academics-manager.courses",
+        "      capability_type: database",
+        "      version: 0.1.0",
+        "      permissions:",
+        "        - { resource_type: record, action: read, data_scope: private, egress: false }",
+        "        - { resource_type: record, action: write, data_scope: private, egress: false }",
+        "      connectors: []",
+        "    - id: academics-manager.assignments",
+        "      capability_type: database",
+        "      version: 0.1.0",
+        "      permissions:",
+        "        - { resource_type: record, action: read, data_scope: private, egress: false }",
+        "        - { resource_type: record, action: write, data_scope: private, egress: false }",
+        "      connectors: []",
+        "  module:",
+        "    displayName: Academics",
+        "    route: /module/academics-manager",
+        "    databases:",
+        "      - id: courses",
+        "        name: Courses",
+        "        columns:",
+        "          - { id: title, label: Title, kind: text, required: true }",
+        "      - id: assignments",
+        "        name: Assignments",
+        "        columns:",
+        "          - { id: title, label: Title, kind: text, required: true }",
+        ...course,
+        "    pages:",
+        "      - { id: courses, name: Courses, route: /module/academics-manager/courses, database_id: courses, capability_id: academics-manager.courses }",
+        "      - { id: assignments, name: Assignments, route: /module/academics-manager/assignments, database_id: assignments, capability_id: academics-manager.assignments }",
+        "    agents: []",
+        "    automations: []",
+        "",
+      ].join("\n"),
+    );
+    return {
+      reply: repair ? "Fixed the Course column." : "Built the Academics Module.",
+      backendSessionId: "sdk-session-3",
+      changedPaths: [path],
+    };
+  }
+}
+
+test("a rejected module.yaml goes back to the agent to repair, and the accepted Module is INSTALLED — the user never opens Modules (2026-09-05)", async () => {
+  const backend = new RepairingBackend(true);
+  await withBackendWiring([backend], async (wiring) => {
+    const caller = makeCaller(wiring);
+    const created = await caller.chat.thread.create({
+      organizationId: PILOT_ORGANIZATION,
+      backend: "claude_code",
+      plane: "cloud",
+      clientRequestId: "repair",
+    });
+    const view = await caller.chat.turn.send({
+      organizationId: PILOT_ORGANIZATION,
+      threadId: created.thread.id,
+      clientRequestId: "repair-turn",
+      message: "Build me an academics module with courses and assignments",
+      surface: { kind: "chat_panel" },
+    });
+
+    // The briefing tells the agent how to talk (plain language, executive
+    // style), the exact column grammar the live build got wrong, and that
+    // Bridge — not the user — installs what it writes.
+    const system = backend.calls[0]?.system ?? "";
+    for (const rule of PLAIN_LANGUAGE_RULES) {
+      assert.ok(system.includes(rule), `the briefing carries the plain-language rule: ${rule.slice(0, 60)}`);
+    }
+    assert.match(system, /relation_target\? \(relation ONLY/);
+    assert.match(system, /never objects/);
+    assert.doesNotMatch(system, /the user installs it from Modules/);
+    assert.match(system, /Bridge installs the Module for the user/);
+
+    // One repair round: Bridge's rejection reached the same backend session,
+    // verbatim, and the agent fixed the file in place.
+    assert.equal(backend.calls.length, 2, "exactly one repair round was needed");
+    assert.match(backend.calls[1]!.text, /Bridge rejected academics-manager\/module\.yaml: .*options must be an array of strings/);
+    assert.equal(backend.calls[1]!.backendSessionId, "sdk-session-3", "the repair continues the agent's own session");
+
+    // The result is an INSTALLED Module and a sentence a person understands.
+    const assistant = view.turns[view.turns.length - 1];
+    assert.match(assistant?.content ?? "", /Built and installed "Academics" — it is in your sidebar now\./);
+    assert.doesNotMatch(assistant?.content ?? "", /Registered the Module|install it from Modules|Could not register/);
+    const modules = await caller.modules.list({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 });
+    const mine = modules.items.find((item) => item.moduleName === "academics-manager");
+    assert.equal(mine?.status, "installed");
+    assert.equal(mine?.manifest.module?.databases?.[1]?.columns?.[1]?.relationTarget, "courses");
+    // The install ask (private-Record writes → user_pref) was answered by the
+    // chatting USER as a recorded Human decision, not skipped.
+    const decision = await wiring.ledger.decisionFor(stableModuleInstallProposalId(PILOT_ORGANIZATION, mine!.id));
+    assert.equal(decision?.userDecision, "approve");
+    assert.deepEqual([decision?.actorType, decision?.actorId], ["user", PILOT_USER]);
+  });
+});
+
+test("when the agent never fixes its module.yaml, Bridge stops after the repair budget and says so in plain words", async () => {
+  const backend = new RepairingBackend(false);
+  await withBackendWiring([backend], async (wiring) => {
+    const caller = makeCaller(wiring);
+    const created = await caller.chat.thread.create({
+      organizationId: PILOT_ORGANIZATION,
+      backend: "claude_code",
+      plane: "cloud",
+      clientRequestId: "no-repair",
+    });
+    const view = await caller.chat.turn.send({
+      organizationId: PILOT_ORGANIZATION,
+      threadId: created.thread.id,
+      clientRequestId: "no-repair-turn",
+      message: "Build me an academics module",
+      surface: { kind: "chat_panel" },
+    });
+    assert.equal(backend.calls.length, 1 + MANIFEST_REPAIR_ROUNDS, "the repair budget is bounded");
+    const assistant = view.turns[view.turns.length - 1];
+    assert.match(assistant?.content ?? "", /could not accept its definition after 2 repair attempts\. Say "fix it"/);
+    assert.match(assistant?.content ?? "", /Details for support: .*options must be an array of strings/);
+    const modules = await caller.modules.list({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 });
+    assert.equal(modules.items.some((item) => item.moduleName === "academics-manager"), false, "nothing half-registered");
+  });
 });
