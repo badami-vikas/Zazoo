@@ -88,6 +88,31 @@ export const tableSchemaRouter = t.router({
             locked: z.boolean(),
           }),
           z.object({ kind: z.literal("delete"), columnId: z.string().trim().min(1) }),
+          z.object({
+            kind: z.literal("add"),
+            // An id is a field NAME — it addresses a value in a stored Record
+            // and reaches the client as an object key. Bounding it to this
+            // alphabet at the edge is what keeps a Record document from
+            // gaining a "__proto__" or a "constructor" field.
+            columnId: z
+              .string()
+              .trim()
+              .regex(
+                /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/,
+                "A column id starts with a letter and holds only letters, digits and underscores",
+              ),
+            label: z.string().trim().min(1).max(120),
+            columnKind: z.enum(COLUMN_KINDS),
+            /** Where it lands. Omitted, the column goes to the end — which is
+             * what "Add column" in the toolbar means; the column menu's own
+             * left/right items name the column they were opened on. */
+            position: z
+              .object({
+                relativeTo: z.string().trim().min(1),
+                side: z.enum(["left", "right"]),
+              })
+              .optional(),
+          }),
         ]),
       }),
     )
@@ -105,10 +130,29 @@ export const tableSchemaRouter = t.router({
       if (!capability.spec) {
         throw new TRPCError({ code: "NOT_FOUND", message: capability.reason ?? input.specId });
       }
-      // A command against a column that is not there would be stored where
-      // nothing reads it, and the user would believe they had changed
-      // something. Say so instead.
-      if (!capability.spec.columns.some((column) => column.id === input.op.columnId)) {
+      const present = capability.spec.columns.some((column) => column.id === input.op.columnId);
+      if (input.op.kind === "add") {
+        // Adding is the one command that depends on the ROW STORE, not just on
+        // the spec: a Database whose rows are sqlite columns has nowhere to
+        // put a new one, and the capability says so rather than storing an
+        // overlay column that could never hold a value (ADR-247).
+        if (!capability.canAddColumn) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: capability.addReason ?? `${input.specId} cannot gain a column`,
+          });
+        }
+        // A duplicate would render twice and write to one cell.
+        if (present) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `${input.specId} already has a column ${input.op.columnId}`,
+          });
+        }
+      } else if (!present) {
+        // A command against a column that is not there would be stored where
+        // nothing reads it, and the user would believe they had changed
+        // something. Say so instead.
         throw new TRPCError({
           code: "NOT_FOUND",
           message: `${input.specId} has no column ${input.op.columnId}`,

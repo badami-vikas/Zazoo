@@ -12,12 +12,15 @@
  * migration: these Databases ship with the application, and the Module author's
  * spec has to stay recoverable.
  *
- * WHAT IT IS NOT. There is no "add column". A column the underlying Database
- * does not have would have nowhere to put its values, so that command stays
- * VISIBLE and disabled with that reason (ADR-001, ADR-247) rather than being
- * enabled against a store that does not exist.
+ * ADDING A COLUMN is that same overlay, wherever the row store can hold one. A
+ * Module Database (the Builder's own, served by `moduleRecords.*`) keeps its
+ * Records as documents of declared columns, so a column added to the overlay
+ * has somewhere to put its values. The shipped sqlite-backed specs do not, and
+ * they report adding unavailable with that reason rather than enabling a
+ * command that would write nowhere (ADR-001, ADR-247).
  */
-import type { ColumnOverlay, TableSpec } from "@bridge/tables";
+import { applyColumnOverlay, type ColumnKind, type ColumnOverlay, type TableSpec } from "@bridge/tables";
+import type { ModuleDatabaseBinding } from "@bridge/core";
 import { extractDependencies, transitiveDependencies, buildDependencyGraph } from "@bridge/accounting";
 
 export const TABLE_SCHEMA_NAMESPACE_PREFIX = "table:schema:";
@@ -52,8 +55,54 @@ export function hasOverlay(overlay: ColumnOverlay): boolean {
     (overlay.labels && Object.keys(overlay.labels).length) ||
       (overlay.kinds && Object.keys(overlay.kinds).length) ||
       overlay.locked?.length ||
-      overlay.removed?.length,
+      overlay.removed?.length ||
+      overlay.added?.length,
   );
+}
+
+/**
+ * The manifest's declared columns as a TableSpec, with the Organization's
+ * overlay resolved over them.
+ *
+ * HERE rather than in `routers/moduleRecords.ts` because both the Records
+ * router and the schema capability in `router-shared.ts` need it, and
+ * `router-shared.ts` importing a router would close an import cycle.
+ */
+export function moduleDatabaseSpec(
+  moduleName: string,
+  database: ModuleDatabaseBinding,
+  storedOverlay: unknown,
+): TableSpec {
+  return applyColumnOverlay(
+    moduleDatabaseBaseSpec(moduleName, database),
+    readStoredTableSchema(storedOverlay).overlay,
+  );
+}
+
+/** The manifest's own spec, with no overlay. Manifests are immutable (ADR-178):
+ * this is what the user's overlay is always resolved over, never replaced. */
+export function moduleDatabaseBaseSpec(
+  moduleName: string,
+  database: ModuleDatabaseBinding,
+): TableSpec {
+  return {
+    id: moduleRecordsSpecId(moduleName, database.id),
+    columns: database.columns.map((column) => ({
+      id: column.id,
+      label: column.label,
+      kind: column.kind,
+      editable: true,
+      ...(column.options ? { options: [...column.options] } : {}),
+      ...(column.skillId ? { skillId: column.skillId } : {}),
+      ...(column.required ? { required: true } : {}),
+      ...(column.defaultValue !== undefined ? { defaultValue: column.defaultValue } : {}),
+      ...(column.relationTarget ? { relationTarget: column.relationTarget } : {}),
+    })),
+  };
+}
+
+export function moduleRecordsSpecId(moduleName: string, databaseId: string): string {
+  return `${moduleName}.${databaseId}`;
 }
 
 /** One column-menu command, as the server understands it. */
@@ -61,7 +110,14 @@ export type ColumnOp =
   | { kind: "rename"; columnId: string; label: string }
   | { kind: "setKind"; columnId: string; columnKind: TableSpec["columns"][number]["kind"] }
   | { kind: "setLocked"; columnId: string; locked: boolean }
-  | { kind: "delete"; columnId: string };
+  | { kind: "delete"; columnId: string }
+  | {
+      kind: "add";
+      columnId: string;
+      label: string;
+      columnKind: ColumnKind;
+      position?: { relativeTo: string; side: "left" | "right" } | undefined;
+    };
 
 /** Apply one command to an overlay. Pure — the caller persists the result. */
 export function applyColumnOp(overlay: ColumnOverlay, op: ColumnOp, updatedAt: string): ColumnOverlay {
@@ -70,6 +126,7 @@ export function applyColumnOp(overlay: ColumnOverlay, op: ColumnOp, updatedAt: s
     kinds: { ...(overlay.kinds ?? {}) },
     locked: [...(overlay.locked ?? [])],
     removed: [...(overlay.removed ?? [])],
+    added: [...(overlay.added ?? [])],
     updatedAt,
   };
   switch (op.kind) {
@@ -86,6 +143,18 @@ export function applyColumnOp(overlay: ColumnOverlay, op: ColumnOp, updatedAt: s
       break;
     case "delete":
       if (!next.removed!.includes(op.columnId)) next.removed!.push(op.columnId);
+      break;
+    case "add":
+      // Adding back an id the user deleted is an UN-delete: leaving the id on
+      // `removed` would store the column and then hide it, and the user would
+      // believe the add had silently failed.
+      next.removed = next.removed!.filter((id) => id !== op.columnId);
+      next.added!.push({
+        id: op.columnId,
+        label: op.label,
+        kind: op.columnKind,
+        ...(op.position ? { position: op.position } : {}),
+      });
       break;
   }
   return next;
@@ -106,16 +175,18 @@ export interface DependencySource {
 }
 
 /**
- * Views are not persisted anywhere in this repository — every surface builds its
- * `ViewConfig` from `defaultViewConfig` on mount and holds it in React state, so
- * there is no saved View that could reference a column. That is a real
- * inspection with a real answer, not a shrug.
+ * Views WERE unpersisted when this was written, and this said so with
+ * `inspected: true`. TASK-062 gave them a store (`view_configs`), and a saved
+ * List's filters, sorts and hidden columns all name columns — so the old
+ * answer became a claim of safety nobody had checked, which is exactly what
+ * ADR-247 forbids. Until the preview reads that store under the caller's
+ * identity, "not inspected" is the honest answer.
  */
 export function viewDependencies(): DependencySource {
   return {
-    inspected: true,
+    inspected: false,
     items: [],
-    note: "No View is persisted: every View is rebuilt from its default on load, so none can hold a reference to this column.",
+    note: "Not inspected: saved Lists are durable since TASK-062 and their filters, sorts and hidden columns name columns, but this preview does not yet read them. Absence here is not evidence of safety.",
   };
 }
 

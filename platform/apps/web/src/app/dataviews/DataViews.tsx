@@ -70,6 +70,7 @@ import {
 import { computeEligibleKinds, migrateViewConfig, viewConfigForKind } from "./eligibility.js";
 import { filterRowsByQuery } from "./rowSearch.js";
 import { useSavedViews } from "./useSavedViews.js";
+import { columnIdFromLabel } from "./columnId.js";
 import { RECORD_SECTION_IDS, RECORD_SECTION_LABELS, useRecordSections } from "./useRecordSections.js";
 import { RecordPage } from "./RecordPage.js";
 import { useShareGrants, type ShareAccessLevel } from "./useShareGrants.js";
@@ -222,6 +223,41 @@ export function DataViews({
   const filterInput = useRef<HTMLInputElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
   const hidden = useToolbarOverflow(rowRef);
+
+  /**
+   * The "Add column" slot, answered by the SERVER (TASK-084 + the 2026-09-05
+   * user report "why is add column inactive… I should always be able to add
+   * columns in all modules").
+   *
+   * It used to carry one hard-coded sentence saying no capability existed —
+   * true when nothing behind it could add a column, a lie once a Module
+   * Database can. Both halves now come from `tableSchema.get`: the handler
+   * exists only where `canAddColumn` is true, and the disabled reason is the
+   * server's `addReason`, never a sentence composed here.
+   *
+   * The new column arrives named "New column" and is renamed through the
+   * column menu's own Rename, rather than opening a second naming dialog for
+   * a field the menu already edits.
+   * ponytail: no name/kind picker; add one if users start adding several
+   * columns of different kinds in a row.
+   */
+  const addColumnSlot = useMemo<{ onAdd?: () => void; addDisabledReason?: string }>(() => {
+    const schema = viewProps.columnSchema;
+    if (!schema?.addColumn || !schema.capability?.canAddColumn) {
+      return {
+        addDisabledReason:
+          schema?.capability?.addReason ??
+          schema?.capability?.reason ??
+          "This surface has not asked the server whether this Database can gain a column.",
+      };
+    }
+    const add = schema.addColumn;
+    return {
+      onAdd: () => {
+        void add(columnIdFromLabel("New column", spec.columns), "New column", "text");
+      },
+    };
+  }, [viewProps.columnSchema, spec.columns]);
 
   // Derived metadata first, so a search or a sort on "last edited" sees the
   // real value rather than an empty cell (TASK-063).
@@ -575,7 +611,7 @@ export function DataViews({
                   activeId={filterColumn}
                   onSelect={setFilterColumn}
                   addLabel="Add column"
-                  addDisabledReason="Adding a column is a schema mutation, and this surface has no governed schema-mutation capability."
+                  {...addColumnSlot}
                   className="w-full"
                 />
                 <Input
@@ -654,13 +690,18 @@ export function DataViews({
                 </div>
               )}
 
-              {/* Disabled with a stated reason rather than hidden: AP-021 —
-                  interactive-looking UI must perform OR explain. Adding a
-                  column is a schema mutation and this surface has no governed
-                  capability for one. */}
+              {/* Enabled where the server said this Database's row store can
+                  hold a new column, disabled WITH THE SERVER'S OWN REASON
+                  where it cannot (AP-021: perform OR explain; ADR-247: never
+                  claim what is not true). It used to be unconditionally
+                  disabled against a sentence saying no capability existed
+                  anywhere, which is what the user hit in a Module. */}
               <DropdownMenuItem
-                disabled
-                title="Unavailable: adding a column is a schema mutation, and this surface has no governed schema-mutation capability"
+                disabled={!addColumnSlot.onAdd}
+                {...(addColumnSlot.addDisabledReason
+                  ? { title: `Unavailable: ${addColumnSlot.addDisabledReason}` }
+                  : {})}
+                {...(addColumnSlot.onAdd ? { onSelect: addColumnSlot.onAdd } : {})}
                 className="justify-between"
               >
                 <span className="flex items-center gap-2">

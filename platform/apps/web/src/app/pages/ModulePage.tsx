@@ -9,7 +9,8 @@ import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligen
 import { ModuleGovernanceSection } from "../components/shared/ModuleGovernanceSection";
 import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { DataViews } from "../dataviews/DataViews";
-import type { DataRow } from "../dataviews/types";
+import type { ColumnSchemaActions, DataRow } from "../dataviews/types";
+import type { ColumnSchemaCapability } from "../components/shared/StandardColumnMenu";
 
 export type Installation = Awaited<ReturnType<typeof trpc.modules.list.query>>["items"][number];
 
@@ -82,6 +83,7 @@ export function ModulePage() {
   const [spec, setSpec] = useState<TableSpec | null>(null);
   const [rows, setRows] = useState<DataRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [capability, setCapability] = useState<ColumnSchemaCapability | null>(null);
   const [view, setView] = useState<ViewConfig>(() =>
     defaultViewConfig(`${moduleName}.${pageId}:table`),
   );
@@ -99,7 +101,7 @@ export function ModulePage() {
   const load = useCallback(async () => {
     if (!page) return;
     try {
-      const [definition, list] = await Promise.all([
+      const [definition, list, schema] = await Promise.all([
         trpc.moduleRecords.definition.query({
           organizationId: PILOT_ORGANIZATION,
           moduleName,
@@ -110,7 +112,21 @@ export function ModulePage() {
           moduleName,
           databaseId: page.databaseId,
         }),
+        // The column menu's capability, exactly as Accounting reads it: the
+        // server says whether this Database may be reshaped and whether it can
+        // gain a column, and the menu disables against that answer.
+        trpc.tableSchema.get.query({
+          organizationId: PILOT_ORGANIZATION,
+          specId: `${moduleName}.${page.databaseId}`,
+        }),
       ]);
+      setCapability({
+        available: schema.available,
+        reason: schema.reason,
+        canUndo: schema.canUndo,
+        canAddColumn: schema.canAddColumn,
+        addReason: schema.addReason,
+      });
       setSpec(definition.spec);
       setRows(list.items);
       setView(defaultViewConfig(`${moduleName}.${page.id}:table`));
@@ -123,6 +139,69 @@ export function ModulePage() {
     setSpec(null);
     void load();
   }, [load]);
+
+  /**
+   * Rename / add / change type / lock / remove / undo, routed to the same
+   * governed capability Accounting uses (TASK-084). A Module Database's spec
+   * comes from its installed manifest, and the user's changes ride over it as
+   * the per-Organization column overlay — manifests stay immutable (ADR-178).
+   *
+   * Every command re-reads through `load()`: the server has the last word on
+   * what changed (ADR-247), so nothing here echoes its own input back.
+   */
+  const specId = page ? `${moduleName}.${page.databaseId}` : "";
+  const columnSchema = useMemo<ColumnSchemaActions>(
+    () => ({
+      capability,
+      rename: async (columnId, label) => {
+        await trpc.tableSchema.mutate.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          specId,
+          op: { kind: "rename", columnId, label },
+        });
+        await load();
+      },
+      addColumn: async (columnId, label, kind) => {
+        await trpc.tableSchema.mutate.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          specId,
+          op: { kind: "add", columnId, label, columnKind: kind },
+        });
+        await load();
+      },
+      changeType: async (columnId, kind) => {
+        await trpc.tableSchema.mutate.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          specId,
+          op: { kind: "setKind", columnId, columnKind: kind },
+        });
+        await load();
+      },
+      setLocked: async (columnId, locked) => {
+        await trpc.tableSchema.mutate.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          specId,
+          op: { kind: "setLocked", columnId, locked },
+        });
+        await load();
+      },
+      remove: async (columnId) => {
+        await trpc.tableSchema.mutate.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          specId,
+          op: { kind: "delete", columnId },
+        });
+        await load();
+      },
+      preview: (columnId) =>
+        trpc.tableSchema.preview.query({ organizationId: PILOT_ORGANIZATION, specId, columnId }),
+      undo: async () => {
+        await trpc.tableSchema.undo.mutate({ organizationId: PILOT_ORGANIZATION, specId });
+        await load();
+      },
+    }),
+    [capability, specId, load],
+  );
 
   const shown = error ?? loadError;
   if (shown) return <div className="p-6 text-sm text-red-600">{shown}</div>;
@@ -167,6 +246,7 @@ export function ModulePage() {
                 view={view}
                 data={rows}
                 onViewChange={setView}
+                columnSchema={columnSchema}
                 moduleName={moduleName}
                 searchPlaceholder={`Search ${page.name.toLowerCase()}…`}
                 onOpenRecord={(row) => {
