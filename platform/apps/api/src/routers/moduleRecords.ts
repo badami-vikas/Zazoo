@@ -1,8 +1,12 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { applyColumnOverlay, type TableSpec } from "@bridge/tables";
+import type { TableSpec } from "@bridge/tables";
 import { moduleStructure, type ModuleDatabaseBinding, type ModuleManifest } from "@bridge/core";
-import { TABLE_SCHEMA_NAMESPACE_PREFIX, readStoredTableSchema } from "../table-schema.js";
+import {
+  TABLE_SCHEMA_NAMESPACE_PREFIX,
+  moduleDatabaseSpec,
+  moduleRecordsSpecId,
+} from "../table-schema.js";
 import {
   assertHumanIdentity,
   assertMembership,
@@ -34,9 +38,9 @@ import type { Wiring } from "../wiring.js";
  */
 export const MODULE_RECORDS_NAMESPACE_PREFIX = "module:records:";
 
-export function moduleRecordsSpecId(moduleName: string, databaseId: string): string {
-  return `${moduleName}.${databaseId}`;
-}
+/** Re-exported from `table-schema.ts`, where the schema capability also needs
+ * them — `router-shared.ts` importing a router would close an import cycle. */
+export { moduleDatabaseSpec, moduleRecordsSpecId };
 
 export type ModuleRecordRow = { id: string; createdAt: string; updatedAt: string } & Record<
   string,
@@ -88,29 +92,6 @@ function declaredDatabase(
     });
   }
   return database;
-}
-
-/** The manifest's columns as a TableSpec, with the Organization's overlay applied. */
-export function moduleDatabaseSpec(
-  moduleName: string,
-  database: ModuleDatabaseBinding,
-  storedOverlay: unknown,
-): TableSpec {
-  const base: TableSpec = {
-    id: moduleRecordsSpecId(moduleName, database.id),
-    columns: database.columns.map((column) => ({
-      id: column.id,
-      label: column.label,
-      kind: column.kind,
-      editable: true,
-      ...(column.options ? { options: [...column.options] } : {}),
-      ...(column.skillId ? { skillId: column.skillId } : {}),
-      ...(column.required ? { required: true } : {}),
-      ...(column.defaultValue !== undefined ? { defaultValue: column.defaultValue } : {}),
-      ...(column.relationTarget ? { relationTarget: column.relationTarget } : {}),
-    })),
-  };
-  return applyColumnOverlay(base, readStoredTableSchema(storedOverlay).overlay);
 }
 
 /** Human first, membership second: an Agent is refused as an Agent, not as a

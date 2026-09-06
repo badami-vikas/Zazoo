@@ -159,13 +159,26 @@ export function normalizeViewKind(kind: unknown): ViewKind | null {
  * The Databases these specs describe ship WITH the application, so a column
  * rename is not a migration and must not pretend to be one: the base spec stays
  * the Module author's, and the user's edit is a separable, undoable overlay
- * resolved over it. Only mutations this seam can actually honour are
- * expressible — there is deliberately no `added`, because a column the
- * underlying Database does not have would have nowhere to put its values, and a
- * control that cannot act stays visible and disabled with a reason rather than
- * lying (ADR-001/ADR-247).
+ * resolved over it.
+ *
+ * `added` is expressible only where the row store can actually hold a column
+ * the base spec never declared — a Module Database keeps its Records as
+ * declared-column documents, so a new column has somewhere to put its values.
+ * A store that cannot (the shipped sqlite-backed specs) reports adding
+ * unavailable with that reason instead; a control that cannot act stays
+ * visible and disabled rather than lying (ADR-001/ADR-247).
  */
 export interface ColumnOverlay {
+  /** Columns the user added, in the order they were added. Subject to the same
+   * labels/kinds/locked/removed entries as any other column, so a rename or a
+   * delete needs no second code path. `position` places the column beside an
+   * existing one — without it, it lands at the end. */
+  added?: {
+    id: string;
+    label: string;
+    kind: ColumnKind;
+    position?: { relativeTo: string; side: "left" | "right" };
+  }[];
   /** columnId -> the label the user renamed it to. */
   labels?: Record<string, string>;
   /** columnId -> the kind the user changed it to. */
@@ -179,9 +192,10 @@ export interface ColumnOverlay {
 }
 
 /**
- * Resolve an overlay over a base spec. Pure: the base is never mutated, and an
- * overlay entry naming a column the spec does not have is inert — it can never
- * invent a column, only describe one that already exists.
+ * Resolve an overlay over a base spec. Pure: the base is never mutated, and a
+ * labels/kinds/locked/removed entry naming a column neither the spec nor
+ * `added` has is inert — it can never invent a column, only describe one that
+ * is already there.
  */
 export function applyColumnOverlay(
   spec: TableSpec,
@@ -190,9 +204,26 @@ export function applyColumnOverlay(
   if (!overlay) return spec;
   const removed = new Set(overlay.removed ?? []);
   const locked = overlay.locked ? new Set(overlay.locked) : null;
+  const resolved = [...spec.columns];
+  const seen = new Set(spec.columns.map((column) => column.id));
+  for (const { id, label, kind, position } of overlay.added ?? []) {
+    // An added id colliding with a column already resolved would render twice
+    // and write to one cell. The base spec wins; the server refuses the
+    // collision at the edge, and this keeps a hand-edited overlay from one.
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const anchor = position ? resolved.findIndex((column) => column.id === position.relativeTo) : -1;
+    const entry = { id, label, kind, editable: true };
+    // Placement runs BEFORE removal, so a column added beside one the user
+    // later deleted keeps its place among what is left. An anchor the spec
+    // never had lands the column at the end rather than dropping it: losing a
+    // column is worse than losing its place.
+    if (anchor < 0) resolved.push(entry);
+    else resolved.splice(position!.side === "left" ? anchor : anchor + 1, 0, entry);
+  }
   return {
     ...spec,
-    columns: spec.columns
+    columns: resolved
       // Removal is applied FIRST: otherwise a deleted column comes back wearing
       // the label a rename in the same overlay gave it.
       .filter((column) => !removed.has(column.id))

@@ -121,6 +121,8 @@ import {
   formulaDependencies,
   formulaDependentIds,
   hasOverlay,
+  moduleDatabaseBaseSpec,
+  moduleRecordsSpecId,
   readStoredTableSchema,
   relationDependencies,
   skillDependencies,
@@ -6660,10 +6662,54 @@ export const COLUMN_KINDS = [
   "location",
 ] as const satisfies readonly ColumnKind[];
 
+/**
+ * Why a shipped spec cannot gain a column. Its rows live in the Module's own
+ * sqlite, whose table has the columns the Module author shipped — an overlay
+ * column would render with nowhere to put its values, which is the exact lie
+ * ADR-247 forbids. The Databases of a Module the Builder made are different:
+ * `moduleRecords.*` stores each Record as a document of the columns the
+ * RESOLVED spec declares, so an added column is storable the moment it exists.
+ */
+const NO_ADD_ON_SHIPPED_SPEC =
+  "This Database's rows live in the Module's own sqlite table, so a new column would have nowhere to put its values.";
+
+/**
+ * The Module Database this spec id names, or null when it is not one.
+ *
+ * Matched by COMPOSING each installed Module's declared spec ids rather than
+ * splitting the string on its first dot: both a Module name and a Database id
+ * may contain one, and a wrong split would resolve the schema of a Database
+ * the user was not looking at.
+ */
+async function resolveModuleDatabaseSpec(
+  wiring: Pick<Wiring, "moduleStore">,
+  organizationId: string,
+  specId: string,
+): Promise<TableSpec | null> {
+  const { items } = await wiring.moduleStore.list(organizationId, { limit: 500, offset: 0 });
+  // Same preference order `moduleRecords.installedManifest` serves the rows
+  // from — the `available` version if there is one, otherwise the newest
+  // installed row (a Module the Builder just made is `promoted`, not yet
+  // `available`). Reading a different version here would resolve a schema for
+  // a Database whose rows another procedure serves from a different manifest.
+  let fallback: TableSpec | null = null;
+  for (const row of items) {
+    if (row.status !== "installed") continue;
+    for (const database of row.manifest.module?.databases ?? []) {
+      if (moduleRecordsSpecId(row.moduleName, database.id) !== specId) continue;
+      const base = moduleDatabaseBaseSpec(row.moduleName, database);
+      if (row.state === "available") return base;
+      fallback = base;
+    }
+  }
+  return fallback;
+}
+
 /** The shipped spec, the user's overlay, and the spec the surface should render
- * — plus whether the capability exists here at all. */
+ * — plus whether the capability exists here at all, and whether this Database
+ * can gain a column as well as reshape the ones it has. */
 export async function readTableSchemaCapability(
-  wiring: Pick<Wiring, "localPlane">,
+  wiring: Pick<Wiring, "localPlane" | "moduleStore">,
   organizationId: string,
   specId: string,
 ): Promise<{
@@ -6672,8 +6718,14 @@ export async function readTableSchemaCapability(
   spec: TableSpec | null;
   overlay: ColumnOverlay | null;
   canUndo: boolean;
+  canAddColumn: boolean;
+  addReason: string | null;
 }> {
-  const base = SCHEMA_MUTABLE_SPECS[specId];
+  const shipped = SCHEMA_MUTABLE_SPECS[specId];
+  // A Module the Builder made is not in the shipped map and never will be —
+  // its columns come from the manifest it was installed with (ADR-178), and
+  // the overlay rides over that exactly as it does over a shipped spec.
+  const base = shipped ?? (await resolveModuleDatabaseSpec(wiring, organizationId, specId));
   if (!base) {
     return {
       available: false,
@@ -6681,6 +6733,8 @@ export async function readTableSchemaCapability(
       spec: null,
       overlay: null,
       canUndo: false,
+      canAddColumn: false,
+      addReason: `Unavailable: no governed schema-mutation capability is installed for ${specId}`,
     };
   }
   const stored = readStoredTableSchema(
@@ -6692,6 +6746,8 @@ export async function readTableSchemaCapability(
     spec: applyColumnOverlay(base, stored.overlay),
     overlay: hasOverlay(stored.overlay) ? stored.overlay : null,
     canUndo: stored.previous !== null,
+    canAddColumn: !shipped,
+    addReason: shipped ? NO_ADD_ON_SHIPPED_SPEC : null,
   };
 }
 

@@ -58,6 +58,7 @@ import {
 } from "../eligibility.js";
 import type { DataRow, DataViewProps } from "../types.js";
 import { formatCell, formatCurrency, renderCell, trimZero } from "../cell-format.js";
+import { columnIdFromLabel } from "../columnId.js";
 import { useDismiss } from "../../lib/useDismiss";
 import {
   AGGREGATE_LABELS,
@@ -403,6 +404,17 @@ export function TableView({
                       }
                       onDelete={
                         columnSchema?.remove ? () => columnSchema.remove!(col.id) : undefined
+                      }
+                      onAddColumn={
+                        columnSchema?.addColumn
+                          ? (label, side) =>
+                              columnSchema.addColumn!(
+                                columnIdFromLabel(label, spec.columns),
+                                label,
+                                "text",
+                                { relativeTo: col.id, side },
+                              )
+                          : undefined
                       }
                       onPreviewDelete={
                         columnSchema?.preview ? () => columnSchema.preview!(col.id) : undefined

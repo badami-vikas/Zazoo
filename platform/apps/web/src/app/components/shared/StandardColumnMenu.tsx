@@ -63,6 +63,12 @@ export interface ColumnSchemaCapability {
   available: boolean;
   reason: string | null;
   canUndo?: boolean;
+  /** Whether this Database's ROW STORE can hold a column its shipped spec never
+   * declared — a separate answer from `available`, because reshaping the
+   * columns that exist and gaining a new one are different capabilities. */
+  canAddColumn?: boolean;
+  /** Why it cannot, as the SERVER said it. Never composed on the client. */
+  addReason?: string | null;
 }
 
 export type ColumnTypeName =
@@ -111,6 +117,9 @@ export interface StandardColumnMenuItemProps {
   onChangeType?: (kind: ColumnTypeName) => Promise<void>;
   onSetLocked?: (locked: boolean) => Promise<void>;
   onDelete?: () => Promise<void>;
+  /** Add a column beside this one. Present only where the server said this
+   * Database's row store can hold a column its spec never declared. */
+  onAddColumn?: (label: string, side: "left" | "right") => Promise<void>;
   /** Fetches the dependency preview shown in the delete warning. */
   onPreviewDelete?: () => Promise<ColumnDependencyPreview>;
   onUndo?: () => Promise<void>;
@@ -202,6 +211,7 @@ export function StandardColumnMenuPanel({
   onChangeType,
   onSetLocked,
   onDelete,
+  onAddColumn,
   onPreviewDelete,
   onUndo,
   position,
@@ -238,11 +248,32 @@ export function StandardColumnMenuPanel({
     return undefined;
   };
 
-  /** Commands with nowhere to write. The overlay behind `tableSchema` describes
-   * columns the Database ALREADY has; a new column would have no store for its
-   * values, so this is a real impossibility, not a risk judgement. */
+  /** Commands with nowhere to write — for a Database whose rows ARE sqlite
+   * columns, a new column has no store for its values. Whether that is true
+   * here is the SERVER's answer (`canAddColumn`/`addReason`), not a blanket
+   * claim: a Module Database keeps its Records as documents of the columns its
+   * resolved spec declares, so it can gain one. */
   const noStoreReason =
     "Unavailable: this Database's columns ship with the Module and there is nowhere to store a column it does not have — rename, retype, lock and delete are available";
+
+  /** Why a column cannot be added here, or `undefined` when it can. */
+  const addReason = (): string | undefined => {
+    const blocked = schemaReason(onAddColumn);
+    if (blocked) return blocked;
+    if (!capability?.canAddColumn) return capability?.addReason ?? noStoreReason;
+    return undefined;
+  };
+
+  const addCommand = (side: "left" | "right"): PendingCommand => ({
+    title: `Add a column ${side === "left" ? "before" : "after"} “${label}”`,
+    consequence:
+      "It arrives as a text column with no values. Change its type once you know what it will hold — adding and retyping are separate, so adding can never reinterpret data you already have.",
+    input: { kind: "text", value: "New column" },
+    confirmLabel: "Add column",
+    run: async (value) => {
+      await onAddColumn?.(value, side);
+    },
+  });
 
   const busyReason = busy ? "Working…" : undefined;
 
@@ -381,8 +412,16 @@ export function StandardColumnMenuPanel({
             onClose();
           }}
         />
-        <MenuItem label="Add column left" disabledReason={noStoreReason} />
-        <MenuItem label="Add column right" disabledReason={noStoreReason} />
+        <MenuItem
+          label="Add column left"
+          disabledReason={addReason()}
+          onSelect={() => open(addCommand("left"))}
+        />
+        <MenuItem
+          label="Add column right"
+          disabledReason={addReason()}
+          onSelect={() => open(addCommand("right"))}
+        />
         <MenuItem label="Duplicate column" disabledReason={noStoreReason} />
         <MenuItem
           label="Delete column"

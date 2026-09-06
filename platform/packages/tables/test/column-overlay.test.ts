@@ -71,3 +71,62 @@ test("unlocking is expressible — an overlay's absent lock does not leave a sta
   const unlocked = applyColumnOverlay(locked, { locked: [] });
   assert.equal(unlocked.columns[0]?.locked, false);
 });
+
+test("an added column lands where it was placed, and is editable", () => {
+  const out = applyColumnOverlay(SPEC, {
+    added: [
+      { id: "notes", label: "Notes", kind: "text", position: { relativeTo: "unit", side: "left" } },
+    ],
+  });
+  assert.deepEqual(out.columns.map((c) => c.id), ["label", "notes", "unit", "version"]);
+  assert.equal(out.columns[1]?.editable, true, "a column with no values yet must be typable");
+});
+
+test("an added column whose anchor the spec never had lands at the end rather than vanishing", () => {
+  // Losing a column is worse than losing its place — a Module author who
+  // removed the anchor from the manifest must not silently drop the user's own
+  // column with it.
+  const out = applyColumnOverlay(SPEC, {
+    added: [
+      { id: "notes", label: "Notes", kind: "text", position: { relativeTo: "gone", side: "right" } },
+    ],
+  });
+  assert.deepEqual(out.columns.map((c) => c.id), ["label", "unit", "version", "notes"]);
+});
+
+test("a column added beside one the user then deleted keeps its place among what is left", () => {
+  const out = applyColumnOverlay(SPEC, {
+    removed: ["unit"],
+    added: [
+      { id: "notes", label: "Notes", kind: "text", position: { relativeTo: "unit", side: "right" } },
+    ],
+  });
+  assert.deepEqual(out.columns.map((c) => c.id), ["label", "notes", "version"]);
+});
+
+test("an added column is renamed, retyped, locked and deleted by the same entries as any other", () => {
+  const overlay = {
+    added: [{ id: "notes", label: "Notes", kind: "text" as const }],
+    labels: { notes: "Remarks" },
+    kinds: { notes: "number" as const },
+    locked: ["notes"],
+  };
+  const added = applyColumnOverlay(SPEC, overlay).columns.find((c) => c.id === "notes");
+  assert.equal(added?.label, "Remarks");
+  assert.equal(added?.kind, "number");
+  assert.equal(added?.locked, true);
+  assert.ok(
+    !applyColumnOverlay(SPEC, { ...overlay, removed: ["notes"] }).columns.some(
+      (c) => c.id === "notes",
+    ),
+    "one delete path, not two",
+  );
+});
+
+test("an added id colliding with a shipped column never renders twice", () => {
+  const out = applyColumnOverlay(SPEC, {
+    added: [{ id: "unit", label: "Smuggled", kind: "text" }],
+  });
+  assert.deepEqual(out.columns.map((c) => c.id), ["label", "unit", "version"]);
+  assert.notEqual(out.columns[1]?.label, "Smuggled", "the shipped column wins");
+});

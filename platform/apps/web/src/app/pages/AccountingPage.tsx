@@ -55,7 +55,13 @@ export function AccountingPage({ page }: { page: AccountingPageId }) {
         organizationId: PILOT_ORGANIZATION,
         specId,
       });
-      setCapability({ available: schema.available, reason: schema.reason, canUndo: schema.canUndo });
+      setCapability({
+        available: schema.available,
+        reason: schema.reason,
+        canUndo: schema.canUndo,
+        canAddColumn: schema.canAddColumn,
+        addReason: schema.addReason,
+      });
       if (page === "clients") {
         const [definition, list] = await Promise.all([
           trpc.accounting.clientsDefinition.query({ organizationId: PILOT_ORGANIZATION }),

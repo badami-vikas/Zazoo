@@ -132,6 +132,14 @@ export interface ColumnSchemaActions {
   capability: ColumnSchemaCapability | null;
   rename?: (columnId: string, label: string) => Promise<void>;
   changeType?: (columnId: string, kind: ColumnTypeName) => Promise<void>;
+  /** Add a column to this Database. Present only where the server said the row
+   * store can hold one (`capability.canAddColumn`). */
+  addColumn?: (
+    columnId: string,
+    label: string,
+    kind: ColumnTypeName,
+    position?: { relativeTo: string; side: "left" | "right" },
+  ) => Promise<void>;
   setLocked?: (columnId: string, locked: boolean) => Promise<void>;
   remove?: (columnId: string) => Promise<void>;
   preview?: (columnId: string) => Promise<ColumnDependencyPreview>;
