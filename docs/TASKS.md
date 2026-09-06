@@ -1691,3 +1691,63 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: none needed (install goes through the existing governed `modules.install` proposal; ADR 2026-09-05 "The Builder installs what it builds and speaks plainly").
 - Dependencies: TASK-102 (discovery), TASK-098 (briefing).
 - NOT LANDED (stated): the primitive-loop Builder lane (`builder.run`) still stops at writing module.yaml — its register/install stays on the Modules page; a live Claude Code turn on the installed Egg is not part of the automated evidence.
+
+## Table controls a person can actually reach: aligned toolbar, right-click column menu, grid lines, add and rename columns, Add List
+
+- ID: TASK-104
+- Status: in_progress (2026-09-06)
+- Priority: P0
+- Horizon: Living Software
+- Outcome: on any View of any Module, List/View/Search sit left, Filter and the 3-dots sit right, no other button is in the row; column commands open on right-click of the header, not from a per-column 3-dots; columns are separated by vertical rules; add, rename, retype, lock, remove and undo reach the governed schema path from a Module Page; Add List saves a named List on a Module Database.
+- Prototype test: in the installed Egg on Academics → Courses, right-click "Title" and rename it; add a column; save a List; confirm the toolbar carries exactly six controls in the stated order and the table draws vertical rules.
+- Scope: `apps/web/src/app/dataviews/DataViews.tsx`, `dataviews/views/TableView.tsx`, `components/shared/StandardColumnMenu.tsx`, `pages/ModulePage.tsx`; `apps/api/src/table-schema.ts` (add op), `router-shared.ts` (`SCHEMA_MUTABLE_SPECS`/`readTableSchemaCapability` reaching Module Databases), `routers/tableSchema.ts`, `routers/view.ts`.
+- Evidence: EVIDENCE_0906
+- Requests: user report 2026-09-06 verbatim in BUGS 2026-09-06 "the Module surface fights the user".
+- Approval: none needed (the governed schema path and its checks are unchanged; only its reach and one new op).
+- Dependencies: TASK-084 (governed schema mutation), TASK-062 (saved Views), TASK-100 (standard shell).
+- NOT LANDED (stated): filled at merge.
+
+## Adding an element opens the element page; Sections are inline and appear once
+
+- ID: TASK-105
+- Status: in_progress (2026-09-06)
+- Priority: P0
+- Horizon: Living Software
+- Outcome: adding a Record opens its own Record page instead of swapping the table inline, so Intelligence and Governance render once; the Governance policy is edited in place in its Section; "Manage in Module Detail" is gone; standing explainer prose is a tooltip on the control it concerns or is deleted.
+- Prototype test: in the installed Egg on Academics → Courses, press Add: the Record page opens with ONE Intelligence and ONE Governance Section; add an allow entry in Governance without leaving the Section; no "Manage in Module Detail" anywhere.
+- Scope: `apps/web/src/app/dataviews/DataViews.tsx` (the `creating` swap), `routes.tsx`, `pages/ModuleRecordDetailPage.tsx`, `components/shared/ModuleIntelligenceSection.tsx`, `ModuleGovernanceSection.tsx`, `RecordSections.tsx`.
+- Evidence: EVIDENCE_0906
+- Requests: user report 2026-09-06 verbatim in BUGS 2026-09-06 "the Module surface fights the user".
+- Approval: none needed (the governance overlay mutation is the existing governed one, ADR-263).
+- Dependencies: TASK-088 (governance overlay), TASK-100 (standard shell).
+- NOT LANDED (stated): filled at merge.
+
+## A new Module onboards: it asks for the software it connects to and the first Records it needs
+
+- ID: TASK-106
+- Status: in_progress (2026-09-06)
+- Priority: P0
+- Horizon: Living Software
+- Outcome: when a Module the Builder just installed declares outside software or has required columns, the Builder runs ONE onboarding message on its own session — what to connect, what to fill — before the user has to discover the gap; a Module needing neither says nothing extra.
+- Prototype test: build a Module with a required column in the installed Egg; the reply that says it is in the sidebar also asks for the first Records in one message, in plain words, with no platform vocabulary.
+- Scope: `apps/api/src/builder/run.ts` (`moduleOnboardingNeeds`, `moduleOnboardingPrompt`), `apps/api/src/routers/chat.ts` (the onboarding turn after install), `apps/api/test/chat-agentic-backend.test.ts`.
+- Evidence: EVIDENCE_0906
+- Requests: user report 2026-09-06 verbatim in BUGS 2026-09-06 "the Module surface fights the user".
+- Approval: none needed (one extra agent turn on an existing session; no new egress, no new capability).
+- Dependencies: TASK-103 (install and promote in the chat lane), TASK-102 (discovery).
+- NOT LANDED (stated): connecting an Integration is still the user's own step in Settings — the onboarding turn asks and explains, it does not perform the connection; the primitive-loop Builder lane runs no onboarding.
+
+## The OS keychain item is named for Bridge, not for DealPilot
+
+- ID: TASK-107
+- Status: in_progress (2026-09-06)
+- Priority: P1
+- Horizon: Living Software
+- Outcome: the macOS prompt a user sees names `Bridge`, because the item holds this app's own secrets (Source credentials, model-provider API keys, the Claude sign-in); a credential written under the old `com.bridge.dealpilot` service is still read and deleted where it lives, never orphaned.
+- Prototype test: on a machine holding a `com.bridge.dealpilot` item, the Claude sign-in still works after upgrading, and a newly saved API key lands under `Bridge` (`security dump-keychain | grep bridge`).
+- Scope: `commons/dealpilot/src/keyring-credentials.ts` (`legacyServices`, `#resolve`), `apps/api/src/wiring.ts` (the vault's service name).
+- Evidence: EVIDENCE_0906
+- Requests: user report 2026-09-06 verbatim in BUGS 2026-09-06 "the Module surface fights the user".
+- Approval: none needed (no boundary moves: the same vault, the same scoping checks, one rename with a read-through fallback).
+- Dependencies: none.
+- NOT LANDED (stated): macOS re-asks after every local rebuild because each build is ad-hoc signed (`Signing with identity "-"`), so the OS sees a different app each time; only a stable Developer ID signing certificate stops that, and this repository has none. The DealPilot-named vault class keeps its name in code — it is the general secret vault now, and renaming the class is a separate cleanup.

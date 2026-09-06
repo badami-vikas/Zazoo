@@ -131,13 +131,19 @@ function isMissingEntryError(error: unknown): boolean {
 
 export class KeyringSourceCredentialVault implements SourceCredentialVault {
   readonly #service: string;
+  readonly #legacyServices: readonly string[];
   readonly #entry: KeyringEntryFactory;
 
   constructor(options: {
     service?: string;
+    /** Services this vault still READS and DELETES from, never writes to. */
+    legacyServices?: readonly string[];
     entryFactory?: KeyringEntryFactory;
   } = {}) {
     this.#service = options.service ?? DEFAULT_SERVICE;
+    this.#legacyServices = (options.legacyServices ?? []).filter(
+      (candidate) => candidate !== this.#service,
+    );
     this.#entry = options.entryFactory ?? lazyNativeEntry;
   }
 
@@ -151,8 +157,8 @@ export class KeyringSourceCredentialVault implements SourceCredentialVault {
     reference: string,
     credential: SourceCredential,
   ): Promise<void> {
-    const account = this.#account(scope, reference);
-    const entry = this.#entry(this.#service, account);
+    const { service, account } = this.#resolve(scope, reference);
+    const entry = this.#entry(service, account);
     const stored: StoredCredential = {
       version: 1,
       ...(credential.userId ? { userId: credential.userId } : {}),
@@ -185,9 +191,9 @@ export class KeyringSourceCredentialVault implements SourceCredentialVault {
   }
 
   async delete(scope: SourceCredentialScope, reference: string): Promise<void> {
-    const account = this.#account(scope, reference);
+    const { service, account } = this.#resolve(scope, reference);
     try {
-      await this.#entry(this.#service, account).deleteCredential();
+      await this.#entry(service, account).deleteCredential();
     } catch (error) {
       if (!isMissingEntryError(error)) throw error;
     }
@@ -197,16 +203,26 @@ export class KeyringSourceCredentialVault implements SourceCredentialVault {
     scope: SourceCredentialScope,
     reference: string,
   ): Promise<string | null> {
-    const account = this.#account(scope, reference);
+    const { service, account } = this.#resolve(scope, reference);
     try {
-      return (await this.#entry(this.#service, account).getPassword()) ?? null;
+      return (await this.#entry(service, account).getPassword()) ?? null;
     } catch (error) {
       if (isMissingEntryError(error)) return null;
       throw error;
     }
   }
 
-  #account(scope: SourceCredentialScope, reference: string): string {
+  /**
+   * The OS service an existing reference belongs to, and its account.
+   *
+   * A reference carries the service it was WRITTEN under, so renaming the
+   * service must not orphan what is already in the user's keychain (2026-09-06:
+   * the desktop service was `com.bridge.dealpilot`, which is also where the
+   * Claude sign-in and model-provider keys live — the name was wrong, the
+   * contents were not). A reference naming a legacy service is still read and
+   * deleted from that service; everything WRITTEN from now on uses `#service`.
+   */
+  #resolve(scope: SourceCredentialScope, reference: string): { service: string; account: string } {
     let parsed: URL;
     try {
       parsed = new URL(reference);
@@ -214,9 +230,13 @@ export class KeyringSourceCredentialVault implements SourceCredentialVault {
       throw new KeyringCredentialError("invalid_reference", "The credential reference is invalid");
     }
     const account = parsed.pathname.slice(1);
+    const service =
+      parsed.hostname === this.#service
+        ? this.#service
+        : this.#legacyServices.find((candidate) => candidate === parsed.hostname);
     if (
       parsed.protocol !== REFERENCE_SCHEME ||
-      parsed.hostname !== this.#service ||
+      service === undefined ||
       !account ||
       account.length > 4_096 ||
       parsed.search ||
@@ -234,6 +254,6 @@ export class KeyringSourceCredentialVault implements SourceCredentialVault {
         "The credential reference is outside the requested Organization or Source",
       );
     }
-    return account;
+    return { service, account };
   }
 }

@@ -206,3 +206,50 @@ test("OS keyring treats a provider NoEntry as an idempotent missing credential",
   assert.equal(await vault.metadata(scope, reference), null);
   await assert.doesNotReject(vault.delete(scope, reference));
 });
+
+test("a credential written under the OLD service name is still readable after the rename (BUGS 2026-09-06)", async () => {
+  const keyring = new FakeKeyring();
+  const scope = { organizationId: "organization-a", sourceId: "source-a" };
+
+  // Written by the build that named the service after DealPilot.
+  const legacy = new KeyringSourceCredentialVault({
+    service: "com.bridge.dealpilot",
+    entryFactory: keyring.factory,
+  });
+  const reference = await legacy.put(scope, { password: "claude-sign-in-token" });
+  assert.match(reference, /^keyring:\/\/com\.bridge\.dealpilot\//);
+
+  // The renamed vault reads and deletes it where it actually lives, and writes
+  // everything new under its own name.
+  const renamed = new KeyringSourceCredentialVault({
+    service: "Bridge",
+    legacyServices: ["com.bridge.dealpilot"],
+    entryFactory: keyring.factory,
+  });
+  assert.equal(await renamed.read(scope, reference, "password"), "claude-sign-in-token");
+  assert.equal((await renamed.metadata(scope, reference))?.password.state, "available");
+  assert.match(renamed.reserve(scope), /^keyring:\/\/Bridge\//);
+
+  await renamed.delete(scope, reference);
+  assert.equal(await renamed.read(scope, reference, "password"), null);
+  assert.equal(keyring.values.size, 0, "the legacy entry is gone from the legacy service, not orphaned");
+});
+
+test("a reference naming a service this vault does not own is still refused", async () => {
+  const keyring = new FakeKeyring();
+  const vault = new KeyringSourceCredentialVault({
+    service: "Bridge",
+    legacyServices: ["com.bridge.dealpilot"],
+    entryFactory: keyring.factory,
+  });
+  const scope = { organizationId: "organization-a", sourceId: "source-a" };
+  const foreign = (await new KeyringSourceCredentialVault({
+    service: "com.example.other",
+    entryFactory: keyring.factory,
+  }).put(scope, { password: "not-ours" }));
+  await assert.rejects(
+    () => vault.read(scope, foreign, "password"),
+    (error: unknown) =>
+      error instanceof KeyringCredentialError && error.code === "invalid_reference",
+  );
+});

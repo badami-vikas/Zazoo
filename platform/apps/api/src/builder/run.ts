@@ -109,6 +109,56 @@ export const PLAIN_LANGUAGE_RULES: readonly string[] = [
 /** How many times Bridge hands a rejected module.yaml back to the agent before it gives up and says so. */
 export const MANIFEST_REPAIR_ROUNDS = 2;
 
+/**
+ * What a freshly installed Module still needs from the person before it is
+ * useful (user directive 2026-09-06: "Every time a new module is created, it
+ * should have an onboarding process if it involves any integrations or requires
+ * user input"). Read from the installed manifest, never guessed: the outside
+ * software it declares, and the Databases whose required columns mean an empty
+ * Module cannot hold a single Record until the user supplies something.
+ */
+export interface ModuleOnboardingNeeds {
+  /** Connector ids the Module declares — the outside software to connect. */
+  integrations: string[];
+  /** "Courses: Title, Code" — a Database and the fields a Record must carry. */
+  inputs: string[];
+}
+
+export function moduleOnboardingNeeds(manifest: ModuleManifest): ModuleOnboardingNeeds {
+  const integrations = [
+    ...new Set(
+      manifest.capabilities
+        .filter((capability) => capability.capabilityType === "integration")
+        .flatMap((capability) => capability.connectors.map((connector) => connector.id)),
+    ),
+  ];
+  const inputs = (manifest.module?.databases ?? []).flatMap((database) => {
+    const required = database.columns.filter((column) => column.required).map((column) => column.label);
+    return required.length > 0 ? [`${database.name}: ${required.join(", ")}`] : [];
+  });
+  return { integrations, inputs };
+}
+
+/**
+ * The onboarding turn Bridge asks the agent to run once the Module is live.
+ * One message, the user's own words back, no platform vocabulary — the same
+ * rules the rest of the briefing carries.
+ */
+export function moduleOnboardingPrompt(label: string, needs: ModuleOnboardingNeeds): string {
+  return [
+    `"${label}" is installed and open to the user now. Run its onboarding in ONE short message, then stop and wait for their answer.`,
+    needs.integrations.length > 0
+      ? `Software it can connect to: ${needs.integrations.join(", ")}. Ask whether they want each one connected, and say plainly that nothing is read or sent until they say yes.`
+      : "It connects to no outside software, so ask nothing about connecting.",
+    needs.inputs.length > 0
+      ? `It cannot hold anything until these are filled: ${needs.inputs.join("; ")}. Offer to add the first few with them now, and ask for what you need in one go.`
+      : "",
+    "Do not restate what you built, do not list what you would do, and do not ask them to open or install anything.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 /** The message the agent gets when Bridge rejects the module.yaml it just wrote. */
 export function manifestRepairPrompt(moduleName: string, error: string): string {
   return `Bridge rejected ${moduleName}/module.yaml: ${error}. Fix module.yaml in place (same folder, same Module name) and change nothing else. Reply with one line saying what you fixed.`;

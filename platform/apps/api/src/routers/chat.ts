@@ -9,7 +9,7 @@ import { MAX_TRANSCRIPTION_AUDIO_BYTES, transcribeAudio, VoiceTranscriptionError
 import { organizationFilesRoot } from "../module-files.js";
 import { relative, sep } from "node:path";
 import { BUILDER_AGENT_RUNTIME_ID, BUILT_IN_MODULES, CHIEF_OF_STAFF_AGENT_RUNTIME_ID, GOVERNANCE_AGENT_RUNTIME_ID, INTERNAL_STRATEGIST_AGENT_RUNTIME_ID, LEARNING_AGENT_RUNTIME_ID, resolveModuleAgentRuntimeId } from "@bridge/module-manifests";
-import { commonsPriorArt, installedModulesForBriefing, integrationsForBriefing, MANIFEST_REPAIR_ROUNDS, manifestRepairPrompt, moduleBuildBriefing, organizationFoldersForBriefing } from "../builder/run.js";
+import { commonsPriorArt, installedModulesForBriefing, integrationsForBriefing, MANIFEST_REPAIR_ROUNDS, manifestRepairPrompt, moduleBuildBriefing, moduleOnboardingNeeds, moduleOnboardingPrompt, organizationFoldersForBriefing } from "../builder/run.js";
 import { modulesRouter } from "./modules.js";
 import { actionRouter } from "./action.js";
 import { readModuleManifestFile, registerModuleManifest } from "../module-register.js";
@@ -837,9 +837,40 @@ export const chatRouter = t.router({
                 }
                 const finalRow = await ctx.wiring.moduleStore.get(installation.id);
                 const visible = finalRow?.status === "installed" && finalRow.state === "available";
+                // A live Module that needs outside software connected, or a
+                // first Record the user has to supply, is not finished landing:
+                // the agent runs one onboarding turn on its own session rather
+                // than leaving the person to discover the gap (user directive
+                // 2026-09-06: "Every time a new module is created, it should
+                // have an onboarding process if it involves any integrations or
+                // requires user input"). Best-effort: a failed onboarding turn
+                // never unsays the install that did happen.
+                let onboarding = "";
+                const needs = moduleOnboardingNeeds(installation.manifest);
+                if (visible && (needs.integrations.length > 0 || needs.inputs.length > 0)) {
+                  try {
+                    const turn = await backend.send({
+                      text: moduleOnboardingPrompt(label, needs),
+                      backendSessionId: backendTurn.backendSessionId ?? thread.backendSessionId ?? null,
+                      workingDirectory,
+                      organizationId: thread.organizationId,
+                      signal: controller.signal,
+                      system,
+                    });
+                    backendTurn = {
+                      ...backendTurn,
+                      backendSessionId: turn.backendSessionId ?? backendTurn.backendSessionId,
+                    };
+                    onboarding = turn.reply.trim() ? `\n\n${turn.reply.trim()}` : "";
+                  } catch {
+                    onboarding = needs.integrations.length > 0
+                      ? `\n\nIt can connect to ${needs.integrations.join(", ")} when you want — say the word.`
+                      : "";
+                  }
+                }
                 registrationNotes.push(
                   visible
-                    ? `Built and installed "${label}" — it is in your sidebar now.`
+                    ? `Built and installed "${label}" — it is in your sidebar now.${onboarding}`
                     : installed
                       ? `Built and installed "${label}", but it is not showing yet (state "${finalRow?.state ?? "unknown"}"). Say "fix it" and I will try again.`
                       : `Built "${label}". It waits for your yes under Tasks before it goes live.`,

@@ -414,7 +414,9 @@ test("the agentic backend is briefed on what a Module is, and a module.yaml it w
       message: "Now add a grades Page",
       surface: { kind: "chat_panel" },
     });
-    const second = backend.calls[1]?.system ?? "";
+    // `at(-1)`: Bridge may have run an onboarding turn of its own after the
+    // install (2026-09-06), so the LAST call is this user turn.
+    const second = backend.calls.at(-1)?.system ?? "";
     assert.match(second, /academics-manager \(Academics, installed\)/, "the registered Module is listed with status");
     assert.match(second, /Database assignments: columns course:text, due:date/, "its Database columns ride as data");
     assert.match(second, /JobManager: plain folder of files, no Module/, "the plain folder is named as not a Module");
@@ -456,6 +458,13 @@ class RepairingBackend implements ChatBackend {
   async send(args: ChatBackendSendArgs) {
     this.calls.push(args);
     const repair = /Bridge rejected academics-manager\/module\.yaml/.test(args.text);
+    if (/Run its onboarding in ONE short message/.test(args.text)) {
+      return {
+        reply: "Shall I add your first two courses now? Tell me their titles.",
+        backendSessionId: "sdk-session-3",
+        changedPaths: [],
+      };
+    }
     const folder = join(args.workingDirectory, "academics-manager");
     await mkdir(folder, { recursive: true });
     const path = join(folder, "module.yaml");
@@ -548,14 +557,27 @@ test("a rejected module.yaml goes back to the agent to repair, and the accepted 
     assert.match(system, /Bridge installs the Module for the user/);
 
     // One repair round: Bridge's rejection reached the same backend session,
-    // verbatim, and the agent fixed the file in place.
-    assert.equal(backend.calls.length, 2, "exactly one repair round was needed");
+    // verbatim, and the agent fixed the file in place. Then ONE onboarding turn,
+    // because this Module has required columns the user must fill.
+    assert.equal(backend.calls.length, 3, "one repair round, then one onboarding turn");
     assert.match(backend.calls[1]!.text, /Bridge rejected academics-manager\/module\.yaml: .*options must be an array of strings/);
     assert.equal(backend.calls[1]!.backendSessionId, "sdk-session-3", "the repair continues the agent's own session");
+
+    // Onboarding: the Module is live, and Bridge asks the agent to run ONE
+    // message about what it still needs from the user (2026-09-06 directive).
+    assert.match(backend.calls[2]!.text, /"Academics" is installed and open to the user now\. Run its onboarding in ONE short message/);
+    assert.match(backend.calls[2]!.text, /It cannot hold anything until these are filled: Courses: Title; Assignments: Title/);
+    assert.match(backend.calls[2]!.text, /connects to no outside software/);
+    assert.doesNotMatch(backend.calls[2]!.text, /module\.yaml|manifest|Commons/);
 
     // The result is an INSTALLED Module and a sentence a person understands.
     const assistant = view.turns[view.turns.length - 1];
     assert.match(assistant?.content ?? "", /Built and installed "Academics" — it is in your sidebar now\./);
+    assert.match(
+      assistant?.content ?? "",
+      /Shall I add your first two courses now\?/,
+      "the onboarding message reaches the user in the same reply",
+    );
     assert.doesNotMatch(assistant?.content ?? "", /Registered the Module|install it from Modules|Could not register/);
     const modules = await caller.modules.list({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 });
     const mine = modules.items.find((item) => item.moduleName === "academics-manager");

@@ -3826,6 +3826,135 @@
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1682,
       "rank": 109
+    },
+    {
+      "id": "TASK-104",
+      "title": "TASK-104 — Table controls a person can actually reach: aligned toolbar, right-click column menu, grid lines, add and rename columns, Add List",
+      "status": "in-progress",
+      "statusNote": "2026-09-06",
+      "priority": "P0",
+      "horizon": "Living Software",
+      "outcome": "on any View of any Module, List/View/Search sit left, Filter and the 3-dots sit right, no other button is in the row; column commands open on right-click of the header, not from a per-column 3-dots; columns are separated by vertical rules; add, rename, retype, lock, remove and undo reach the governed schema path from a Module Page; Add List saves a named List on a Module Database.",
+      "prototypeTest": "in the installed Egg on Academics → Courses, right-click \"Title\" and rename it; add a column; save a List; confirm the toolbar carries exactly six controls in the stated order and the table draws vertical rules.",
+      "scope": [
+        "`apps/web/src/app/dataviews/DataViews.tsx`, `dataviews/views/TableView.tsx`, `components/shared/StandardColumnMenu.tsx`, `pages/ModulePage.tsx`",
+        "`apps/api/src/table-schema.ts` (add op), `router-shared.ts` (`SCHEMA_MUTABLE_SPECS`/`readTableSchemaCapability` reaching Module Databases), `routers/tableSchema.ts`, `routers/view.ts`."
+      ],
+      "evidence": [
+        "EVIDENCE_0906"
+      ],
+      "requests": [
+        "user report 2026-09-06 verbatim in BUGS 2026-09-06 \"the Module surface fights the user\"."
+      ],
+      "approval": "none needed (the governed schema path and its checks are unchanged; only its reach and one new op).",
+      "dependencies": [
+        "TASK-084 (governed schema mutation), TASK-062 (saved Views), TASK-100 (standard shell)."
+      ],
+      "isGoal": false,
+      "path": "8.13",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1697,
+      "rank": 110
+    },
+    {
+      "id": "TASK-105",
+      "title": "TASK-105 — Adding an element opens the element page; Sections are inline and appear once",
+      "status": "in-progress",
+      "statusNote": "2026-09-06",
+      "priority": "P0",
+      "horizon": "Living Software",
+      "outcome": "adding a Record opens its own Record page instead of swapping the table inline, so Intelligence and Governance render once; the Governance policy is edited in place in its Section; \"Manage in Module Detail\" is gone; standing explainer prose is a tooltip on the control it concerns or is deleted.",
+      "prototypeTest": "in the installed Egg on Academics → Courses, press Add: the Record page opens with ONE Intelligence and ONE Governance Section; add an allow entry in Governance without leaving the Section; no \"Manage in Module Detail\" anywhere.",
+      "scope": [
+        "`apps/web/src/app/dataviews/DataViews.tsx` (the `creating` swap), `routes.tsx`, `pages/ModuleRecordDetailPage.tsx`, `components/shared/ModuleIntelligenceSection.tsx`, `ModuleGovernanceSection.tsx`, `RecordSections.tsx`."
+      ],
+      "evidence": [
+        "EVIDENCE_0906"
+      ],
+      "requests": [
+        "user report 2026-09-06 verbatim in BUGS 2026-09-06 \"the Module surface fights the user\"."
+      ],
+      "approval": "none needed (the governance overlay mutation is the existing governed one, ADR-263).",
+      "dependencies": [
+        "TASK-088 (governance overlay), TASK-100 (standard shell)."
+      ],
+      "isGoal": false,
+      "path": "8.14",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1712,
+      "rank": 111
+    },
+    {
+      "id": "TASK-106",
+      "title": "TASK-106 — A new Module onboards: it asks for the software it connects to and the first Records it needs",
+      "status": "in-progress",
+      "statusNote": "2026-09-06",
+      "priority": "P0",
+      "horizon": "Living Software",
+      "outcome": "when a Module the Builder just installed declares outside software or has required columns, the Builder runs ONE onboarding message on its own session — what to connect, what to fill — before the user has to discover the gap; a Module needing neither says nothing extra.",
+      "prototypeTest": "build a Module with a required column in the installed Egg; the reply that says it is in the sidebar also asks for the first Records in one message, in plain words, with no platform vocabulary.",
+      "scope": [
+        "`apps/api/src/builder/run.ts` (`moduleOnboardingNeeds`, `moduleOnboardingPrompt`), `apps/api/src/routers/chat.ts` (the onboarding turn after install), `apps/api/test/chat-agentic-backend.test.ts`."
+      ],
+      "evidence": [
+        "EVIDENCE_0906"
+      ],
+      "requests": [
+        "user report 2026-09-06 verbatim in BUGS 2026-09-06 \"the Module surface fights the user\"."
+      ],
+      "approval": "none needed (one extra agent turn on an existing session; no new egress, no new capability).",
+      "dependencies": [
+        "TASK-103 (install and promote in the chat lane), TASK-102 (discovery)."
+      ],
+      "isGoal": false,
+      "path": "8.15",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1727,
+      "rank": 112
+    },
+    {
+      "id": "TASK-107",
+      "title": "TASK-107 — The OS keychain item is named for Bridge, not for DealPilot",
+      "status": "in-progress",
+      "statusNote": "2026-09-06",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "the macOS prompt a user sees names `Bridge`, because the item holds this app's own secrets (Source credentials, model-provider API keys, the Claude sign-in); a credential written under the old `com.bridge.dealpilot` service is still read and deleted where it lives, never orphaned.",
+      "prototypeTest": "on a machine holding a `com.bridge.dealpilot` item, the Claude sign-in still works after upgrading, and a newly saved API key lands under `Bridge` (`security dump-keychain | grep bridge`).",
+      "scope": [
+        "`commons/dealpilot/src/keyring-credentials.ts` (`legacyServices`, `#resolve`), `apps/api/src/wiring.ts` (the vault's service name)."
+      ],
+      "evidence": [
+        "EVIDENCE_0906"
+      ],
+      "requests": [
+        "user report 2026-09-06 verbatim in BUGS 2026-09-06 \"the Module surface fights the user\"."
+      ],
+      "approval": "none needed (no boundary moves: the same vault, the same scoping checks, one rename with a read-through fallback).",
+      "dependencies": [
+        "none."
+      ],
+      "isGoal": false,
+      "path": "8.16",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1742,
+      "rank": 113
     }
   ]
 }

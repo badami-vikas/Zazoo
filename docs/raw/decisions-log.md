@@ -7081,3 +7081,54 @@ context is not budgeted by `check-agent-context-budget`. Cited by date and title
 **Rejected.** Auto-fixing the manifest in Bridge (a rewriter that guesses what the model meant — the model has the intent, Bridge only has the rule). Registering without installing and improving the copy only (the user still has to find Modules). Asking the user to approve the install in chat (install already has a governance decision; a second question for an informational-risk Module is ceremony, AP-182). Unbounded repair loops (a model that cannot fix its file must stop and say so).
 
 **Consequences.** `chat-agentic-backend.test.ts` proves the repair round, the install, the copy and the bounded failure. The primitive-loop lane is unchanged (NOT LANDED in TASK-103). From the same report and day: the Approvals page is deleted and `/approvals` redirects to Tasks, with unanchored approvals shown as "Waiting for your yes" on the Task Manager (TASK-097); the chat composer loses its "Working in" footer and Module dropdown and sessions are named after their Module (TASK-101).
+
+## 2026-09-06 — The Module surface obeys: aligned toolbar, right-click columns, one set of Sections, an onboarding turn, and a keychain item named Bridge (TASK-104/105/106/107)
+
+**Context.** A user built the Academics Module through chat and then hit the Module Page. Almost
+every control there either did nothing or did the wrong thing: buttons scattered across the toolbar,
+a per-column three-dots menu nobody asked for, no vertical rules, a dead "Add column", no rename, no
+"Add List", Intelligence and Governance rendered twice when adding a Record, a "Manage in Module
+Detail" link whose destination was the page it was already on, and a macOS prompt naming
+`com.bridge.dealpilot` on a machine with no DealPilot.
+
+**Decision.**
+
+1. **The toolbar has one shape everywhere.** List, View and Search sit left; Filter and the overflow
+   menu sit right; nothing else is in the row. Anything a surface wants to add goes inside the
+   overflow menu as a labelled Actions group. A single arrangement is cheaper to learn than a
+   per-surface one, and the row was the visible symptom of every caller inventing its own.
+2. **Column commands open on right-click of the header**, matching the cell menu that already
+   existed, with Enter/Space/ContextMenu as the keyboard route. A resident three-dots per column is
+   permanent visual cost for an occasional action.
+3. **Adding a Record opens the Record's own page.** Swapping the table inline left the Module Page's
+   own Intelligence and Governance Sections mounted underneath the Record's, which is why the user
+   saw each twice. Hand-written surfaces with no generic Record route keep the inline path, now
+   without the duplicate Sections.
+4. **Governance policy is edited in place.** No Edit button, no mode. A field that loses focus saves
+   through the existing governed overlay mutation and the Section renders the server's answer, not
+   the input. An incomplete rule is never sent and says so. "Manage in Module Detail" is gone: it
+   linked a page to itself.
+5. **Standing explainer prose becomes a tooltip on the control it concerns, or is deleted.**
+   Definitions the user did not ask for are noise; the same sentence on a `title` is there when
+   wanted.
+6. **A new Module onboards itself.** When the Builder installs a Module that declares outside
+   software or has required columns, it spends ONE further turn on the same session asking what to
+   connect and what to fill. A Module needing neither says nothing extra. The alternative — the user
+   discovering an empty Module and guessing — is what shipped yesterday and it failed the first time
+   it met a person.
+7. **The OS keychain item is named `Bridge`.** The service string was `com.bridge.dealpilot`, but
+   the item holds this app's own secrets: Source credentials, model-provider API keys and the Claude
+   sign-in. The contents were right, the name was a lie. A credential written under the old service
+   is still read and deleted where it lives, so nothing already in a keychain is orphaned.
+
+**Rejected alternatives.** Hiding the extra toolbar buttons behind a width breakpoint (the buttons
+were the problem, not the width). Keeping the per-column menu and only adding right-click (two ways
+to reach one menu is the confusion, not the cure). Renaming the keychain service with no
+read-through (would strand every existing sign-in and silently re-prompt). Making onboarding a
+separate Agent Run (a second session cannot see what the Builder just built without re-reading it).
+
+**Consequences.** The governed schema path now reaches Module Databases, so add/rename/retype/lock/
+remove work from a Module Page — the same checks, a wider reach. One more agent turn per built
+Module that needs it, on the existing session, with no new egress. macOS will still re-prompt after
+every local rebuild: each build is ad-hoc signed, so the OS sees a different application; only a
+stable Developer ID certificate stops that and this repository has none.

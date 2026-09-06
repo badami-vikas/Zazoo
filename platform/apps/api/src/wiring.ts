@@ -5926,7 +5926,17 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       ? encryptedCredentialVaultFromEnv(
           join(credentialVaultRoot!, "credential-vault"),
         )
-      : new KeyringSourceCredentialVault());
+      : // The OS keyring item the user is asked to authorise. It is named for
+        // what it IS — this app — not for DealPilot, which is one of three
+        // things stored in it (Source credentials, model-provider API keys, the
+        // Claude sign-in) and the only one the old `com.bridge.dealpilot` name
+        // mentioned. BUGS 2026-09-06: the macOS prompt said "dealpilot" to a
+        // user who has no DealPilot. Old references keep naming the old service
+        // and are still read and deleted there; nothing new is written to it.
+        new KeyringSourceCredentialVault({
+          service: "Bridge",
+          legacyServices: ["com.bridge.dealpilot"],
+        }));
   const modelProviderKeys = new ModelProviderKeyStore({
     state: localPlane.state,
     vault: dealPilotCredentialVault,
