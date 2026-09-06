@@ -35,6 +35,8 @@ interface PendingCloudRequest {
 
 const ACTIVE_THREAD_KEY = `bridge.${PILOT_ORGANIZATION}.chat.active.v2`;
 const CHAT_CHANNEL = `bridge.${PILOT_ORGANIZATION}.chat.v2`;
+/** Window event the left nav listens to for re-reading installed Modules. */
+export const MODULES_CHANGED_EVENT = "bridge:modules-changed";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -385,6 +387,9 @@ export function useChat(surfaceKind: ChatSurfaceKind, moduleName?: string) {
         setView((current) => mergeChatThreadViews(current, result));
       }
       announce(threadId);
+      // A turn may have built and installed a Module; the left nav re-reads
+      // modules.list on this so the reply and the sidebar agree.
+      window.dispatchEvent(new CustomEvent(MODULES_CHANGED_EVENT));
       await refreshThreads();
     } catch (cause) {
       setError(errorMessage(cause));

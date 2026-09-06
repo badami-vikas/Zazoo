@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Suspense } from "react";
 import { Link, Outlet, useLocation } from "react-router";
+import { MODULES_CHANGED_EVENT } from "./chat/useChat";
 import { Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles, ChevronRight, Building2 } from "lucide-react";
 import { moduleNavTarget, buildModuleNavTree } from "@bridge/module-manifests";
 import { moduleStructure } from "@bridge/core";
@@ -264,9 +265,12 @@ export default function Layout() {
   }
 
   // TASK-001 VOCAB6: load installed modules from modules.list for the nav.
-  // Only `available` state modules appear. Fetched once per mount.
+  // Only `available` state modules appear. Fetched on mount and again whenever
+  // something announces `bridge:modules-changed` — a chat turn that built and
+  // installed a Module, say — so the nav never claims less than the server
+  // has (BUGS 2026-09-05 "the chatbot claims academics is in my side bar").
   useEffect(() => {
-    trpc.modules.list
+    const loadInstalledModules = () => trpc.modules.list
       .query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
       .then((res) => {
         const available = res.items
@@ -317,6 +321,9 @@ export default function Layout() {
         console.error("[nav] failed to load installed modules", failure);
         setInstalledModules([]);
       });
+    loadInstalledModules();
+    window.addEventListener(MODULES_CHANGED_EVENT, loadInstalledModules);
+    return () => window.removeEventListener(MODULES_CHANGED_EVENT, loadInstalledModules);
   }, []);
 
   useEffect(() => {

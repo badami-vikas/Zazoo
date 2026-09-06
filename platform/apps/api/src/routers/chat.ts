@@ -820,10 +820,29 @@ export const chatRouter = t.router({
                   });
                   installed = true;
                 }
+                // "Installed" is not "visible": install leaves the row in the
+                // `promoted` state, and every surface (left nav, Home, the Module
+                // page) lists only `available`. The Modules page's "promote" step
+                // is the last step of the job, so it happens here too — and the
+                // sentence is checked against the row, never assumed (BUGS
+                // 2026-09-05 "the chatbot claims academics is in my side bar").
+                if (installed) {
+                  const afterInstall = await ctx.wiring.moduleStore.get(installation.id);
+                  if (afterInstall?.state === "promoted") {
+                    await modulesRouter.createCaller(routerCtx).promote({
+                      organizationId: thread.organizationId,
+                      installationId: installation.id,
+                    });
+                  }
+                }
+                const finalRow = await ctx.wiring.moduleStore.get(installation.id);
+                const visible = finalRow?.status === "installed" && finalRow.state === "available";
                 registrationNotes.push(
-                  installed
+                  visible
                     ? `Built and installed "${label}" — it is in your sidebar now.`
-                    : `Built "${label}". It waits for your yes under Tasks before it goes live.`,
+                    : installed
+                      ? `Built and installed "${label}", but it is not showing yet (state "${finalRow?.state ?? "unknown"}"). Say "fix it" and I will try again.`
+                      : `Built "${label}". It waits for your yes under Tasks before it goes live.`,
                 );
               } catch (error) {
                 registrationNotes.push(

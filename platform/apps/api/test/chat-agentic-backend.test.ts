@@ -398,6 +398,7 @@ test("the agentic backend is briefed on what a Module is, and a module.yaml it w
     const mine = modules.items.find((item) => item.moduleName === "academics-manager");
     assert.equal(mine?.status, "installed");
     assert.equal(mine?.manifest.module?.databases?.[0]?.id, "assignments");
+    assert.equal(mine?.state, "available", "installed AND available, or the sidebar never shows it");
 
     // The next turn is briefed on what already exists, as data (ADR-247): the
     // Module the last turn registered, with its Database column ids, and a
@@ -560,6 +561,9 @@ test("a rejected module.yaml goes back to the agent to repair, and the accepted 
     const mine = modules.items.find((item) => item.moduleName === "academics-manager");
     assert.equal(mine?.status, "installed");
     assert.equal(mine?.manifest.module?.databases?.[1]?.columns?.[1]?.relationTarget, "courses");
+    // "in your sidebar" must be TRUE: every surface lists only state "available"
+    // (Layout, Home, ModulePage), so installed-but-promoted is invisible (BUGS 2026-09-05 "the chatbot claims academics is in my side bar when it isnt").
+    assert.equal(mine?.state, "available");
     // The install ask (private-Record writes → user_pref) was answered by the
     // chatting USER as a recorded Human decision, not skipped.
     const decision = await wiring.ledger.decisionFor(stableModuleInstallProposalId(PILOT_ORGANIZATION, mine!.id));

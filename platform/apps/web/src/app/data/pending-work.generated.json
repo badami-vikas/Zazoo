@@ -3806,7 +3806,9 @@
         "`modules.list` status `installed`",
         "`relationTarget` = courses",
         "the install decision recorded as `approve` by actor user PILOT_USER) and \"when the agent never fixes its module.yaml, Bridge stops after the repair budget\" (1 + 2 calls, plain-words reply, nothing half-registered)",
-        "the TASK-098 briefing test now asserts every `PLAIN_LANGUAGE_RULES` entry and status `installed`. Seen failing first: TS2305 (missing exports) with the old source, then 2/3 failing on \"It waits for your yes under Tasks\" until the same-turn `user_pref` decision landed. Targeted api 94/94, api typecheck clean, vocabulary gate OK."
+        "the TASK-098 briefing test now asserts every `PLAIN_LANGUAGE_RULES` entry and status `installed`. Seen failing first: TS2305 (missing exports) with the old source, then 2/3 failing on \"It waits for your yes under Tasks\" until the same-turn `user_pref` decision landed. Targeted api 94/94, api typecheck clean, vocabulary gate OK. 2026-09-05 later: install left the row `promoted` and the sidebar lists only `available` (BUGS 2026-09-05 \"the chatbot claims academics is in my side bar when it isnt\")",
+        "the lane now promotes and checks the row before it says \"in your sidebar\" — both success tests assert `state === \"available\"` (the failure was seen on the live plane: the user's row sat at `promoted`",
+        "the assertion was added with the fix)."
       ],
       "requests": [
         "user report 2026-09-05 verbatim in BUGS 2026-09-05 \"the Builder wrote a definition Bridge rejected…\"."
