@@ -6,9 +6,9 @@
  * this reads that choice rather than taking a per-page prop — a page that could
  * decide for itself is how two Records of one Database end up different.
  *
- * A new Record has no id yet. Notes still renders, and says plainly that a
- * note attaches once the Record is saved, rather than offering a box whose
- * contents would go nowhere (AP-021).
+ * A new Record has no id yet. Notes still renders — the box is disabled and
+ * says on itself when it starts saving, rather than offering a box whose
+ * contents would go nowhere (AP-021) or a paragraph explaining the fact.
  */
 import { useCallback, useEffect, useState } from "react";
 import { NotebookPen } from "lucide-react";
@@ -75,20 +75,21 @@ export function RecordNotesSection({
       <h3 className="flex items-center gap-2 text-sm font-semibold" style={{ color: "var(--color-navy)" }}>
         <NotebookPen className="size-4" /> Notes
       </h3>
-      {recordId === null ? (
-        <p className="mt-2 text-xs" style={{ color: "var(--color-warm-gray)" }}>
-          A note attaches to this Record once it is saved — nothing is written before then.
-        </p>
-      ) : (
+      {/* A new Record has no id to attach a note to. The box says so on itself
+          rather than standing in as a paragraph of explanation (AP-021). */}
+      <textarea
+        aria-label="Record note"
+        value={text}
+        disabled={recordId === null}
+        title={recordId === null ? "Notes save once this Record is saved" : undefined}
+        placeholder={recordId === null ? "Notes save once this Record is saved" : undefined}
+        onChange={(event) => setText(event.target.value)}
+        rows={4}
+        className="mt-2 w-full rounded-lg border p-2 text-sm disabled:opacity-60"
+        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+      />
+      {recordId !== null && (
         <>
-          <textarea
-            aria-label="Record note"
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            rows={4}
-            className="mt-2 w-full rounded-lg border p-2 text-sm"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-          />
           <div className="mt-2 flex items-center gap-2">
             <button
               type="button"

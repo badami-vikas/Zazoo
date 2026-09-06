@@ -2,16 +2,19 @@
  * ModuleIntelligenceSection — the standard per-page "Intelligence" section
  * (user request 2026-07-27). Sits below the artefacts / Files section and shows
  * the Module's capability bindings under three tabs: Agents · Automations ·
- * Integrations. Data is manifest-sourced (modules.list), read-only here; the
- * full interactive surface lives in Module Detail (§4b), which this links to.
+ * Integrations. Data is manifest-sourced (modules.list).
  *
- * Honest empty states throughout (UI-RULES §6a): no dummy rows, ever. When the
- * Module isn't found in modules.list (e.g. a default Module with no installed
- * package yet) the section renders a single honest empty note.
+ * NO "MANAGE IN MODULE DETAIL" (user directive 2026-09-06). That button linked
+ * to /module/:name, which renders THIS Section and the Governance one below it —
+ * the same two Sections the reader was already looking at. It was a hop from a
+ * surface to itself, so nothing moved inline with it; it is simply gone.
+ *
+ * Honest empty states throughout (UI-RULES §6a): no dummy rows, ever, and a
+ * short line rather than a definition of what is missing.
  */
 import { useEffect, useMemo, useState } from "react";
+import { Sparkles, Bot, Zap, Cable, ExternalLink } from "lucide-react";
 import { Link } from "react-router";
-import { Sparkles, Bot, Zap, Cable, ExternalLink, ArrowUpRight } from "lucide-react";
 import { trpc, PILOT_ORGANIZATION } from "../../lib/trpc";
 
 type ModuleRow = Awaited<ReturnType<typeof trpc.modules.list.query>>["items"][number];
@@ -72,25 +75,13 @@ export function ModuleIntelligenceSection({
       );
   }, [pkg]);
 
-  const moduleDetailPath = `/module/${moduleName}`;
-
   return (
     <section className="space-y-3" aria-labelledby={`${moduleName}-intelligence-title`}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Sparkles className="size-4" style={{ color: "var(--color-steel)" }} />
-          <h2 id={`${moduleName}-intelligence-title`} className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>
-            {title}
-          </h2>
-        </div>
-        <Link
-          to={moduleDetailPath}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-[var(--color-surface)]"
-          style={{ borderColor: "var(--color-border)", color: "var(--color-steel)" }}
-        >
-          Manage in Module Detail
-          <ArrowUpRight className="size-3.5" />
-        </Link>
+      <div className="flex items-center gap-2">
+        <Sparkles className="size-4" style={{ color: "var(--color-steel)" }} />
+        <h2 id={`${moduleName}-intelligence-title`} className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>
+          {title}
+        </h2>
       </div>
 
       {/* Tabs */}
@@ -138,10 +129,10 @@ export function ModuleIntelligenceSection({
         ) : error ? (
           <p role="alert" className="break-words text-xs text-red-600">{error}</p>
         ) : pkg === null ? (
-          <EmptyNote text={`No installed manifest for “${moduleName}” yet — Agents, Automations, and Integrations appear here once it is installed.`} />
+          <EmptyNote text={`“${moduleName}” is not installed yet.`} />
         ) : tab === "agents" ? (
           agents.length === 0 ? (
-            <EmptyNote text="No attributable Agent bindings are declared in this Module version." />
+            <EmptyNote text="No Agents." />
           ) : (
             <ul className="divide-y rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
               {agents.map((agent) => (
@@ -171,7 +162,7 @@ export function ModuleIntelligenceSection({
           )
         ) : tab === "automations" ? (
           automations.length === 0 ? (
-            <EmptyNote text="No Automations are declared in this Module version." />
+            <EmptyNote text="No Automations." />
           ) : (
             <ul className="divide-y rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
               {automations.map((automation) => (
@@ -188,7 +179,7 @@ export function ModuleIntelligenceSection({
             </ul>
           )
         ) : connectors.length === 0 ? (
-          <EmptyNote text="No Integration bindings are declared in this Module version." />
+          <EmptyNote text="No Integrations." />
         ) : (
           <ul className="divide-y rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
             {connectors.map((connector, index) => (
