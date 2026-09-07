@@ -2401,6 +2401,10 @@ export const viewConfigs = pgTable(
     scope: text("scope").notNull().default("personal"),
     config: jsonb("config").$type<Record<string, unknown>>().notNull(),
     hiddenColumns: jsonb("hidden_columns").$type<string[]>().notNull().default([]),
+    /** The List this Database opens on for this owner (TASK-110). At most one
+     * per owner per Database — the partial unique index below is what makes
+     * "the default" a single answer rather than whichever row sorted first. */
+    isDefault: boolean("is_default").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
       .notNull()
       .defaultNow(),

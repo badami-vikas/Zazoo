@@ -15,8 +15,11 @@ export {
   VIEW_KINDS,
   METADATA_COLUMN_KINDS,
   ROW_HEIGHT_PX,
-  VALUELESS_FILTER_OPS,
+  // The filter grammar (Notion parity 2026-09-06) was declared in types.ts and
+  // never exported, so the only surface that could have used it — the Filter
+  // popover — went on shipping one hardcoded `contains` (TASK-110).
   FILTER_OP_LABELS,
+  VALUELESS_FILTER_OPS,
   filterOpsForKind,
   defaultViewConfig,
   isMetadataColumn,

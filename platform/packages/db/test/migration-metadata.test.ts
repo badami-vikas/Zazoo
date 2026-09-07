@@ -16,7 +16,7 @@ const dbRoot = resolve(here, "../..");
 const migrationsFolder = resolve(dbRoot, "migrations");
 const drizzleKitBin = resolve(dbRoot, "node_modules/drizzle-kit/bin.cjs");
 
-test("Drizzle metadata is rebased through 0050 and generate is a deterministic no-op", () => {
+test("Drizzle metadata is rebased through 0051 and generate is a deterministic no-op", () => {
   const probe = mkdtempSync(resolve(dbRoot, ".drizzle-noop-"));
   const probeMigrations = join(probe, "migrations");
   try {
@@ -28,10 +28,10 @@ test("Drizzle metadata is rebased through 0050 and generate is a deterministic n
     };
     const last = journal.entries.at(-1);
     assert.deepEqual(last, {
-      idx: 50,
+      idx: 51,
       version: "7",
-      when: 1788629072868,
-      tag: "0050_task101_chat_addressed_agent",
+      when: 1788744558118,
+      tag: "0051_task110_view_defaults",
       breakpoints: true,
     });
     assert.ok(
@@ -114,6 +114,10 @@ test("Drizzle metadata is rebased through 0050 and generate is a deterministic n
       readdirSync(join(probeMigrations, "meta")).includes("0050_snapshot.json"),
       "chat addressed_agent ref-kind snapshot must be tracked (TASK-101)",
     );
+    assert.ok(
+      readdirSync(join(probeMigrations, "meta")).includes("0051_snapshot.json"),
+      "saved-List default-flag snapshot must be tracked (TASK-110)",
+    );
 
     const generated = spawnSync(
       process.execPath,
@@ -141,7 +145,7 @@ test("Drizzle metadata is rebased through 0050 and generate is a deterministic n
     assert.match(output, /No schema changes, nothing to migrate/);
     assert.equal(readFileSync(journalPath, "utf8"), journalBefore);
     assert.ok(
-      // The NEXT index after the current head (0050). 0049 only widens the
+      // The NEXT index after the current head (0051). 0049 only widens the
       // `ledger_user_decision_check` CHECK (adds `superseded`, 2026-09-05); like
       // 0038 it changes no Drizzle-visible shape, so it has no snapshot; 0050
       // widens `chat_turn_refs_kind_check` (TASK-101) and, being in schema.ts,
@@ -157,11 +161,11 @@ test("Drizzle metadata is rebased through 0050 and generate is a deterministic n
       // Module-session columns (TASK-093); 0046 adds `automation_runs.task_id`
       // (ADR-269), `tasks.estimate` (ADR-272) and
       // `module_installations.display_name_override` (TASK-081); 0047 adds
-      // `view_configs` (TASK-062); 0048 adds `share_grants` (TASK-064) — all real shape changes. 0046's composite FK to `tasks` is deliberately NOT in
+      // `view_configs` (TASK-062); 0048 adds `share_grants` (TASK-064); 0051 adds `view_configs.is_default` (TASK-110) — all real shape changes. 0046's composite FK to `tasks` is deliberately NOT in
       // schema.ts (LAYER 4 is defined before LAYER 8, so naming `tasks` there
       // is a TDZ crash) and so is absent from its snapshot too — which is why
       // generate stays a no-op.
-      !readdirSync(probeMigrations).some((name) => /^0051_.*\.sql$/.test(name)),
+      !readdirSync(probeMigrations).some((name) => /^0052_.*\.sql$/.test(name)),
       "no-op generation must not allocate another migration",
     );
   } finally {

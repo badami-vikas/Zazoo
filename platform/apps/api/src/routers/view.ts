@@ -171,6 +171,8 @@ export const viewRouter = t.router({
             scope: z.enum(SAVED_VIEW_SCOPES).optional(),
             config: savedViewConfigSchema.optional(),
             hiddenColumns: z.array(z.string().trim().min(1).max(200)).max(200).optional(),
+            /** Make this the List the Database opens on. `false` clears it. */
+            isDefault: z.boolean().optional(),
           })
           .strict(),
       )
@@ -189,6 +191,7 @@ export const viewRouter = t.router({
               ...(input.hiddenColumns !== undefined
                 ? { hiddenColumns: input.hiddenColumns }
                 : {}),
+              ...(input.isDefault !== undefined ? { isDefault: input.isDefault } : {}),
             },
             ctx.run.clock.nowISO(),
           );
@@ -201,6 +204,73 @@ export const viewRouter = t.router({
           }
           throw error;
         }
+      }),
+
+    /**
+     * Copy a List, config and hidden columns and all (TASK-110).
+     *
+     * The copy is always PERSONAL and never the default: duplicating an
+     * organization-scoped List someone else saved must not re-share it, and
+     * two Lists claiming to be the default is the one state the table refuses.
+     *
+     * The name is chosen HERE rather than by the client, because the
+     * one-name-per-Database-per-owner rule lives on this side; a client that
+     * guessed a suffix would just hand the user a CONFLICT to read.
+     */
+    duplicate: authenticatedProcedure
+      .input(
+        z
+          .object({
+            organizationId: z.string().min(1),
+            viewId: z.string().min(1),
+            name: z.string().trim().min(1).max(MAX_SAVED_VIEW_NAME_LENGTH).optional(),
+          })
+          .strict(),
+      )
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
+        const source = await ctx.wiring.viewConfigs.get(
+          input.organizationId,
+          ctx.identity.id,
+          input.viewId,
+        );
+        if (!source) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: `unknown saved View ${input.viewId}`,
+          });
+        }
+        const siblings = await ctx.wiring.viewConfigs.list(
+          input.organizationId,
+          ctx.identity.id,
+          source.databaseId,
+        );
+        const taken = new Set(
+          siblings
+            .filter((view) => view.ownerUserId === ctx.identity.id)
+            .map((view) => view.name.trim().toLowerCase()),
+        );
+        const base = (input.name ?? `${source.name} (copy)`).slice(
+          0,
+          MAX_SAVED_VIEW_NAME_LENGTH,
+        );
+        let name = base;
+        for (let n = 2; taken.has(name.trim().toLowerCase()); n += 1) {
+          name = `${base} ${n}`.slice(0, MAX_SAVED_VIEW_NAME_LENGTH);
+        }
+        const now = ctx.run.clock.nowISO();
+        return ctx.wiring.viewConfigs.create({
+          id: ctx.run.ids.next(),
+          organizationId: input.organizationId,
+          ownerUserId: ctx.identity.id,
+          databaseId: source.databaseId,
+          name,
+          scope: "personal",
+          config: source.config,
+          hiddenColumns: source.hiddenColumns,
+          isDefault: false,
+          createdAt: now,
+          updatedAt: now,
+        });
       }),
 
     remove: authenticatedProcedure

@@ -107,6 +107,12 @@ export function ModulePage() {
           moduleName,
           databaseId: page.databaseId,
         }),
+        // Every row, and `<DataViews>` pages them (TASK-110). Built against
+        // the CURRENT `moduleRecords.list` signature, which takes no window and
+        // returns `{ items, total }` for the whole Database; the server-side
+        // filter/sort/page work lands separately, and a `limit` sent today
+        // would be silently stripped rather than honoured — a page control
+        // that quietly does nothing is worse than one that pages here.
         trpc.moduleRecords.list.query({
           organizationId: PILOT_ORGANIZATION,
           moduleName,
@@ -129,7 +135,6 @@ export function ModulePage() {
       });
       setSpec(definition.spec);
       setRows(list.items);
-      setView(defaultViewConfig(`${moduleName}.${page.id}:table`));
     } catch (failure) {
       setError(String(failure));
     }
@@ -139,6 +144,16 @@ export function ModulePage() {
     setSpec(null);
     void load();
   }, [load]);
+
+  /**
+   * The View resets when the PAGE changes, not on every reload. It used to be
+   * rebuilt inside `load()`, so inserting a row threw away the filters, sorts
+   * and page size the user had just chosen.
+   */
+  const currentPageId = page?.id;
+  useEffect(() => {
+    if (currentPageId) setView(defaultViewConfig(`${moduleName}.${currentPageId}:table`));
+  }, [moduleName, currentPageId]);
 
   /**
    * Rename / add / change type / lock / remove / undo, routed to the same
