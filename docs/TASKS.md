@@ -1795,7 +1795,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-09-06, verbatim in `docs/raw/notion-database-parity-2026-09-06.md`.
 - Approval: none needed (saved Views are already a governed, owner-scoped store; this adds verbs to it, not reach).
 - Dependencies: TASK-062 (saved Views), TASK-064 (share grants).
-- NOT LANDED (stated): filled at merge.
+- NOT LANDED (stated): paging, filtering and sorting still happen on the loaded page, because `moduleRecords.list` takes no window parameters yet — TASK-108 adds them and the shell already holds offset, page size, filters and sorts in one place to forward. Nested AND/OR filter GROUPS are absent: filters join by one Match all / Match any, not a tree. Search stays out of the saved List deliberately, since a List reopening with someone's half-typed query reads as broken.
 
 ## List, Timeline and Chart Views, and a Gallery worth the name
 
