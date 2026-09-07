@@ -25,6 +25,8 @@ export interface SavedView {
   config: Record<string, unknown>;
   hiddenColumns: readonly string[];
   ownerUserId: string;
+  /** The List this Database opens on when this browser remembers nothing. */
+  isDefault?: boolean;
 }
 
 const SELECTION_KEY = "bridge.dataviews.list";
@@ -63,6 +65,12 @@ export interface SavedViewsApi {
   save: (name: string, config: ViewConfig, hiddenColumns: readonly string[]) => Promise<void>;
   /** Overwrite the selected View with what is on screen now. */
   update: (config: ViewConfig, hiddenColumns: readonly string[]) => Promise<void>;
+  rename: (viewId: string, name: string) => Promise<void>;
+  /** personal = only you; organization = everyone in the Organization. */
+  setScope: (viewId: string, scope: SavedView["scope"]) => Promise<void>;
+  /** Open this Database on this List. Passing `false` clears the default. */
+  setDefault: (viewId: string, isDefault: boolean) => Promise<void>;
+  duplicate: (viewId: string) => Promise<void>;
   remove: (viewId: string) => Promise<void>;
 }
 
@@ -94,9 +102,13 @@ export function useSavedViews(databaseId: string): SavedViewsApi {
         const remembered = readSelectedView(databaseId);
         if (remembered && rows.some((row) => row.id === remembered)) {
           setSelectedId(remembered);
-        } else if (remembered) {
-          persistSelectedView(databaseId, null);
+          return;
         }
+        if (remembered) persistSelectedView(databaseId, null);
+        // No memory in this browser: the owner's chosen default opens instead
+        // of "All" (TASK-110). It is a server fact, so a second machine agrees.
+        const fallback = rows.find((row) => row.isDefault);
+        if (fallback) setSelectedId(fallback.id);
       })
       .catch((cause: unknown) => {
         if (!active) return;
@@ -150,6 +162,57 @@ export function useSavedViews(databaseId: string): SavedViewsApi {
     [refresh, selectedId],
   );
 
+  const rename = useCallback(
+    async (viewId: string, name: string) => {
+      await trpc.view.saved.update.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        viewId,
+        name,
+      });
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const setScope = useCallback(
+    async (viewId: string, scope: SavedView["scope"]) => {
+      await trpc.view.saved.update.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        viewId,
+        scope,
+      });
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const setDefault = useCallback(
+    async (viewId: string, isDefault: boolean) => {
+      await trpc.view.saved.update.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        viewId,
+        isDefault,
+      });
+      // The server demotes the previous default in the same write, so the list
+      // is re-read rather than patched here: it has the last word (ADR-247).
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const duplicate = useCallback(
+    async (viewId: string) => {
+      const copy = (await trpc.view.saved.duplicate.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        viewId,
+      })) as SavedView;
+      await refresh();
+      setSelectedId(copy.id);
+      persistSelectedView(databaseId, copy.id);
+    },
+    [databaseId, refresh],
+  );
+
   const remove = useCallback(
     async (viewId: string) => {
       await trpc.view.saved.remove.mutate({
@@ -165,5 +228,18 @@ export function useSavedViews(databaseId: string): SavedViewsApi {
     [databaseId, refresh, selectedId],
   );
 
-  return { views, selectedId, ready, unavailableReason, select, save, update, remove };
+  return {
+    views,
+    selectedId,
+    ready,
+    unavailableReason,
+    select,
+    save,
+    update,
+    rename,
+    setScope,
+    setDefault,
+    duplicate,
+    remove,
+  };
 }

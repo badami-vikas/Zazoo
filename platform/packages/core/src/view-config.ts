@@ -44,6 +44,12 @@ export interface SavedViewRecord {
   /** Columns hidden in this View. Kept beside the config rather than inside it
    * because column visibility is the shell's state, not the view kind's. */
   hiddenColumns: readonly string[];
+  /**
+   * The List this Database opens on for this owner. At most one per owner per
+   * Database — setting a new one clears the previous, in the same write, so
+   * "which List is default" can never have two answers.
+   */
+  isDefault?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -53,6 +59,7 @@ export interface SavedViewUpdate {
   scope?: SavedViewScope;
   config?: Record<string, unknown>;
   hiddenColumns?: readonly string[];
+  isDefault?: boolean;
 }
 
 export class SavedViewNotFoundError extends Error {
@@ -182,6 +189,7 @@ export class InMemoryViewConfigStore implements ViewConfigStore {
       throw new SavedViewNameTakenError(record.name);
     }
     this.#views.set(record.id, { ...record, hiddenColumns: [...record.hiddenColumns] });
+    if (record.isDefault) this.#clearOtherDefaults(record);
     return { ...record, hiddenColumns: [...record.hiddenColumns] };
   }
 
@@ -201,13 +209,31 @@ export class InMemoryViewConfigStore implements ViewConfigStore {
       ...(update.hiddenColumns !== undefined
         ? { hiddenColumns: [...update.hiddenColumns] }
         : {}),
+      ...(update.isDefault !== undefined ? { isDefault: update.isDefault } : {}),
       updatedAt: updatedAtISO,
     };
     if (conflictsByName([...this.#views.values()], next)) {
       throw new SavedViewNameTakenError(next.name);
     }
     this.#views.set(id, next);
+    if (update.isDefault) this.#clearOtherDefaults(next);
     return { ...next, hiddenColumns: [...next.hiddenColumns] };
+  }
+
+  /** One default per owner per Database — the same rule the partial unique
+   * index enforces in Postgres (migration 0051). */
+  #clearOtherDefaults(winner: SavedViewRecord): void {
+    for (const [id, view] of this.#views) {
+      if (
+        id !== winner.id &&
+        view.isDefault &&
+        view.organizationId === winner.organizationId &&
+        view.ownerUserId === winner.ownerUserId &&
+        view.databaseId === winner.databaseId
+      ) {
+        this.#views.set(id, { ...view, isDefault: false });
+      }
+    }
   }
 
   async remove(organizationId: string, ownerUserId: string, id: string): Promise<void> {

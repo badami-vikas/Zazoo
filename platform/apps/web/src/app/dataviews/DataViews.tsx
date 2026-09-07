@@ -44,8 +44,8 @@
  * table bottoms out is the WANTED behaviour, and `contain` would break it.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { defaultViewConfig } from "@bridge/tables";
-import type { RowFilter, TableSpec, ViewConfig, ViewKind } from "@bridge/tables";
+import { applyFilters, applySorts, defaultViewConfig, filterOpsForKind } from "@bridge/tables";
+import type { ColumnKind, RowFilter, TableSpec, ViewConfig, ViewKind } from "@bridge/tables";
 import { StandardDropdown } from "../components/shared/StandardDropdown.js";
 import { Button } from "../components/ui/button.js";
 import { Input } from "../components/ui/input.js";
@@ -70,6 +70,10 @@ import {
 import { computeEligibleKinds, migrateViewConfig, viewConfigForKind } from "./eligibility.js";
 import { filterRowsByQuery } from "./rowSearch.js";
 import { useSavedViews } from "./useSavedViews.js";
+import { FilterBuilder } from "./FilterBuilder.js";
+import { SortEditor } from "./SortEditor.js";
+import { PaginationBar } from "./PaginationBar.js";
+import { DEFAULT_PAGE_SIZE } from "./pagination.js";
 import { columnIdFromLabel } from "./columnId.js";
 import { RECORD_SECTION_IDS, RECORD_SECTION_LABELS, useRecordSections } from "./useRecordSections.js";
 import { RecordPage } from "./RecordPage.js";
@@ -226,10 +230,14 @@ export function DataViews({
    *  Save, so backing out is just this flag going false. */
   const [creating, setCreating] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(true);
-  const [filterDraft, setFilterDraft] = useState("");
-  const [filterColumn, setFilterColumn] = useState(spec.columns[0]?.id ?? "");
   const [search, setSearch] = useState("");
-  const filterInput = useRef<HTMLInputElement>(null);
+  /** The first row on screen. Pagination is the SHELL's, not each page's
+   * (TASK-110) — see <PaginationBar>. */
+  const [offset, setOffset] = useState(0);
+  /** Managing the selected List: rename draft and the delete confirmation.
+   * Deleting a List is destructive and irreversible, so it asks first. */
+  const [listRenameDraft, setListRenameDraft] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
   const hidden = useToolbarOverflow(rowRef);
 
@@ -278,6 +286,17 @@ export function DataViews({
     [withMetadata, search],
   );
 
+  /** columnId -> kind, so `applyFilters` compares a date as a date rather
+   * than as text. The map the engine has always accepted and nothing passed. */
+  const columnKinds = useMemo(
+    () =>
+      Object.fromEntries(spec.columns.map((column) => [column.id, column.kind])) as Record<
+        string,
+        ColumnKind
+      >,
+    [spec.columns],
+  );
+
   const switcherKinds = useMemo(() => {
     const eligible = computeEligibleKinds(spec);
     const requested = availableKinds ?? eligible;
@@ -292,6 +311,41 @@ export function DataViews({
   );
 
   const activeView = migrateViewConfig(spec, view);
+  /**
+   * FILTER AND SORT HAPPEN HERE, ONCE, WITH THE COLUMN KINDS.
+   *
+   * The view components call `applyFilters` themselves but have no kind map to
+   * pass, so a date filter compared as text there. The shell has the spec, so
+   * it filters and sorts first and hands the view an already-narrowed page with
+   * `rowFilters: []` — filtering twice, the second time without kinds, would
+   * undo exactly the sharpening this exists for.
+   *
+   * Above the early returns below because it is a hook: a filtered page is no
+   * reason to change how many hooks this component runs.
+   */
+  const resolved = useMemo(
+    () =>
+      activeView
+        ? applySorts(
+            applyFilters(
+              searchedData,
+              activeView.rowFilters,
+              activeView.filterMatch,
+              columnKinds,
+            ),
+            activeView.sorts,
+          )
+        : searchedData,
+    [searchedData, activeView, columnKinds],
+  );
+  const pageSize = activeView?.pageSize ?? DEFAULT_PAGE_SIZE;
+  /** A filter that shrinks the result below the current window would otherwise
+   * leave the user staring at an empty page four. */
+  const pageOffset = offset >= resolved.length ? 0 : offset;
+  const pageRows = useMemo(
+    () => resolved.slice(pageOffset, pageOffset + pageSize),
+    [resolved, pageOffset, pageSize],
+  );
   if (!activeView || !isRegisteredViewKind(activeView.kind)) {
     // The enforcement boundary: an unregistered kind never reaches a component.
     return (
@@ -320,12 +374,12 @@ export function DataViews({
   }
 
   const ViewComponent = VIEW_COMPONENT_REGISTRY[activeView.kind];
+  /** What the view renders: this page's rows, and no filters left to re-apply. */
+  const pagedView: ViewConfig = { ...activeView, rowFilters: [] };
 
-  function applyTextFilter() {
-    const nextFilters: RowFilter[] = filterDraft
-      ? [{ field: filterColumn, op: "contains", value: filterDraft }]
-      : [];
-    onViewChange({ ...activeView!, rowFilters: nextFilters });
+  function changeFilters(nextFilters: RowFilter[], nextMatch: "all" | "any") {
+    setOffset(0);
+    onViewChange({ ...activeView!, rowFilters: nextFilters, filterMatch: nextMatch });
   }
 
   /** What the "Sort by" row reports without being opened. */
@@ -335,6 +389,7 @@ export function DataViews({
       : (spec.columns.find((col) => col.id === activeView.sorts[0]!.id)?.label ??
         activeView.sorts[0]!.id);
 
+
   /** "Reset view" is only offered when there is something to reset — an enabled
    * control that would visibly do nothing is the thing AP-021 forbids. Hidden
    * columns are local state here, so they count as modification too. */
@@ -342,8 +397,7 @@ export function DataViews({
     activeView.sorts.length > 0 ||
     activeView.rowFilters.length > 0 ||
     hiddenColumns.size > 0 ||
-    search !== "" ||
-    filterDraft !== "";
+    search !== "";
 
   /** Save what is on screen — the view config AND the shell's own column
    * visibility — as a named List on this Database. */
@@ -373,8 +427,21 @@ export function DataViews({
   function resetView() {
     setHiddenColumns(new Set());
     setSearch("");
-    setFilterDraft("");
-    onViewChange({ ...activeView!, sorts: [], rowFilters: [] });
+    setOffset(0);
+    onViewChange({ ...activeView!, sorts: [], rowFilters: [], filterMatch: "all" });
+  }
+
+  const selectedList = savedViews.views.find((saved) => saved.id === savedViews.selectedId) ?? null;
+
+  /** Every List verb reports the server's own failure text, never a sentence
+   * composed here (ADR-247). */
+  async function runListAction(action: () => Promise<void>) {
+    setListSaveError(null);
+    try {
+      await action();
+    } catch (cause) {
+      setListSaveError(cause instanceof Error ? cause.message : "That did not work");
+    }
   }
 
   return (
@@ -482,6 +549,110 @@ export function DataViews({
                   </Button>
                 )}
               </div>
+
+              {/* THE REST OF A LIST'S VERBS (TASK-110). Rename, personal vs
+                  shared, default and duplicate were all reachable on the server
+                  and unreachable in the UI — `remove()` had existed in the hook
+                  with no caller at all. Deleting asks first: it is the one verb
+                  here that destroys something. */}
+              {selectedList && (
+                <div className="space-y-1.5 border-t pt-2" style={{ borderColor: "var(--color-border)" }}>
+                  <div className="text-xs font-medium text-muted-foreground">
+                    Manage "{selectedList.name}"
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      placeholder={selectedList.name}
+                      aria-label="Rename list"
+                      value={listRenameDraft}
+                      onChange={(event) => setListRenameDraft(event.target.value)}
+                      className="h-8 min-w-0 flex-1 rounded-lg border"
+                      style={{ borderColor: "var(--color-border)" }}
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        listRenameDraft.trim() === "" || listRenameDraft.trim() === selectedList.name
+                      }
+                      onClick={() =>
+                        void runListAction(async () => {
+                          await savedViews.rename(selectedList.id, listRenameDraft.trim());
+                          setListRenameDraft("");
+                        })
+                      }
+                    >
+                      Rename
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      aria-label="List visibility"
+                      value={selectedList.scope}
+                      onChange={(event) =>
+                        void runListAction(() =>
+                          savedViews.setScope(
+                            selectedList.id,
+                            event.target.value as "personal" | "organization",
+                          ),
+                        )
+                      }
+                      className="h-8 min-w-0 flex-1 rounded-lg border px-2 text-xs"
+                      style={{ borderColor: "var(--color-border)" }}
+                    >
+                      <option value="personal">Only me</option>
+                      <option value="organization">Everyone here</option>
+                    </select>
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        aria-label="Open on this list"
+                        checked={selectedList.isDefault === true}
+                        onChange={(event) =>
+                          void runListAction(() =>
+                            savedViews.setDefault(selectedList.id, event.target.checked),
+                          )
+                        }
+                      />
+                      Open on this
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => void runListAction(() => savedViews.duplicate(selectedList.id))}
+                    >
+                      Duplicate
+                    </Button>
+                    {confirmDelete ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() =>
+                            void runListAction(async () => {
+                              await savedViews.remove(selectedList.id);
+                              setConfirmDelete(false);
+                              setListPopoverOpen(false);
+                            })
+                          }
+                        >
+                          Delete for good
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
+                          Keep
+                        </Button>
+                      </>
+                    ) : (
+                      <Button size="sm" variant="outline" onClick={() => setConfirmDelete(true)}>
+                        Delete
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* SHARE (TASK-064). The affordance shipped disabled with an
                   honest reason — Bridge's only sharing primitive was welded to
@@ -618,45 +789,14 @@ export function DataViews({
                   {!hidden.has("filter-label") && "Filter"}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-72 space-y-2">
-                <div className="text-xs font-medium text-muted-foreground">Filter</div>
-                {/* The column picker is a StandardDropdown like every other
-                    dropdown in the app — the kit used by the kit (§5e). */}
-                <StandardDropdown
-                  ariaLabel="Filter column"
-                  options={spec.columns.map((column) => ({ id: column.id, label: column.label }))}
-                  activeId={filterColumn}
-                  onSelect={setFilterColumn}
-                  addLabel="Add column"
-                  {...addColumnSlot}
-                  className="w-full"
+              <PopoverContent align="end" className="w-72">
+                <FilterBuilder
+                  spec={spec}
+                  filters={activeView.rowFilters}
+                  match={activeView.filterMatch}
+                  onChange={changeFilters}
+                  addColumnSlot={addColumnSlot}
                 />
-                <Input
-                  ref={filterInput}
-                  placeholder="Contains…"
-                  aria-label="Filter value"
-                  value={filterDraft}
-                  onChange={(e) => setFilterDraft(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && applyTextFilter()}
-                  className="h-8 w-full rounded-lg border"
-                  style={{ borderColor: "var(--color-border)" }}
-                />
-                <div className="flex items-center gap-2">
-                  <Button size="sm" className="flex-1" onClick={applyTextFilter}>
-                    Apply
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={filterDraft === "" && activeView.rowFilters.length === 0}
-                    onClick={() => {
-                      setFilterDraft("");
-                      onViewChange({ ...activeView!, rowFilters: [] });
-                    }}
-                  >
-                    Clear
-                  </Button>
-                </div>
               </PopoverContent>
             </Popover>
           )}
@@ -700,22 +840,13 @@ export function DataViews({
                   onKeyDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                    <Filter className="size-3.5" /> Filter
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Input
-                      ref={filterInput}
-                      placeholder={`Filter ${spec.columns.find((column) => column.id === filterColumn)?.label ?? spec.id}…`}
-                      value={filterDraft}
-                      onChange={(e) => setFilterDraft(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && applyTextFilter()}
-                      className="h-7 flex-1 text-xs"
-                    />
-                    <Button size="sm" variant="outline" className="h-7 px-2" onClick={applyTextFilter}>
-                      Apply
-                    </Button>
-                  </div>
+                  <FilterBuilder
+                    spec={spec}
+                    filters={activeView.rowFilters}
+                    match={activeView.filterMatch}
+                    onChange={changeFilters}
+                    addColumnSlot={addColumnSlot}
+                  />
                 </div>
               )}
 
@@ -814,24 +945,19 @@ export function DataViews({
                     {activeSortLabel ?? "None"}
                   </span>
                 </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  <DropdownMenuItem
-                    disabled={!activeView || activeView.sorts.length === 0}
-                    onSelect={() => activeView && onViewChange({ ...activeView, sorts: [] })}
-                  >
-                    Clear sort
-                  </DropdownMenuItem>
-                  {spec.columns.map((col) => (
-                    <DropdownMenuItem
-                      key={col.id}
-                      onSelect={() =>
-                        activeView &&
-                        onViewChange({ ...activeView, sorts: [{ id: col.id, dir: "asc" }] })
-                      }
-                    >
-                      {col.label}
-                    </DropdownMenuItem>
-                  ))}
+                <DropdownMenuSubContent
+                  className="p-0"
+                  onKeyDown={(event) => event.stopPropagation()}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {/* Levels, not one column: `applySorts` breaks ties with the
+                      later rows and every write site here used to replace the
+                      array with a single entry. */}
+                  <SortEditor
+                    spec={spec}
+                    sorts={activeView.sorts}
+                    onChange={(sorts) => onViewChange({ ...activeView!, sorts })}
+                  />
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
 
@@ -882,14 +1008,25 @@ export function DataViews({
         ) : (
         <ViewComponent
           spec={visibleSpec}
-          view={activeView}
-          data={searchedData}
+          view={pagedView}
+          data={pageRows}
           onViewChange={onViewChange}
           {...viewProps}
           onRequestFilter={(columnId) => {
-            setFilterColumn(columnId);
+            // "Filter this column" from the column menu ADDS a row for it
+            // rather than replacing whatever is there — a second filter used to
+            // overwrite the first.
+            if (!activeView!.rowFilters.some((filter) => filter.field === columnId)) {
+              const kind = columnKinds[columnId] ?? "text";
+              changeFilters(
+                [
+                  ...activeView!.rowFilters,
+                  { field: columnId, op: filterOpsForKind(kind)[0]!, value: "" },
+                ],
+                activeView!.filterMatch,
+              );
+            }
             viewProps.onRequestFilter?.(columnId);
-            window.setTimeout(() => filterInput.current?.focus(), 0);
           }}
           onHideColumn={(columnId) => {
             setHiddenColumns((current) => new Set(current).add(columnId));
@@ -904,6 +1041,21 @@ export function DataViews({
         />
         )}
       </div>
+
+      {/* ONE pagination control for every surface (TASK-110). It counts the
+          rows the shell actually filtered, so "of N" is the real N. */}
+      {!creating && (
+        <PaginationBar
+          total={resolved.length}
+          pageSize={pageSize}
+          offset={pageOffset}
+          onOffsetChange={setOffset}
+          onPageSizeChange={(next) => {
+            setOffset(0);
+            onViewChange({ ...activeView!, pageSize: next });
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -9,7 +9,7 @@
  * `organization`-scoped View is readable by every member and writable only by
  * its owner — which is the same asymmetry the policies encode.
  */
-import { and, asc, eq, or } from "drizzle-orm";
+import { and, asc, eq, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import {
   SavedViewNameTakenError,
@@ -47,6 +47,7 @@ function unpack(row: typeof viewConfigs.$inferSelect): SavedViewRecord {
     scope: parseScope(row.scope),
     config: row.config,
     hiddenColumns: hidden.data,
+    isDefault: row.isDefault,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -135,6 +136,7 @@ export class DrizzleViewConfigStore implements ViewConfigStore {
             scope: record.scope,
             config: record.config,
             hiddenColumns: [...record.hiddenColumns],
+            isDefault: record.isDefault ?? false,
             createdAt: new Date(record.createdAt),
             updatedAt: new Date(record.updatedAt),
           })
@@ -157,6 +159,35 @@ export class DrizzleViewConfigStore implements ViewConfigStore {
   ): Promise<SavedViewRecord> {
     return this.#scoped(organizationId, ownerUserId, async (tx) => {
       try {
+        // Demotion runs BEFORE promotion: the partial unique index is checked
+        // at the end of each statement, so promoting first would collide with
+        // the outgoing default instead of replacing it.
+        if (update.isDefault === true) {
+          const [target] = await tx
+            .select({ databaseId: viewConfigs.databaseId })
+            .from(viewConfigs)
+            .where(
+              and(
+                eq(viewConfigs.organizationId, organizationId),
+                eq(viewConfigs.ownerUserId, ownerUserId),
+                eq(viewConfigs.id, id),
+              ),
+            )
+            .limit(1);
+          if (!target) throw new SavedViewNotFoundError(id);
+          await tx
+            .update(viewConfigs)
+            .set({ isDefault: false })
+            .where(
+              and(
+                eq(viewConfigs.organizationId, organizationId),
+                eq(viewConfigs.ownerUserId, ownerUserId),
+                eq(viewConfigs.databaseId, target.databaseId),
+                ne(viewConfigs.id, id),
+                eq(viewConfigs.isDefault, true),
+              ),
+            );
+        }
         const [row] = await tx
           .update(viewConfigs)
           .set({
@@ -166,6 +197,7 @@ export class DrizzleViewConfigStore implements ViewConfigStore {
             ...(update.hiddenColumns !== undefined
               ? { hiddenColumns: [...update.hiddenColumns] }
               : {}),
+            ...(update.isDefault !== undefined ? { isDefault: update.isDefault } : {}),
             updatedAt: new Date(updatedAtISO),
           })
           .where(
