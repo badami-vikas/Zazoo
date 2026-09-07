@@ -12,12 +12,22 @@ import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { TaskApprovalsSection } from "./TaskRecordDetailPage";
 import { DataViews } from "../dataviews/DataViews";
 import { computeEligibleKinds, viewConfigForKind } from "../dataviews/eligibility";
-import type { DataRow } from "../dataviews/types";
+import type { ColumnSchemaActions, DataRow } from "../dataviews/types";
+import type { ColumnSchemaCapability } from "../components/shared/StandardColumnMenu";
 import { canonicalLedgerImportPayload, PENDING_WORK_SOURCE } from "../data/pending-work";
 import { API_TRANSPORT_CONFIGURED, PILOT_ORGANIZATION, trpc } from "../lib/trpc";
 
 const PILOT_USER = "e0f0053b-fc44-476e-be27-1371e179e958";
 
+/**
+ * The Task Database's shipped columns — the PRE-LOAD FALLBACK only.
+ *
+ * `tableSchema.get` returns this same spec with the Organization's column
+ * overlay already resolved over it, and that is what renders the moment it
+ * arrives: the server has the last word on what a Database's columns are
+ * (ADR-247). Keeping a copy here is what lets the table draw before the first
+ * round trip, not a second source of truth.
+ */
 const TASK_SPEC: TableSpec = {
   id: "task-manager.tasks",
   columns: [
@@ -107,6 +117,19 @@ export function TaskManagerPage() {
   const [importing, setImporting] = useState(false);
   const [importNote, setImportNote] = useState<string | null>(null);
   const [dependenciesByTask, setDependenciesByTask] = useState<Record<string, string[]>>({});
+  /**
+   * The RESOLVED spec and the governed schema capability (TASK-112).
+   *
+   * User report, 2026-09-07: "why am I still unable to add column in task
+   * manager module?" — and adding was only the half they noticed. Nothing on
+   * this Page had ever asked `tableSchema.get`, and the server did not know
+   * `task-manager.tasks` either, so rename, retype, lock and delete were dead
+   * here as well. Adding stays refused, with the server's own reason: a Task's
+   * row is a real sqlite row in `tasks`, so a new column has nowhere to put
+   * its values.
+   */
+  const [spec, setSpec] = useState<TableSpec>(TASK_SPEC);
+  const [capability, setCapability] = useState<ColumnSchemaCapability | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedView = normalizeViewKind(searchParams.get("view"));
   const initialKind = requestedView && computeEligibleKinds(TASK_SPEC).includes(requestedView) ? requestedView : "table";
@@ -122,11 +145,20 @@ export function TaskManagerPage() {
     setLoading(true);
     setError(null);
     try {
-      const [rows, graph] = await Promise.all([
+      const [rows, graph, schema] = await Promise.all([
         trpc.taskManager.list.query({ organizationId: PILOT_ORGANIZATION }),
         trpc.taskManager.dependencies.query({ organizationId: PILOT_ORGANIZATION }),
+        trpc.tableSchema.get.query({ organizationId: PILOT_ORGANIZATION, specId: TASK_SPEC.id }),
       ]);
       setTasks(rows);
+      setCapability({
+        available: schema.available,
+        reason: schema.reason,
+        canUndo: schema.canUndo,
+        canAddColumn: schema.canAddColumn,
+        addReason: schema.addReason,
+      });
+      if (schema.spec) setSpec(schema.spec as TableSpec);
       const byTask: Record<string, string[]> = {};
       for (const edge of graph.dependencies) {
         byTask[edge.taskId] = [...(byTask[edge.taskId] ?? []), edge.dependsOnTaskId];
@@ -177,6 +209,72 @@ export function TaskManagerPage() {
   const rows = useMemo(
     () => tasks.map((task) => toDataRow(task, dependenciesByTask[task.id] ?? [])),
     [tasks, dependenciesByTask],
+  );
+
+  /**
+   * Rename / retype / lock / delete, routed to the same governed capability
+   * Accounting and every Module Page use. NO `addColumn`: the server reports
+   * `canAddColumn: false` here, and a handler present against a refusal is a
+   * control that looks live and fails (ADR-247). Its absence is what makes the
+   * menu show the SERVER's reason instead.
+   *
+   * Every command re-reads through `load()` — the server has the last word.
+   */
+  const columnSchema = useMemo<ColumnSchemaActions>(
+    () => ({
+      capability,
+      rename: async (columnId, label) => {
+        await trpc.tableSchema.mutate.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          specId: TASK_SPEC.id,
+          op: { kind: "rename", columnId, label },
+        });
+        await load();
+      },
+      changeType: async (columnId, kind, options) => {
+        await trpc.tableSchema.mutate.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          specId: TASK_SPEC.id,
+          op: {
+            kind: "setKind",
+            columnId,
+            columnKind: kind,
+            ...(options?.length ? { options } : {}),
+          },
+        });
+        await load();
+      },
+      setLocked: async (columnId, locked) => {
+        await trpc.tableSchema.mutate.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          specId: TASK_SPEC.id,
+          op: { kind: "setLocked", columnId, locked },
+        });
+        await load();
+      },
+      remove: async (columnId) => {
+        await trpc.tableSchema.mutate.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          specId: TASK_SPEC.id,
+          op: { kind: "delete", columnId },
+        });
+        await load();
+      },
+      preview: (columnId) =>
+        trpc.tableSchema.preview.query({
+          organizationId: PILOT_ORGANIZATION,
+          specId: TASK_SPEC.id,
+          columnId,
+        }),
+      undo: async () => {
+        await trpc.tableSchema.undo.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          specId: TASK_SPEC.id,
+        });
+        await load();
+      },
+    }),
+    [capability],
   );
 
   function changeView(next: ViewConfig) {
@@ -287,10 +385,11 @@ export function TaskManagerPage() {
               <p role="status" className="px-3 pt-3 text-xs text-muted-foreground sm:px-4">{importNote}</p>
             ) : null}
             <DataViews
-              spec={TASK_SPEC}
+              spec={spec}
               view={view}
               data={rows}
               onViewChange={changeView}
+              columnSchema={columnSchema}
               recordEntityType="task"
               {...(API_TRANSPORT_CONFIGURED
                 ? { onInsert: insertTask, onUpdate: updateTask }

@@ -131,15 +131,25 @@ export interface DataViewProps {
 export interface ColumnSchemaActions {
   capability: ColumnSchemaCapability | null;
   rename?: (columnId: string, label: string) => Promise<void>;
-  changeType?: (columnId: string, kind: ColumnTypeName) => Promise<void>;
+  /** `options` is the choices a retype to `select`/`multiselect`/`status`
+   * offers — empty for every other kind. Without them a retyped choice column
+   * rendered a chooser over nothing (TASK-112). */
+  changeType?: (columnId: string, kind: ColumnTypeName, options: string[]) => Promise<void>;
   /** Add a column to this Database. Present only where the server said the row
-   * store can hold one (`capability.canAddColumn`). */
-  addColumn?: (
-    columnId: string,
-    label: string,
-    kind: ColumnTypeName,
-    position?: { relativeTo: string; side: "left" | "right" },
-  ) => Promise<void>;
+   * store can hold one (`capability.canAddColumn`).
+   *
+   * ONE object rather than five positional arguments (TASK-112): `options` had
+   * to join it — the server has accepted choices on the add op since TASK-108
+   * and nothing was passing them, so every added `select` rendered a chooser
+   * over nothing. */
+  addColumn?: (column: {
+    columnId: string;
+    label: string;
+    kind: ColumnTypeName;
+    /** `select`/`multiselect`/`status` only. */
+    options?: string[];
+    position?: { relativeTo: string; side: "left" | "right" };
+  }) => Promise<void>;
   setLocked?: (columnId: string, locked: boolean) => Promise<void>;
   remove?: (columnId: string) => Promise<void>;
   preview?: (columnId: string) => Promise<ColumnDependencyPreview>;

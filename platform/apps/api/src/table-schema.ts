@@ -63,7 +63,8 @@ export function hasOverlay(overlay: ColumnOverlay): boolean {
       (overlay.kinds && Object.keys(overlay.kinds).length) ||
       overlay.locked?.length ||
       overlay.removed?.length ||
-      overlay.added?.length,
+      overlay.added?.length ||
+      Object.keys((overlay as ColumnOverlayOptions).options ?? {}).length,
   );
 }
 
@@ -97,6 +98,11 @@ export function moduleDatabaseSpec(
  */
 export type AddedColumn = NonNullable<ColumnOverlay["added"]>[number] & { options?: string[] };
 
+/** The overlay, plus the choices a RETYPED column offers (TASK-112). Same
+ * carried-alongside shape and same reason as `AddedColumn`: `ColumnOverlay`
+ * lives in a parallel slice. Fold both into it when that lands. */
+export type ColumnOverlayOptions = ColumnOverlay & { options?: Record<string, string[]> };
+
 /**
  * `applyColumnOverlay`, plus the choice options an added `select`/`status`
  * column carries. Without this a user-added select rendered a chooser over
@@ -114,11 +120,17 @@ export function resolveColumnOverlay(
   for (const added of (overlay?.added ?? []) as AddedColumn[]) {
     if (added.options?.length) optionsById.set(added.id, [...added.options]);
   }
+  // A RETYPE's options OVERRIDE the shipped column's — the user just said what
+  // this column now offers, and the old kind's choices are not it.
+  const retyped = (overlay as ColumnOverlayOptions | null | undefined)?.options ?? {};
+  for (const [id, options] of Object.entries(retyped)) {
+    if (options.length) optionsById.set(id, [...options]);
+  }
   if (optionsById.size === 0) return resolved;
   return {
     ...resolved,
     columns: resolved.columns.map((column) =>
-      optionsById.has(column.id) && !column.options
+      optionsById.has(column.id) && (column.id in retyped || !column.options)
         ? { ...column, options: optionsById.get(column.id)! }
         : column,
     ),
@@ -363,7 +375,15 @@ export function unknownRelationTargets(
 /** One column-menu command, as the server understands it. */
 export type ColumnOp =
   | { kind: "rename"; columnId: string; label: string }
-  | { kind: "setKind"; columnId: string; columnKind: TableSpec["columns"][number]["kind"] }
+  | {
+      kind: "setKind";
+      columnId: string;
+      columnKind: TableSpec["columns"][number]["kind"];
+      /** `select`/`status`/`multiselect` only. Retyping to a choice kind with
+       * no choices produced a chooser over nothing, which is the exact lie
+       * ADR-247 forbids — so the retype carries them (TASK-112). */
+      options?: string[] | undefined;
+    }
   | { kind: "setLocked"; columnId: string; locked: boolean }
   | { kind: "delete"; columnId: string }
   | {
@@ -385,14 +405,29 @@ export function applyColumnOp(overlay: ColumnOverlay, op: ColumnOp, updatedAt: s
     removed: [...(overlay.removed ?? [])],
     added: [...(overlay.added ?? [])],
     updatedAt,
-  };
+    // Carried forward, not rebuilt: a rename must not drop the choices a
+    // retype named.
+    ...((overlay as ColumnOverlayOptions).options
+      ? { options: { ...(overlay as ColumnOverlayOptions).options } }
+      : {}),
+  } as ColumnOverlayOptions;
   switch (op.kind) {
     case "rename":
       next.labels![op.columnId] = op.label;
       break;
-    case "setKind":
+    case "setKind": {
       next.kinds![op.columnId] = op.columnKind;
+      // The choices belong to the kind, so they move with it: named on the
+      // way in, dropped on the way out. Leaving stale options behind would
+      // re-offer them the next time the column became a select.
+      const withOptions = next as ColumnOverlayOptions;
+      const options = { ...(withOptions.options ?? {}) };
+      if (op.options?.length) options[op.columnId] = [...op.options];
+      else delete options[op.columnId];
+      if (Object.keys(options).length > 0) withOptions.options = options;
+      else delete withOptions.options;
       break;
+    }
     case "setLocked":
       next.locked = op.locked
         ? [...new Set([...next.locked!, op.columnId])]

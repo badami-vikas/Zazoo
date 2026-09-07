@@ -46,6 +46,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { applyFilters, applySorts, defaultViewConfig, filterOpsForKind } from "@bridge/tables";
 import type { ColumnKind, RowFilter, TableSpec, ViewConfig, ViewKind } from "@bridge/tables";
+import { AddColumnDialog } from "../components/shared/AddColumnDialog.js";
 import { StandardDropdown } from "../components/shared/StandardDropdown.js";
 import { Button } from "../components/ui/button.js";
 import { Input } from "../components/ui/input.js";
@@ -279,12 +280,14 @@ export function DataViews({
    * exists only where `canAddColumn` is true, and the disabled reason is the
    * server's `addReason`, never a sentence composed here.
    *
-   * The new column arrives named "New column" and is renamed through the
-   * column menu's own Rename, rather than opening a second naming dialog for
-   * a field the menu already edits.
-   * ponytail: no name/kind picker; add one if users start adding several
-   * columns of different kinds in a row.
+   * It now OPENS THE DIALOG rather than creating anything (user report
+   * 2026-09-07: "Adding a column, just adds column, it doesnt ask me for
+   * column type, column name"). It used to mint a column called "New column"
+   * of kind `text` on the spot, so every column had to be renamed and retyped
+   * afterwards. The dialog is the same component the column menu's own Add
+   * column left/right opens.
    */
+  const [addingColumn, setAddingColumn] = useState(false);
   const addColumnSlot = useMemo<{ onAdd?: () => void; addDisabledReason?: string }>(() => {
     const schema = viewProps.columnSchema;
     if (!schema?.addColumn || !schema.capability?.canAddColumn) {
@@ -295,13 +298,8 @@ export function DataViews({
           "This surface has not asked the server whether this Database can gain a column.",
       };
     }
-    const add = schema.addColumn;
-    return {
-      onAdd: () => {
-        void add(columnIdFromLabel("New column", spec.columns), "New column", "text");
-      },
-    };
-  }, [viewProps.columnSchema, spec.columns]);
+    return { onAdd: () => setAddingColumn(true) };
+  }, [viewProps.columnSchema]);
 
   // Derived metadata first, so a search or a sort on "last edited" sees the
   // real value rather than an empty cell (TASK-063).
@@ -1089,6 +1087,25 @@ export function DataViews({
           }}
         />
       )}
+
+      {/* ADD COLUMN — the same dialog the column header's own Add column
+          left/right opens, so the question is identical from either place
+          (TASK-112). The toolbar's version names no neighbour, so the column
+          lands at the end, which is what "Add column" there has always meant. */}
+      <AddColumnDialog
+        open={addingColumn}
+        title="Add a column"
+        onCancel={() => setAddingColumn(false)}
+        onSubmit={async (column) => {
+          await viewProps.columnSchema?.addColumn?.({
+            columnId: columnIdFromLabel(column.label, spec.columns),
+            label: column.label,
+            kind: column.kind,
+            ...(column.options.length > 0 ? { options: column.options } : {}),
+          });
+          setAddingColumn(false);
+        }}
+      />
     </div>
   );
 }

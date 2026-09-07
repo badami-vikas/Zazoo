@@ -6690,6 +6690,50 @@ export const D2C_NOTES_SPEC = {
   ],
 };
 
+/**
+ * Task Manager's Database (TASK-112).
+ *
+ * User report, 2026-09-07: "why am I still unable to add column in task manager
+ * module?" — and the true answer was broader than the question. `task-manager.
+ * tasks` was neither a shipped spec here nor a manifest-declared Module
+ * Database, so the capability answered `available: false` and RENAME, RETYPE,
+ * LOCK and DELETE were dead there too.
+ *
+ * Reshaping is safe: the overlay changes LABEL, KIND, LOCKED and VISIBILITY,
+ * all keyed by the stable column id, and nothing on the server matches a Task
+ * column by its label — `taskManager.*` addresses `tasks` columns by their
+ * Drizzle field names, which this never touches. ADDING is not safe and stays
+ * refused: a Task row is a real sqlite row, so `canAddColumn` is false here
+ * with `NO_ADD_ON_SHIPPED_SPEC`, exactly as it is for Accounting and D2C.
+ *
+ * The web Page keeps a copy as its pre-load fallback and renders THIS one the
+ * moment `tableSchema.get` answers — the server has the last word on what a
+ * Database's columns are (ADR-247).
+ */
+export const TASK_MANAGER_TASKS_SPEC = {
+  id: "task-manager.tasks",
+  columns: [
+    { id: "path", label: "Path", kind: "formula" as const, editable: false },
+    { id: "title", label: "Task", kind: "text" as const, editable: true },
+    { id: "isGoal", label: "Goal", kind: "checkbox" as const, editable: true },
+    { id: "status", label: "Status", kind: "select" as const, editable: true },
+    { id: "priority", label: "Priority", kind: "select" as const, editable: true },
+    { id: "estimate", label: "Estimate", kind: "text" as const, editable: false },
+    { id: "outcomeTitle", label: "Outcome", kind: "text" as const, editable: true },
+    { id: "outcomeMeasure", label: "Measure", kind: "text" as const, editable: true },
+    { id: "outcomeTarget", label: "Target", kind: "text" as const, editable: true },
+    { id: "exitTest", label: "Exit test", kind: "text" as const, editable: true },
+    { id: "createdTime", label: "Created", kind: "createdTime" as const, editable: false },
+    { id: "createdBy", label: "Created by", kind: "createdBy" as const, editable: false },
+    { id: "lastEditedTime", label: "Last edited", kind: "lastEditedTime" as const, editable: false },
+    { id: "lastEditedBy", label: "Last edited by", kind: "lastEditedBy" as const, editable: false },
+    { id: "parentTaskId", label: "Parent Task", kind: "relation" as const, editable: true },
+    { id: "dependsOn", label: "Depends on", kind: "relation" as const, editable: false },
+    { id: "scheduledFor", label: "Scheduled", kind: "date" as const, editable: true },
+    { id: "ownerId", label: "Owner", kind: "text" as const, editable: false },
+  ],
+};
+
 // ── Governed schema mutation: the shipped specs it knows (TASK-084) ──────────
 //
 // The capability is only offered for a table whose SHIPPED spec this process
@@ -6706,6 +6750,9 @@ export const SCHEMA_MUTABLE_SPECS: Record<string, TableSpec> = Object.fromEntrie
     D2C_INVENTORY_SPEC,
     D2C_RESEARCH_SPEC,
     D2C_NOTES_SPEC,
+    // Hand-written surfaces whose rows are real sqlite rows. Reshape yes, add
+    // no — `canAddColumn` is derived from membership of this map (TASK-112).
+    TASK_MANAGER_TASKS_SPEC,
   ].map((spec) => [spec.id, spec as TableSpec]),
 );
 
@@ -6733,6 +6780,11 @@ export const COLUMN_KINDS = [
   "skill",
   "location",
 ] as const satisfies readonly ColumnKind[];
+
+/** The kinds that offer the user a CHOICE, and so are the only kinds an
+ * `options` list means anything on. One list, checked by both the add op and
+ * the retype op (TASK-112). */
+export const CHOICE_KINDS: readonly ColumnKind[] = ["select", "multiselect", "status"];
 
 /**
  * Why a shipped spec cannot gain a column. Its rows live in the Module's own

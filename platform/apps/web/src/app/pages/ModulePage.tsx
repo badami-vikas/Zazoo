@@ -187,19 +187,34 @@ export function ModulePage() {
         });
         await load();
       },
-      addColumn: async (columnId, label, kind) => {
+      // Options and position both reach the server now (TASK-112): they were
+      // accepted on the add op and never sent, so a `select` the user added
+      // arrived with nothing to choose and "Add column left" landed right.
+      addColumn: async ({ columnId, label, kind, options, position }) => {
         await trpc.tableSchema.mutate.mutate({
           organizationId: PILOT_ORGANIZATION,
           specId,
-          op: { kind: "add", columnId, label, columnKind: kind },
+          op: {
+            kind: "add",
+            columnId,
+            label,
+            columnKind: kind,
+            ...(options?.length ? { options } : {}),
+            ...(position ? { position } : {}),
+          },
         });
         await load();
       },
-      changeType: async (columnId, kind) => {
+      changeType: async (columnId, kind, options) => {
         await trpc.tableSchema.mutate.mutate({
           organizationId: PILOT_ORGANIZATION,
           specId,
-          op: { kind: "setKind", columnId, columnKind: kind },
+          op: {
+            kind: "setKind",
+            columnId,
+            columnKind: kind,
+            ...(options?.length ? { options } : {}),
+          },
         });
         await load();
       },

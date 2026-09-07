@@ -5,7 +5,7 @@ import { assertModuleGovernance, ModuleGovernanceDenied } from "@bridge/core";
 import { eq } from "drizzle-orm";
 import { schema as accountingSchema, validateExpression } from "@bridge/accounting";
 import { TABLE_SCHEMA_NAMESPACE_PREFIX, applyColumnOp, automationDependencies, formulaDependencies, formulaDependentIds, readStoredTableSchema, relationDependencies, skillDependencies, viewDependencies, type ColumnDependencyPreview } from "../table-schema.js";
-import { COLUMN_KINDS, assertHumanIdentity, assertMembership, assertPilotOrganization, procedure, readResolvedModuleGovernance, readTableSchemaCapability, t } from "../router-shared.js";
+import { CHOICE_KINDS, COLUMN_KINDS, assertHumanIdentity, assertMembership, assertPilotOrganization, procedure, readResolvedModuleGovernance, readTableSchemaCapability, t } from "../router-shared.js";
 
 // ── Governed schema mutation (TASK-084, ADR-258 under AP-168) ──────────────
 //
@@ -81,6 +81,10 @@ export const tableSchemaRouter = t.router({
             kind: z.literal("setKind"),
             columnId: z.string().trim().min(1),
             columnKind: z.enum(COLUMN_KINDS),
+            /** The choices the column offers AFTER the retype (TASK-112).
+             * Retyping to `select`/`status`/`multiselect` without them left a
+             * chooser over nothing — a control that cannot be honoured. */
+            options: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
           }),
           z.object({
             kind: z.literal("setLocked"),
@@ -135,6 +139,19 @@ export const tableSchemaRouter = t.router({
         throw new TRPCError({ code: "NOT_FOUND", message: capability.reason ?? input.specId });
       }
       const present = capability.spec.columns.some((column) => column.id === input.op.columnId);
+      // Options belong to a column that HAS options. Storing them on a text
+      // column would be an overlay entry nothing could ever read. Same rule on
+      // both ops that carry a kind — `add` and `setKind`.
+      if (
+        (input.op.kind === "add" || input.op.kind === "setKind") &&
+        input.op.options?.length &&
+        !CHOICE_KINDS.includes(input.op.columnKind)
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `A ${input.op.columnKind} column has no options to choose from`,
+        });
+      }
       if (input.op.kind === "add") {
         // Adding is the one command that depends on the ROW STORE, not just on
         // the spec: a Database whose rows are sqlite columns has nowhere to
@@ -144,14 +161,6 @@ export const tableSchemaRouter = t.router({
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
             message: capability.addReason ?? `${input.specId} cannot gain a column`,
-          });
-        }
-        // Options belong to a column that HAS options. Storing them on a text
-        // column would be an overlay entry nothing could ever read.
-        if (input.op.options?.length && !["select", "status", "multiselect"].includes(input.op.columnKind)) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `A ${input.op.columnKind} column has no options to choose from`,
           });
         }
         // A duplicate would render twice and write to one cell.

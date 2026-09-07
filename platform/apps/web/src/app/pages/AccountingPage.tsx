@@ -98,11 +98,16 @@ export function AccountingPage({ page }: { page: AccountingPageId }) {
         });
         await load();
       },
-      changeType: async (columnId, kind) => {
+      changeType: async (columnId, kind, options) => {
         await trpc.tableSchema.mutate.mutate({
           organizationId: PILOT_ORGANIZATION,
           specId,
-          op: { kind: "setKind", columnId, columnKind: kind },
+          op: {
+            kind: "setKind",
+            columnId,
+            columnKind: kind,
+            ...(options?.length ? { options } : {}),
+          },
         });
         await load();
       },
