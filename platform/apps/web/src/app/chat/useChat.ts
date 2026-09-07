@@ -3,6 +3,7 @@ import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
 import {
   canApplyChatResponse,
   mergeChatThreadState,
+  needsCloudGrant,
 } from "./chat-state.mjs";
 
 export type ChatSurfaceKind =
@@ -405,7 +406,7 @@ export function useChat(surfaceKind: ChatSurfaceKind, moduleName?: string) {
 
   const send = useCallback(async (message: string, mentions?: string[]) => {
     if (!view) return false;
-    if (view.thread.plane === "cloud") {
+    if (needsCloudGrant(view.thread)) {
       // Picking a Cloud Plane thread IS the user's consent to send this
       // message to that thread's model provider (user directive 2026-08-10)
       // — the per-message grant is still fetched and still does its real job
@@ -487,7 +488,7 @@ export function useChat(surfaceKind: ChatSurfaceKind, moduleName?: string) {
       setError("The original request for this failed turn is unavailable.");
       return;
     }
-    if (view.thread.plane === "cloud") {
+    if (needsCloudGrant(view.thread)) {
       setSending(true);
       setError(null);
       try {

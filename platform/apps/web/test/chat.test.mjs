@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   canApplyChatResponse,
   isNearChatBottom,
+  needsCloudGrant,
   mergeChatThreadState,
 } from "../src/app/chat/chat-state.mjs";
 
@@ -234,4 +235,18 @@ test("Chief of Staff is the one face; other Agents are reached by typing @ (2026
   assert.match(view, /answered by Chief of Staff/);
   // No Agent dropdown: Chief of Staff stays the single user-facing Agent.
   assert.doesNotMatch(view, /aria-label="Chat agent"/);
+});
+
+test("a Claude Code thread sends without asking for a cloud model grant", () => {
+  // Claude Code declares plane "cloud" (it reaches Anthropic), but Bridge
+  // assembles no prompt and consumes no model provider on that path. Branching
+  // on the plane alone made every agentic turn fetch a grant first and die on
+  // "No authorized cloud model provider is configured" (BUGS 2026-09-07).
+  assert.equal(needsCloudGrant({ plane: "cloud", backend: "claude_code" }), false);
+  assert.equal(needsCloudGrant({ plane: "cloud", backend: "bridge" }), true);
+  assert.equal(needsCloudGrant({ plane: "cloud" }), true);
+  assert.equal(needsCloudGrant({ plane: "local", backend: "bridge" }), false);
+  // Both call sites go through the predicate, not a bare plane comparison.
+  assert.doesNotMatch(hook, /thread\.plane === "cloud"/);
+  assert.match(hook, /needsCloudGrant\(view\.thread\)/);
 });

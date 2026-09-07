@@ -4090,6 +4090,40 @@
       "rank": 117
     },
     {
+      "id": "TASK-112",
+      "title": "TASK-112 — Adding a column asks what it is, and Task Manager can reshape its own",
+      "status": "completed",
+      "statusNote": "2026-09-07",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "Add column opens a dialog — name, type over the twenty kinds the server accepts, and an option list for select, multi-select and status — and creates nothing until confirmed; the same dialog carries options on a retype; Task Manager's columns can be renamed, retyped, locked and deleted, with adding refused in the server's own words because its rows are real database columns.",
+      "prototypeTest": "in Academics → Courses, Add column, name it, pick Select, add two options, confirm, and see exactly that column; in Task Manager, rename a column and see it stick, and find Add column disabled with the reason shown.",
+      "scope": [
+        "`apps/web/src/app/components/shared/AddColumnDialog.tsx` (new), `StandardColumnMenu.tsx`, `dataviews/DataViews.tsx`, `dataviews/types.ts`, `views/TableView.tsx`, `pages/TaskManagerPage.tsx`, `pages/ModulePage.tsx`, `pages/AccountingPage.tsx`, `apps/api/src/table-schema.ts`, `src/routers/tableSchema.ts`, `src/router-shared.ts`."
+      ],
+      "evidence": [
+        "`apps/web/test/add-column-dialog.test.mjs` seen failing 0 pass / 6 fail against unchanged source, 7/7 after",
+        "`apps/api/test/hand-written-column-schema.test.ts` seen failing — two `setKind` options cases would not compile (TS2353), the other three 0 pass / 3 fail — then green",
+        "after merge to main: web 311/311, api hand-written-column-schema + module-column-schema + table-schema-mutation + module-uninstall + module-records 33/33, both typechecks clean, ui-rules OK (381 held at baseline) and vocabulary OK (2026-09-07)."
+      ],
+      "requests": [
+        "user directive 2026-09-07, verbatim: *\"Adding a column, just adds column, it doesnt ask me for column type, column name, I want the interface of adding new columns similar to notion. Also why am I still unable to add column in task manager module?\"*"
+      ],
+      "approval": "none needed (a dialog over an existing governed schema capability; Task Manager gains the capability it was already meant to have, and its shipped columns stay unaddable).",
+      "dependencies": [
+        "TASK-084 (ColumnOverlay), TASK-105 (column menu)."
+      ],
+      "isGoal": false,
+      "path": "8.21",
+      "level": 1,
+      "canonicalStatus": "done",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1817,
+      "rank": 118
+    },
+    {
       "id": "TASK-113",
       "title": "TASK-113 — Deleting a Module asks which of the three things you meant",
       "status": "completed",
@@ -4113,14 +4147,14 @@
         "TASK-081 (rail presentation), TASK-096 (installed Modules)."
       ],
       "isGoal": false,
-      "path": "8.21",
+      "path": "8.22",
       "level": 1,
       "canonicalStatus": "done",
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1817,
-      "rank": 118
+      "sourceLine": 1832,
+      "rank": 119
     }
   ]
 }
