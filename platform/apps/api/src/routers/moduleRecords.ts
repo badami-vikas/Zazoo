@@ -1,13 +1,16 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import type { TableSpec } from "@bridge/tables";
+import { applyFilters, applySorts, groupBy as groupRows, type ColumnKind, type TableSpec } from "@bridge/tables";
 import { moduleStructure, type ModuleDatabaseBinding, type ModuleManifest } from "@bridge/core";
 import {
+  RecordValueError,
   TABLE_SCHEMA_NAMESPACE_PREFIX,
+  coerceRecordFields,
   moduleDatabaseSpec,
   moduleRecordsSpecId,
 } from "../table-schema.js";
 import {
+  RECORD_QUERY_INPUT,
   assertHumanIdentity,
   assertMembership,
   assertPilotOrganization,
@@ -112,23 +115,127 @@ const target = z.object({
   databaseId: z.string().trim().min(1).max(200),
 });
 
-/** A row as the client sends it: only declared columns, nothing else. */
+/**
+ * A row as the client sends it: only declared columns, each holding what its
+ * kind can hold, and — on insert — every `required` column present.
+ *
+ * The rules are `coerceRecordFields` in `table-schema.ts` (pure, so they are
+ * testable without a Wiring); this is only the seam that turns a refusal into
+ * the BAD_REQUEST the client reads.
+ */
 function pickDeclared(
   spec: TableSpec,
   fields: Record<string, unknown>,
+  applyDefaults: boolean,
 ): Record<string, unknown> {
-  const allowed = new Set(spec.columns.map((column) => column.id));
-  const picked: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(fields)) {
-    if (!allowed.has(key)) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: `${key} is not a column of ${spec.id}`,
-      });
+  try {
+    return coerceRecordFields(spec, fields, { applyDefaults });
+  } catch (error) {
+    if (error instanceof RecordValueError) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
     }
-    picked[key] = value;
+    throw error;
   }
-  return picked;
+}
+
+/** columnId -> kind, so `applyFilters` compares dates as instants and numbers
+ * as numbers instead of as text. */
+function columnKinds(spec: TableSpec): Record<string, ColumnKind> {
+  return Object.fromEntries(spec.columns.map((column) => [column.id, column.kind]));
+}
+
+/** Every declared value of a row as one lowercase haystack, for free-text
+ * search. Metadata (`id`, timestamps) is deliberately not in it: searching
+ * "2026" should not match every Record ever created. */
+function searchText(spec: TableSpec, row: ModuleRecordRow): string {
+  return spec.columns
+    .map((column) => {
+      const value = row[column.id];
+      return Array.isArray(value) ? value.join(" ") : String(value ?? "");
+    })
+    .join(" ")
+    .toLowerCase();
+}
+
+/**
+ * Compute every `rollup` column over the far side of its relation.
+ *
+ * Derived on READ and never stored: a stored rollup goes stale the moment the
+ * far-side Record changes, and a stale number that looks live is exactly what
+ * ADR-247 forbids. A relation whose target Database holds no rows yields 0 for
+ * `count`/`sum` and null for the rest — "unknown" is first-class, and an
+ * average of nothing is not zero.
+ */
+async function withRollups(
+  ctx: { wiring: Wiring },
+  organizationId: string,
+  moduleName: string,
+  spec: TableSpec,
+  rows: ModuleRecordRow[],
+): Promise<ModuleRecordRow[]> {
+  const rollups = spec.columns.filter(
+    (column) => column.kind === "rollup" && column.rollupSource && column.rollupProperty && column.rollupFunction,
+  );
+  if (rollups.length === 0 || rows.length === 0) return rows;
+  const farRowsBySpec = new Map<string, Map<string, ModuleRecordRow>>();
+  const computed = rows.map((row) => ({ ...row }));
+  for (const column of rollups) {
+    const relation = spec.columns.find((candidate) => candidate.id === column.rollupSource);
+    if (!relation?.relationTarget) {
+      // A rollup whose relation is gone has nothing to reduce. Absent, not zero.
+      for (const row of computed) row[column.id] = null;
+      continue;
+    }
+    // A target may name a Database in THIS Module by its bare id, the way the
+    // manifest parser accepts it; rows are always keyed by the full spec id.
+    const farSpecId = relation.relationTarget.includes(".")
+      ? relation.relationTarget
+      : moduleRecordsSpecId(moduleName, relation.relationTarget);
+    let far = farRowsBySpec.get(farSpecId);
+    if (!far) {
+      const stored = readStoredRecords(
+        await ctx.wiring.localPlane.state.read(organizationId, `${MODULE_RECORDS_NAMESPACE_PREFIX}${farSpecId}`),
+      );
+      far = new Map(stored.rows.map((row) => [row.id, row]));
+      farRowsBySpec.set(farSpecId, far);
+    }
+    for (const row of computed) {
+      const linked = row[relation.id];
+      const ids = Array.isArray(linked) ? linked.map(String) : linked ? [String(linked)] : [];
+      const values = ids
+        .map((id) => far!.get(id))
+        .filter((entry): entry is ModuleRecordRow => !!entry)
+        .map((entry) => entry[column.rollupProperty!]);
+      row[column.id] = reduceRollup(column.rollupFunction!, values);
+    }
+  }
+  return computed;
+}
+
+function reduceRollup(fn: NonNullable<TableSpec["columns"][number]["rollupFunction"]>, values: unknown[]): unknown {
+  const present = values.filter((value) => value !== null && value !== undefined && value !== "");
+  const numbers = present.map(Number).filter((value) => Number.isFinite(value));
+  const times = present.map((value) => new Date(String(value)).getTime()).filter((value) => !Number.isNaN(value));
+  switch (fn) {
+    case "count":
+      return present.length;
+    case "sum":
+      return numbers.reduce((total, value) => total + value, 0);
+    case "average":
+      return numbers.length ? numbers.reduce((total, value) => total + value, 0) / numbers.length : null;
+    case "min":
+      return numbers.length ? Math.min(...numbers) : null;
+    case "max":
+      return numbers.length ? Math.max(...numbers) : null;
+    case "earliest":
+      return times.length ? new Date(Math.min(...times)).toISOString() : null;
+    case "latest":
+      return times.length ? new Date(Math.max(...times)).toISOString() : null;
+    case "unique":
+      return [...new Set(present.map(String))];
+    default:
+      return present;
+  }
 }
 
 export const moduleRecordsRouter = t.router({
@@ -172,18 +279,59 @@ export const moduleRecordsRouter = t.router({
       };
     }),
 
+  /**
+   * The Database's Records, QUERIED (TASK-108).
+   *
+   * This used to hand back the whole stored document and the standard Module
+   * Page asked for `limit: 100, offset: 0` and silently stopped there — so a
+   * Database's 101st Record could not be reached, and a filter typed in the
+   * toolbar was a client-side pass over one page. Filter, search, sort and
+   * group all run over EVERY stored row before the slice, and `total` counts
+   * what the filter kept, so a pager can be honest about what is behind it.
+   *
+   * `@bridge/tables`' engine does the work — the same one the web tables use,
+   * so a saved View and this procedure can never disagree about what "is
+   * after" means.
+   */
   list: authenticatedProcedure
-    .input(target)
+    .input(target.merge(RECORD_QUERY_INPUT))
     .use(organizationGuard).query(async ({ input, ctx }) => {
       const manifest = await installedManifest(ctx, input.organizationId, input.moduleName);
       const database = declaredDatabase(manifest, input.databaseId);
+      const specId = moduleRecordsSpecId(input.moduleName, database.id);
+      const spec = moduleDatabaseSpec(
+        input.moduleName,
+        database,
+        await ctx.wiring.localPlane.state.read(
+          input.organizationId,
+          `${TABLE_SCHEMA_NAMESPACE_PREFIX}${specId}`,
+        ),
+      );
       const stored = readStoredRecords(
         await ctx.wiring.localPlane.state.read(
           input.organizationId,
-          `${MODULE_RECORDS_NAMESPACE_PREFIX}${moduleRecordsSpecId(input.moduleName, database.id)}`,
+          `${MODULE_RECORDS_NAMESPACE_PREFIX}${specId}`,
         ),
       );
-      return { items: stored.rows, total: stored.rows.length };
+      // Rollups are computed BEFORE filtering and sorting: a View that filters
+      // on a rolled-up total has to see the total, not an empty cell.
+      const all = await withRollups(ctx, input.organizationId, input.moduleName, spec, stored.rows);
+      const query = input.query?.trim().toLowerCase() ?? "";
+      const searched = query ? all.filter((row) => searchText(spec, row).includes(query)) : all;
+      const filtered = applyFilters(searched, input.rowFilters ?? [], input.filterMatch ?? "all", columnKinds(spec));
+      const sorted = applySorts(filtered, input.sorts ?? []);
+      // Grouping ORDERS the page (every row of a group together) and reports
+      // the group sizes, which are counts of the whole filtered set — not of
+      // the page, which would make a group header lie on page two.
+      const groups = input.groupBy ? groupRows(sorted, input.groupBy) : null;
+      const ordered = groups ? groups.flatMap(([, rows]) => rows) : sorted;
+      const items = ordered.slice(input.offset, input.offset + input.limit);
+      return {
+        items,
+        total: ordered.length,
+        hasMore: input.offset + items.length < ordered.length,
+        ...(groups ? { groups: groups.map(([key, rows]) => ({ key, count: rows.length })) } : {}),
+      };
     }),
 
   insert: authenticatedProcedure
@@ -200,7 +348,7 @@ export const moduleRecordsRouter = t.router({
           `${TABLE_SCHEMA_NAMESPACE_PREFIX}${specId}`,
         ),
       );
-      const fields = pickDeclared(spec, input.fields);
+      const fields = pickDeclared(spec, input.fields, true);
       const now = ctx.run.clock.nowISO();
       const row: ModuleRecordRow = { ...fields, id: ctx.run.ids.next(), createdAt: now, updatedAt: now };
       return ctx.wiring.localPlane.state.update(
@@ -228,7 +376,7 @@ export const moduleRecordsRouter = t.router({
           `${TABLE_SCHEMA_NAMESPACE_PREFIX}${specId}`,
         ),
       );
-      const fields = pickDeclared(spec, input.fields);
+      const fields = pickDeclared(spec, input.fields, false);
       const now = ctx.run.clock.nowISO();
       return ctx.wiring.localPlane.state.update(
         input.organizationId,

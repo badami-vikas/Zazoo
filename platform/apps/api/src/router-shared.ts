@@ -112,7 +112,7 @@ import {
 } from "@bridge/core";
 import { eq, desc } from "drizzle-orm";
 import { schema as accountingSchema, validateExpression } from "@bridge/accounting";
-import { applyColumnOverlay, VIEW_KINDS } from "@bridge/tables";
+import { VIEW_KINDS } from "@bridge/tables";
 import type { ColumnKind, ColumnOverlay, FilterOp, TableSpec } from "@bridge/tables";
 import {
   TABLE_SCHEMA_NAMESPACE_PREFIX,
@@ -125,6 +125,7 @@ import {
   moduleRecordsSpecId,
   readStoredTableSchema,
   relationDependencies,
+  resolveColumnOverlay,
   skillDependencies,
   viewDependencies,
   type ColumnDependencyPreview,
@@ -2706,6 +2707,57 @@ export const viewRowFilterInput = z.object({
   ]),
   value: z.string(),
 });
+/**
+ * The full per-kind operator set (TASK-108). `viewRowFilterInput` above is the
+ * SAVED-VIEW grammar and predates the number/date operators; a Database query
+ * has to express "amount is greater than" and "due is before" or the server is
+ * not a query engine. Bounded exactly the way that one is.
+ */
+export const recordRowFilterInput = z.object({
+  field: z.string().trim().min(1).max(200),
+  op: z.enum([
+    "contains",
+    "does_not_contain",
+    "is",
+    "is_not",
+    "is_empty",
+    "is_not_empty",
+    "starts_with",
+    "ends_with",
+    "gt",
+    "gte",
+    "lt",
+    "lte",
+    "before",
+    "after",
+    "on_or_before",
+    "on_or_after",
+    "is_any_of",
+    "is_none_of",
+    "is_checked",
+    "is_not_checked",
+  ]),
+  value: z.string().max(2_000),
+});
+
+/**
+ * One Database query: filter, search, sort, group, page.
+ *
+ * Every array is BOUNDED — a filter list is a loop over every stored row, so an
+ * unbounded one is a request that costs whatever the caller wants it to. The
+ * page defaults to 50 and caps at 500, which is the number of rows a grid can
+ * hand a browser without the request itself becoming the slow part.
+ */
+export const RECORD_QUERY_INPUT = z.object({
+  rowFilters: z.array(recordRowFilterInput).max(20).optional(),
+  filterMatch: z.enum(["all", "any"]).optional(),
+  sorts: z.array(z.object({ id: z.string().trim().min(1).max(200), dir: z.enum(["asc", "desc"]) })).max(5).optional(),
+  groupBy: z.string().trim().min(1).max(200).nullish(),
+  query: z.string().max(500).optional(),
+  limit: z.number().int().min(1).max(500).default(50),
+  offset: z.number().int().min(0).default(0),
+});
+
 export const humanInteractionFieldsSchema = interactionCreateFieldsSchema.omit({
   source: true,
   sourceRecordId: true,
@@ -6763,7 +6815,7 @@ export async function readTableSchemaCapability(
   return {
     available: true,
     reason: null,
-    spec: applyColumnOverlay(base, stored.overlay),
+    spec: resolveColumnOverlay(base, stored.overlay),
     overlay: hasOverlay(stored.overlay) ? stored.overlay : null,
     canUndo: stored.previous !== null,
     canAddColumn: !shipped,

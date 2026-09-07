@@ -7,6 +7,7 @@ import {
   type ModuleManifest,
 } from "@bridge/core";
 import { readModuleFileContent } from "./module-files.js";
+import { unknownRelationTargets } from "./table-schema.js";
 import type { Wiring } from "./wiring.js";
 
 /** The one file that makes a folder a Module. */
@@ -32,6 +33,17 @@ export async function registerModuleManifest(
       throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
     }
     throw err;
+  }
+  // A relation to a Database nobody declares (TASK-108). The same-manifest half
+  // is a parse error; this half needs the Modules already here, which is why it
+  // is asked at registration and not inside the parser.
+  const { items } = await wiring.moduleStore.list(organizationId, { limit: 500, offset: 0 });
+  const missing = unknownRelationTargets(manifest, items);
+  if (missing.length > 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `${manifest.name} relates to ${missing.join(", ")}, and no installed Module has a Database by that name`,
+    });
   }
   return wiring.moduleStore.create({
     organizationId,

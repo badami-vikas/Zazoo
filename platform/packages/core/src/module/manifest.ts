@@ -28,6 +28,7 @@ import type {
 import type { CapabilityExecutionSpec, CapabilityManifest, SandboxIsolationLevel } from "../capability/types.js";
 import {
   BLUEPRINT_FIELD_KINDS,
+  BLUEPRINT_ROLLUP_FUNCTIONS,
   parseOrganizationBlueprint,
   type BlueprintColumnKind,
   type BlueprintColumnSpec,
@@ -88,6 +89,106 @@ function parseStringArray(raw: unknown, field: string): string[] {
     if (typeof v !== "string" || v.length === 0) fail(`${field}[${i}] must be a non-empty string`);
     return v as string;
   });
+}
+
+/**
+ * The column fields a manifest could always DECLARE and the parser silently
+ * dropped (TASK-108): a Skill-computed column's `skill_id`, a default, the
+ * relation's parent side, a Form-hidden column, the description, a status
+ * column's lifecycle groups, a rollup's three parts and a button's Action.
+ *
+ * `apps/api/src/table-schema.ts` has copied several of these onto the rendered
+ * TableSpec since it was written — they were dead branches only because
+ * nothing here ever put them on the binding.
+ *
+ * Each is accepted only where the KIND declares it: `status_groups` on a text
+ * column is a manifest that means something it cannot do, and ADR-247 says say
+ * so rather than storing it.
+ */
+function parseColumnExtras(
+  column: Record<string, unknown>,
+  kind: BlueprintColumnKind,
+  where: string,
+): Partial<BlueprintColumnSpec> {
+  const extras: Record<string, unknown> = {};
+
+  const skillId = column.skillId ?? column.skill_id;
+  if (skillId !== undefined) {
+    if (kind !== "skill") fail(`${where}.skill_id is only meaningful on a skill column`);
+    extras.skillId = requiredString(skillId, `${where}.skill_id`);
+  }
+
+  if (column.defaultValue !== undefined || column.default_value !== undefined) {
+    const raw = column.defaultValue ?? column.default_value;
+    const scalar = (v: unknown) => v === null || ["string", "number", "boolean"].includes(typeof v);
+    if (!scalar(raw) && !(Array.isArray(raw) && raw.every((v) => scalar(v) && v !== null))) {
+      fail(`${where}.default_value must be a string, number, boolean, null, or an array of those`);
+    }
+    extras.defaultValue = raw;
+  }
+
+  const relationParent = column.relationParent ?? column.relation_parent;
+  if (relationParent !== undefined) {
+    if (typeof relationParent !== "boolean") fail(`${where}.relation_parent must be a boolean`);
+    if (kind !== "relation") fail(`${where}.relation_parent is only meaningful on a relation column`);
+    if (relationParent) extras.relationParent = true;
+  }
+
+  const hiddenInForm = column.hiddenInForm ?? column.hidden_in_form;
+  if (hiddenInForm !== undefined) {
+    if (typeof hiddenInForm !== "boolean") fail(`${where}.hidden_in_form must be a boolean`);
+    if (hiddenInForm) extras.hiddenInForm = true;
+  }
+
+  if (column.description !== undefined) {
+    extras.description = requiredString(column.description, `${where}.description`);
+  }
+
+  const statusGroups = column.statusGroups ?? column.status_groups;
+  if (statusGroups !== undefined) {
+    if (kind !== "status") fail(`${where}.status_groups is only meaningful on a status column`);
+    if (!isPlainObject(statusGroups)) fail(`${where}.status_groups must be an object`);
+    const declared = new Set((column.options as string[] | undefined) ?? []);
+    const groups: Record<string, "todo" | "doing" | "done"> = {};
+    for (const [option, group] of Object.entries(statusGroups)) {
+      if (declared.size > 0 && !declared.has(option)) {
+        fail(`${where}.status_groups names ${option}, which is not one of its options`);
+      }
+      if (group !== "todo" && group !== "doing" && group !== "done") {
+        fail(`${where}.status_groups.${option} must be todo, doing or done`);
+      }
+      groups[option] = group;
+    }
+    extras.statusGroups = groups;
+  }
+
+  const rollupSource = column.rollupSource ?? column.rollup_source;
+  const rollupProperty = column.rollupProperty ?? column.rollup_property;
+  const rollupFunction = column.rollupFunction ?? column.rollup_function;
+  if (rollupSource !== undefined || rollupProperty !== undefined || rollupFunction !== undefined) {
+    if (kind !== "rollup") fail(`${where} declares rollup_* but is not a rollup column`);
+    extras.rollupSource = requiredString(rollupSource, `${where}.rollup_source`);
+    extras.rollupProperty = requiredString(rollupProperty, `${where}.rollup_property`);
+    const fn = requiredString(rollupFunction, `${where}.rollup_function`);
+    if (!(BLUEPRINT_ROLLUP_FUNCTIONS as readonly string[]).includes(fn)) {
+      fail(`${where}.rollup_function must be one of ${BLUEPRINT_ROLLUP_FUNCTIONS.join(", ")}`);
+    }
+    extras.rollupFunction = fn;
+  } else if (kind === "rollup") {
+    // A rollup with nothing to roll up computes nothing, and an empty cell
+    // reads exactly like a real answer of zero.
+    fail(`${where} is a rollup and must declare rollup_source, rollup_property and rollup_function`);
+  }
+
+  const actionId = column.actionId ?? column.action_id;
+  if (actionId !== undefined) {
+    if (kind !== "button") fail(`${where}.action_id is only meaningful on a button column`);
+    extras.actionId = requiredString(actionId, `${where}.action_id`);
+  } else if (kind === "button") {
+    fail(`${where} is a button and must declare the action_id it runs`);
+  }
+
+  return extras as Partial<BlueprintColumnSpec>;
 }
 
 /** Parse an optional capability `execution` spec (PKG-1). Its PRESENCE marks
@@ -301,6 +402,7 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
         ...(column.required === true ? { required: true } : {}),
         ...(typeof column.relationTarget === "string" ? { relationTarget: column.relationTarget } : {}),
         ...(typeof column.relation_target === "string" ? { relationTarget: column.relation_target } : {}),
+        ...parseColumnExtras(column, kind as BlueprintColumnKind, where),
       };
     });
     // Sections per DATABASE (UI Rulebook Part IV §1). Absent = all on: Notes
@@ -582,6 +684,30 @@ export function parseModuleManifest(raw: unknown): ModuleManifest {
   // cannot be its own parent. Everything else about the relation needs siblings.
   if (module?.parentModule === name) {
     fail("module.module.parent_module must not name the Module itself");
+  }
+
+  // A relation names the Database it points at the way `moduleRecords` serves
+  // rows for it: `<module>.<database>`, or a bare `<database>` in this Module.
+  // Only the SAME-manifest half is answerable here — a target in another
+  // Module is checked at registration, where the installed manifests can be
+  // read (`relationTargetsMissingFrom` in apps/api). Until TASK-108 nothing
+  // checked either half, so a relation to a Database nobody declared parsed
+  // fine and rendered a chooser over nothing.
+  const selfName: string = name;
+  for (const database of module?.databases ?? []) {
+    for (const column of database.columns) {
+      const target = column.relationTarget;
+      if (!target) continue;
+      const dot = target.indexOf(".");
+      const targetModule: string = dot < 0 ? selfName : target.slice(0, dot);
+      const targetDatabase = dot < 0 ? target : target.slice(dot + 1);
+      if (targetModule !== selfName) continue;
+      if (!(module?.databases ?? []).some((candidate) => candidate.id === targetDatabase)) {
+        fail(
+          `module.module.databases ${database.id}.${column.id} relates to ${target}, which this Module does not declare`,
+        );
+      }
+    }
   }
 
   return {
