@@ -30,10 +30,10 @@
  * 16px/10px cell padding, 13px body, 10px uppercase headers at 0.07em).
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { applyFilters, applySorts, isMetadataColumn } from "@bridge/tables";
-import type { ColumnSpec, TableSpec } from "@bridge/tables";
+import { applyFilters, applySorts, groupBy, isMetadataColumn } from "@bridge/tables";
+import type { ColumnSpec, TableSpec, ViewConfig } from "@bridge/tables";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Check, ChevronDown, Plus } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { Button } from "../../components/ui/button.js";
 import { StandardColumnMenu } from "../../components/shared/StandardColumnMenu.js";
 import { StandardRowMenu } from "../../components/shared/StandardRowMenu.js";
@@ -58,6 +58,13 @@ import {
 } from "../eligibility.js";
 import type { DataRow, DataViewProps } from "../types.js";
 import { formatCell, formatCurrency, renderCell, trimZero } from "../cell-format.js";
+import type { CellContext } from "../cell-format.js";
+import {
+  CellEditor,
+  coerceCellValue,
+  isCellEditable,
+  uneditableReason,
+} from "../cell-editor.js";
 import { columnIdFromLabel } from "../columnId.js";
 import { useDismiss } from "../../lib/useDismiss";
 import {
@@ -80,8 +87,30 @@ import {
  * must be exact are set as pixels and the utilities are used only where a
  * proportional value is genuinely wanted.
  */
-const ROW_HEIGHT = 40;
+/**
+ * The three row heights, in pixels.
+ *
+ * MIRRORS `ROW_HEIGHT_PX` in `@bridge/tables/src/types.ts`, which is not on that
+ * package's export surface — its `package.json` publishes only `.`, and
+ * `index.ts` does not re-export the constant. Declared here rather than reached
+ * for through a path the package does not expose.
+ * ponytail: delete this and import the shared one the moment `@bridge/tables`
+ * exports it.
+ */
+const ROW_HEIGHT_PX: Record<"short" | "medium" | "tall", number> = {
+  short: 40,
+  medium: 64,
+  tall: 96,
+};
+const ROW_HEIGHTS = ["short", "medium", "tall"] as const;
 const HEADER_HEIGHT = 36;
+/** Width assumed for a column the spec never sized, when a FROZEN column's
+ *  sticky offset needs a real number. */
+const DEFAULT_COL_WIDTH = 180;
+/** The leading selection column: a 16px box inside `px-2`. */
+const SELECT_COL_WIDTH = 32;
+/** Narrower than a finger, so it is a pointer affordance and nothing else. */
+const RESIZE_HANDLE_WIDTH = 6;
 /** Blank body rows drawn at zero records so an empty table still reads as a
  *  table (grid rhythm, footer, add-row) rather than collapsing to a note. */
 const EMPTY_FILLER_ROWS = 3;
@@ -110,8 +139,32 @@ const VIRTUALIZE_ABOVE = 100;
 const DOUBLE_CLICK_GRACE_MS = 220;
 
 function isNumericColumn(col: ColumnSpec): boolean {
-  return col.kind === "number" || col.display === "currency" || col.display === "multiple";
+  return (
+    col.kind === "number" ||
+    col.kind === "autoNumber" ||
+    col.display === "currency" ||
+    col.display === "multiple"
+  );
 }
+
+/**
+ * The spec's columns in the order the USER put them (`ViewConfig.columnOrder`).
+ * Ids the order names but the spec no longer has are inert, and a column the
+ * order has never heard of keeps its spec position at the end — a reordered
+ * View must not lose a column the Module later added.
+ */
+function orderColumns(columns: ColumnSpec[], order: string[] | undefined): ColumnSpec[] {
+  if (!order || order.length === 0) return columns;
+  const known = new Map(columns.map((col) => [col.id, col]));
+  const ordered = order.map((id) => known.get(id)).filter((col): col is ColumnSpec => Boolean(col));
+  const seen = new Set(ordered.map((col) => col.id));
+  return [...ordered, ...columns.filter((col) => !seen.has(col.id))];
+}
+
+/** One row of the body, or the header of a group of them. */
+type RenderItem =
+  | { type: "row"; row: DataRow; index: number }
+  | { type: "group"; id: string; label: string; count: number; depth: number; collapsed: boolean };
 
 /** How a column's aggregate result is written back out, in the column's own unit. */
 function aggregateFormatter(col: ColumnSpec): ((value: number) => string) | undefined {
@@ -147,14 +200,106 @@ export function TableView({
   );
   const sorted = useMemo(() => applySorts(filtered, view.sorts), [filtered, view.sorts]);
 
-  const columns = spec.columns;
+  /**
+   * EVERY grid mechanic below is VIEW CONFIG, never local state (TASK-109).
+   * A width dragged, a column moved, a group collapsed or a summary chosen has
+   * to survive a reload of the saved List — holding any of it in `useState`
+   * would make the table forget the moment the user navigated away.
+   */
+  const patchView = useCallback(
+    (next: Partial<ViewConfig>) => onViewChange({ ...view, ...next }),
+    [onViewChange, view],
+  );
+  const columns = useMemo(
+    () => orderColumns(spec.columns, view.columnOrder),
+    [spec.columns, view.columnOrder],
+  );
+  const rowHeightKey = view.rowHeight ?? "short";
+  const rowPx = ROW_HEIGHT_PX[rowHeightKey];
+  const wrapCells = view.wrapCells === true;
+  const collapsedGroups = view.collapsedGroups ?? [];
+  const frozenIndex = view.frozenColumnId
+    ? columns.findIndex((col) => col.id === view.frozenColumnId)
+    : -1;
+
+  /** The width a column renders at: the user's drag, else the spec's, else auto. */
+  const widthOf = useCallback(
+    (col: ColumnSpec): number | undefined => view.columnWidths?.[col.id] ?? col.width,
+    [view.columnWidths],
+  );
+
+  /** The in-flight resize. Local ONLY while the pointer is down; the result is
+   *  written to the view on release, so the drag does not re-render the shell
+   *  on every pixel. */
+  const [resizing, setResizing] = useState<{
+    columnId: string;
+    startX: number;
+    startWidth: number;
+    width: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!resizing) return;
+    const onMove = (event: PointerEvent) =>
+      setResizing((current) =>
+        current
+          ? { ...current, width: Math.max(64, current.startWidth + (event.clientX - current.startX)) }
+          : current,
+      );
+    const onUp = () => {
+      setResizing((current) => {
+        if (current) {
+          patchView({
+            columnWidths: { ...(view.columnWidths ?? {}), [current.columnId]: Math.round(current.width) },
+          });
+        }
+        return null;
+      });
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [resizing, patchView, view.columnWidths]);
+
+  const renderWidth = (col: ColumnSpec): number | undefined =>
+    resizing?.columnId === col.id ? Math.round(resizing.width) : widthOf(col);
+
+  /** A frozen column's sticky offset needs a real number for every column to
+   *  its left, so a frozen column is always given a concrete width. */
+  const frozenLeft = (colIndex: number): number | undefined => {
+    if (colIndex > frozenIndex) return undefined;
+    let left = SELECT_COL_WIDTH;
+    for (let i = 0; i < colIndex; i += 1) {
+      left += renderWidth(columns[i]!) ?? DEFAULT_COL_WIDTH;
+    }
+    return left;
+  };
+
+  /** The header being dragged to a new position, or null. */
+  const [dragColumnId, setDragColumnId] = useState<string | null>(null);
+  const dropColumn = (targetId: string) => {
+    if (!dragColumnId || dragColumnId === targetId) return;
+    const ids = columns.map((col) => col.id).filter((id) => id !== dragColumnId);
+    ids.splice(ids.indexOf(targetId), 0, dragColumnId);
+    setDragColumnId(null);
+    patchView({ columnOrder: ids });
+  };
+
+  const toggleGroup = (id: string) =>
+    patchView({
+      collapsedGroups: collapsedGroups.includes(id)
+        ? collapsedGroups.filter((entry) => entry !== id)
+        : [...collapsedGroups, id],
+    });
+
   const moduleId = moduleIdFromDatabaseId(spec.id);
   // A Module the server cannot validate targets for (e.g. "signal" — no backing
   // existence-check store yet) must never render an interactive-looking flag
   // glyph, since redFlag.create would fail-closed on every attempt (AP-021).
   const flaggable = isSupportedRedFlagModule(moduleId);
 
-  const [aggregates, setAggregates] = useState<Record<string, AggregateKind>>({});
   const [editing, setEditing] = useState<{ key: string; col: string } | null>(null);
   /** Open cell right-click menu (§5f), or null. Position is the pointer. */
   const [cellMenu, setCellMenu] = useState<CellMenuState | null>(null);
@@ -265,7 +410,7 @@ export function TableView({
   const virtualizer = useVirtualizer({
     count: sorted.length,
     getScrollElement: () => scrollEl,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowPx,
     overscan: 12,
   });
   const virtualItems = virtualizer.getVirtualItems();
@@ -273,14 +418,66 @@ export function TableView({
   // Spacer rows rather than absolute positioning: it keeps a real <table> with
   // real <tr> children, so sticky thead/tfoot, colgroup widths and aria-sort all
   // keep working. Absolute positioning would require faking every one of them.
-  const visible = windowed
-    ? virtualItems.map((item) => ({ row: sorted[item.index]!, index: item.index }))
-    : sorted.map((row, index) => ({ row, index }));
-  const padTop = windowed && virtualItems.length > 0 ? virtualItems[0]!.start : 0;
-  const padBottom =
-    windowed && virtualItems.length > 0
-      ? virtualizer.getTotalSize() - virtualItems[virtualItems.length - 1]!.end
-      : 0;
+  /**
+   * GROUPING (TASK-109). `groupBy` is `@bridge/tables`' own bucketer — the same
+   * one the Board view groups with, so a group is one thing across the app.
+   *
+   * A grouped body is NOT windowed: the group headers make the row heights
+   * uneven, which is exactly the assumption the virtualizer's fixed estimate
+   * rests on. Grouping a result set large enough to need windowing is the case
+   * to revisit if it ever shows up.
+   * ponytail: unwindowed while grouped; measure rows if a grouped table gets big.
+   */
+  const groupedItems = useMemo((): RenderItem[] | null => {
+    if (!view.groupBy) return null;
+    const items: RenderItem[] = [];
+    let index = 0;
+    for (const [key, rows] of groupBy(sorted, view.groupBy)) {
+      const collapsed = collapsedGroups.includes(key);
+      items.push({ type: "group", id: key, label: key, count: rows.length, depth: 0, collapsed });
+      if (collapsed) {
+        index += rows.length;
+        continue;
+      }
+      if (!view.subGroupBy) {
+        for (const row of rows) items.push({ type: "row", row, index: index++ });
+        continue;
+      }
+      for (const [subKey, subRows] of groupBy(rows, view.subGroupBy)) {
+        const subId = `${key} / ${subKey}`;
+        const subCollapsed = collapsedGroups.includes(subId);
+        items.push({
+          type: "group",
+          id: subId,
+          label: subKey,
+          count: subRows.length,
+          depth: 1,
+          collapsed: subCollapsed,
+        });
+        if (subCollapsed) {
+          index += subRows.length;
+          continue;
+        }
+        for (const row of subRows) items.push({ type: "row", row, index: index++ });
+      }
+    }
+    return items;
+  }, [sorted, view.groupBy, view.subGroupBy, collapsedGroups]);
+
+  const visible: RenderItem[] =
+    groupedItems ??
+    (windowed
+      ? virtualItems.map((item) => ({
+          type: "row" as const,
+          row: sorted[item.index]!,
+          index: item.index,
+        }))
+      : sorted.map((row, index) => ({ type: "row" as const, row, index })));
+  const padded = windowed && !groupedItems && virtualItems.length > 0;
+  const padTop = padded ? virtualItems[0]!.start : 0;
+  const padBottom = padded
+    ? virtualizer.getTotalSize() - virtualItems[virtualItems.length - 1]!.end
+    : 0;
 
   // +2: the leading selection checkbox column and the trailing row-actions
   // column. Both are part of the table's SHAPE (§3a) — the checkbox column is a
@@ -325,7 +522,7 @@ export function TableView({
           <tr style={{ background: "var(--color-line-soft)" }}>
             <th
               scope="col"
-              className="w-px whitespace-nowrap px-2"
+              className={`w-px whitespace-nowrap px-2 ${frozenIndex >= 0 ? "sticky left-0 z-30" : ""}`}
               style={{
                 height: HEADER_HEIGHT,
                 background: "var(--color-line-soft)",
@@ -337,6 +534,7 @@ export function TableView({
             {columns.map((col, colIndex) => {
               const activeSort = view.sorts.find((sort) => sort.id === col.id);
               const numeric = isNumericColumn(col);
+              const left = frozenLeft(colIndex);
               return (
                 <th
                   key={col.id}
@@ -344,8 +542,22 @@ export function TableView({
                   aria-sort={
                     activeSort ? (activeSort.dir === "asc" ? "ascending" : "descending") : "none"
                   }
+                  // REORDER: the header is the handle. A drag lands the column
+                  // before the header it was dropped on, and the result is
+                  // written to `columnOrder` — not to local state, so the order
+                  // is still there after a reload.
+                  draggable
+                  onDragStart={() => setDragColumnId(col.id)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => dropColumn(col.id)}
+                  onDragEnd={() => setDragColumnId(null)}
                   style={{
-                    width: col.width,
+                    position: "relative",
+                    width: renderWidth(col),
+                    ...(left === undefined
+                      ? {}
+                      : { position: "sticky", left, zIndex: 30 }),
+                    ...(dragColumnId === col.id ? { opacity: 0.5 } : {}),
                     height: HEADER_HEIGHT,
                     paddingLeft: CELL_PAD_X,
                     paddingRight: CELL_PAD_X,
@@ -365,17 +577,76 @@ export function TableView({
                     numeric ? "text-right" : "text-left"
                   }`}
                 >
+                  {/* RESIZE: the column's own edge. A pointer affordance, so it
+                      never competes with the header's right-click menu or with
+                      the drag that reorders. */}
+                  <span
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label={`Resize ${col.label}`}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setResizing({
+                        columnId: col.id,
+                        startX: event.clientX,
+                        startWidth:
+                          renderWidth(col) ??
+                          (event.currentTarget.parentElement?.getBoundingClientRect().width ??
+                            DEFAULT_COL_WIDTH),
+                        width: renderWidth(col) ?? DEFAULT_COL_WIDTH,
+                      });
+                    }}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      right: 0,
+                      height: "100%",
+                      width: RESIZE_HANDLE_WIDTH,
+                      cursor: "col-resize",
+                      touchAction: "none",
+                    }}
+                  />
                   <span
                     className={`inline-flex items-center gap-1 ${numeric ? "flex-row-reverse" : ""}`}
                   >
                     <StandardColumnMenu
                       label={col.label}
                       databaseBacked
+                      // The column's own description IS the tooltip — a column
+                      // that explains itself needs no explainer row (user
+                      // directive 2026-09-06).
+                      {...(col.description ? { description: col.description } : {})}
                       onFilter={() => onRequestFilter?.(col.id)}
                       onSort={(direction) =>
                         onViewChange({ ...view, sorts: [{ id: col.id, dir: direction }] })
                       }
                       onHide={onHideColumn ? () => onHideColumn(col.id) : undefined}
+                      // GROUP (TASK-109). The menu's Group command was disabled
+                      // on every column of every View because the table never
+                      // passed this. Grouping by the column already grouped by
+                      // ungroups, so the same command is the way back.
+                      onGroup={() =>
+                        patchView({ groupBy: view.groupBy === col.id ? null : col.id })
+                      }
+                      grouped={view.groupBy === col.id}
+                      // Freeze / wrap / row height are VIEW settings reached
+                      // from any column, the way Notion reaches them.
+                      onFreeze={() =>
+                        patchView({
+                          frozenColumnId: view.frozenColumnId === col.id ? null : col.id,
+                        })
+                      }
+                      frozen={view.frozenColumnId === col.id}
+                      onToggleWrap={() => patchView({ wrapCells: !wrapCells })}
+                      wrapped={wrapCells}
+                      rowHeight={rowHeightKey}
+                      onRowHeight={() =>
+                        patchView({
+                          rowHeight:
+                            ROW_HEIGHTS[(ROW_HEIGHTS.indexOf(rowHeightKey) + 1) % ROW_HEIGHTS.length]!,
+                        })
+                      }
                       // TASK-084: the schema commands, routed to whatever the
                       // server said this surface may do. Absent `columnSchema`
                       // leaves every one of them visible and disabled with the
@@ -413,6 +684,21 @@ export function TableView({
                                 label,
                                 "text",
                                 { relativeTo: col.id, side },
+                              )
+                          : undefined
+                      }
+                      // DUPLICATE (TASK-109): the governed add-column path with
+                      // this column's own type. Values are NOT copied — no
+                      // server command copies a column's values, and the
+                      // consequence line in the menu says so.
+                      onDuplicateColumn={
+                        columnSchema?.addColumn && !isMetadataColumn(col.kind)
+                          ? (label) =>
+                              columnSchema.addColumn!(
+                                columnIdFromLabel(label, spec.columns),
+                                label,
+                                col.kind as Parameters<typeof columnSchema.addColumn>[2],
+                                { relativeTo: col.id, side: "right" },
                               )
                           : undefined
                       }
@@ -463,7 +749,34 @@ export function TableView({
             </tr>
           )}
 
-          {visible.map(({ row, index }) => {
+          {visible.map((item) => {
+            if (item.type === "group") {
+              return (
+                <tr key={`group-${item.id}`} style={{ background: "var(--color-line-soft)" }}>
+                  <td colSpan={colSpan} style={{ padding: 0 }}>
+                    <button
+                      type="button"
+                      aria-expanded={!item.collapsed}
+                      onClick={() => toggleGroup(item.id)}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] font-semibold"
+                      style={{
+                        color: "var(--color-navy)",
+                        paddingLeft: 12 + item.depth * 16,
+                      }}
+                    >
+                      {item.collapsed ? (
+                        <ChevronRight size={13} aria-hidden="true" />
+                      ) : (
+                        <ChevronDown size={13} aria-hidden="true" />
+                      )}
+                      {item.label}
+                      <span style={{ color: "var(--color-warm-gray)" }}>{item.count}</span>
+                    </button>
+                  </td>
+                </tr>
+              );
+            }
+            const { row, index } = item;
             // A red-flag anchor's recordId must be a STABLE persisted id — never
             // the sorted row's array index, which is meaningless once the table
             // is re-sorted and would silently mis-anchor an existing flag onto a
@@ -522,7 +835,8 @@ export function TableView({
                 }}
                 onTouchEnd={cancelLongPress}
                 onTouchCancel={cancelLongPress}
-                // h-10 is ROW_HEIGHT, declared rather than emerged. The row used
+                // The height is DECLARED (`rowHeight`, three steps), not
+                // emerged. The row used
                 // to be sized by its tallest cell, which made it 52px — the
                 // shared row-menu Button is 34px, and vertical padding on top of
                 // that overshot the 40px rhythm every other measurement here is
@@ -530,7 +844,7 @@ export function TableView({
                 // has to agree with the real height or the spacer rows mis-scroll.
                 className="bridge-table-row"
                 style={{
-                  height: ROW_HEIGHT,
+                  height: rowPx,
                   borderBottom:
                     index === sorted.length - 1 ? undefined : "1px solid var(--color-line-soft)",
                   // iOS raises its own text-selection callout on a long press,
@@ -541,7 +855,17 @@ export function TableView({
                   ...(selected ? { background: "var(--color-row-hover)" } : {}),
                 }}
               >
-                <td data-stop className="w-px whitespace-nowrap px-2 align-middle">
+                <td
+                  data-stop
+                  className={`w-px whitespace-nowrap px-2 align-middle ${
+                    frozenIndex >= 0 ? "sticky left-0 z-10" : ""
+                  }`}
+                  style={
+                    frozenIndex >= 0
+                      ? { background: "var(--color-background)" }
+                      : undefined
+                  }
+                >
                   <Checkbox
                     checked={selected}
                     disabled={!selectable}
@@ -562,22 +886,44 @@ export function TableView({
                   const value = row[col.id];
                   const numeric = isNumericColumn(col);
                   const isEditing = editing?.key === key && editing.col === col.id;
-                  const editable = rowEditable && col.editable !== false && !col.locked;
+                  // ONE predicate for "can this be typed into" (TASK-109): a
+                  // rollup, a button, an auto-number and the four metadata kinds
+                  // are never editable anywhere, so no surface decides it alone.
+                  const editable = rowEditable && isCellEditable(col);
+                  const left = frozenLeft(colIndex);
                   // Plain-text form is always what the red-flag anchor records,
                   // whatever richer glyph the cell happens to render.
                   const text = formatCell(value);
-                  const rich = renderCell(col, value);
+                  const cellContext: CellContext = {
+                    ...(editable && stableRecordId && onUpdate
+                      ? {
+                          onToggle: (next: boolean) => {
+                            void onUpdate(stableRecordId, { [col.id]: next });
+                          },
+                        }
+                      : { disabledReason: uneditableReason(col) }),
+                  };
+                  const rich = renderCell(col, value, cellContext);
 
                   return (
                     <td
                       key={col.id}
-                      className={`whitespace-nowrap align-middle ${
+                      className={`align-middle ${wrapCells ? "whitespace-normal break-words" : "whitespace-nowrap"} ${
                         numeric ? "text-right tabular-nums" : ""
                       } ${onOpenRecord && !isEditing ? "cursor-pointer" : ""}`}
                       style={{
                         color: "var(--color-navy)",
                         paddingLeft: CELL_PAD_X,
                         paddingRight: CELL_PAD_X,
+                        width: renderWidth(col),
+                        ...(left === undefined
+                          ? {}
+                          : {
+                              position: "sticky",
+                              left,
+                              zIndex: 10,
+                              background: "var(--color-background)",
+                            }),
                         // The body half of the column separator — same rule,
                         // same last-column exception, as the header above.
                         ...(colIndex < columns.length - 1
@@ -620,7 +966,10 @@ export function TableView({
                         event.stopPropagation();
                         // The first click of this pair already scheduled an open.
                         cancelPendingOpen();
-                        if (editable) setEditing({ key, col: col.id });
+                        // A checkbox has nothing to type into — its own control
+                        // toggles it, so opening an editor over it would be a
+                        // second, worse way to do the same thing.
+                        if (editable && col.kind !== "checkbox") setEditing({ key, col: col.id });
                       }}
                       // §5f: right-click opens the SAME command list the row
                       // caret does, plus the cell-scoped commands (edit, copy,
@@ -646,7 +995,7 @@ export function TableView({
                       {/* TASK-084: a formula cell holds a computed VALUE and the
                           EXPRESSION that produced it, and fx toggles between
                           them. Only this branch is new — every other cell keeps
-                          the InlineEditor it already had. */}
+                          the kind-shaped CellEditor. */}
                       {isEditing && stableRecordId && col.kind === "formula" && col.expressionField ? (
                         <FormulaCellEditor
                           value={text}
@@ -659,14 +1008,16 @@ export function TableView({
                           onCancel={() => setEditing(null)}
                         />
                       ) : isEditing && stableRecordId ? (
-                        <InlineEditor
-                          initial={value === null || value === undefined ? "" : String(value)}
+                        <CellEditor
+                          col={col}
+                          value={value}
                           align={numeric ? "right" : "left"}
-                          options={col.options}
                           onCancel={() => setEditing(null)}
                           onCommit={async (next) => {
                             setEditing(null);
-                            await onUpdate?.(stableRecordId, { [col.id]: next });
+                            await onUpdate?.(stableRecordId, {
+                              [col.id]: coerceCellValue(col, next),
+                            });
                           }}
                         />
                       ) : flaggable && isFlaggableValue(value) && stableRecordId ? (
@@ -739,7 +1090,7 @@ export function TableView({
                 key={`empty-${index}`}
                 aria-hidden="true"
                 style={{
-                  height: ROW_HEIGHT,
+                  height: rowPx,
                   borderBottom:
                     index === EMPTY_FILLER_ROWS - 1
                       ? undefined
@@ -785,7 +1136,10 @@ export function TableView({
           <tr style={{ background: "var(--color-line-soft)" }}>
               {columns.map((col) => {
                 const numeric = isNumericColumn(col);
-                const kind = aggregates[col.id] ?? defaultAggregate(numeric);
+                const saved = view.aggregates?.[col.id];
+                const kind = (saved && saved in AGGREGATE_LABELS
+                  ? (saved as AggregateKind)
+                  : defaultAggregate(numeric));
                 return (
                   <AggregateCell
                     key={col.id}
@@ -795,7 +1149,7 @@ export function TableView({
                     values={sorted.map((row) => row[col.id])}
                     format={aggregateFormatter(col)}
                     onChange={(next) =>
-                      setAggregates((current) => ({ ...current, [col.id]: next }))
+                      patchView({ aggregates: { ...(view.aggregates ?? {}), [col.id]: next } })
                     }
                   />
                 );
@@ -1048,81 +1402,3 @@ function AggregateCell({
     </td>
   );
 }
-
-/** Inline cell editor. Present only where a governed update path exists —
- * `onUpdate` routes through the caller's pipeline exactly as the Form view's
- * insert does, so editing here is not a second, ungoverned write path. */
-function InlineEditor({
-  initial,
-  align,
-  options,
-  onCommit,
-  onCancel,
-}: {
-  initial: string;
-  align: "left" | "right";
-  options?: string[];
-  onCommit: (value: string) => void;
-  onCancel: () => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const selectRef = useRef<HTMLSelectElement>(null);
-  const [value, setValue] = useState(initial);
-
-  useEffect(() => {
-    if (options) selectRef.current?.focus();
-    else {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }
-  }, [options]);
-
-  const style = {
-    borderColor: "var(--color-steel)",
-    background: "var(--color-background)",
-    color: "var(--color-navy)",
-  };
-
-  if (options) {
-    return (
-      <select
-        ref={selectRef}
-        value={value}
-        onChange={(event) => {
-          setValue(event.target.value);
-          onCommit(event.target.value);
-        }}
-        onBlur={onCancel}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onCancel();
-        }}
-        className="w-full rounded-md border px-2 py-1 text-[13px] outline-none"
-        style={style}
-      >
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    );
-  }
-
-  return (
-    <input
-      ref={inputRef}
-      value={value}
-      onChange={(event) => setValue(event.target.value)}
-      onBlur={() => (value === initial ? onCancel() : onCommit(value))}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") onCommit(value);
-        if (event.key === "Escape") onCancel();
-      }}
-      className={`w-full min-w-[80px] rounded-md border px-2 py-1 text-[13px] outline-none ${
-        align === "right" ? "text-right" : ""
-      }`}
-      style={style}
-    />
-  );
-}
-

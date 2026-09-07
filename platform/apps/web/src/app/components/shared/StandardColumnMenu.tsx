@@ -122,7 +122,25 @@ export interface StandardColumnMenuItemProps {
   onFilter: () => void;
   onSort: (direction: "asc" | "desc") => void;
   onGroup?: () => void;
+  /** Is this the column the View is grouped by? The command reads as the way
+   *  back out, not as a second grouping. */
+  grouped?: boolean;
   onHide?: () => void;
+  /** Shown as the tooltip on the column name (`ColumnSpec.description`). */
+  description?: string;
+
+  // ── View mechanics reached from any column (TASK-109) ────────────────────
+  /** Freeze every column up to and including this one, or unfreeze. */
+  onFreeze?: () => void;
+  frozen?: boolean;
+  onToggleWrap?: () => void;
+  wrapped?: boolean;
+  /** The View's current row height, shown on the command that advances it. */
+  rowHeight?: "short" | "medium" | "tall";
+  onRowHeight?: () => void;
+  /** Add a column of THIS column's type beside it, through the same governed
+   *  add path. Values are not copied — no server command copies them. */
+  onDuplicateColumn?: (label: string) => Promise<void>;
 
   // ── The governed schema-mutation capability (TASK-084) ───────────────────
   /** The column's stable id, shown in the rename warning so a person can see
@@ -220,7 +238,15 @@ export function StandardColumnMenuPanel({
   onFilter,
   onSort,
   onGroup,
+  grouped,
   onHide,
+  onFreeze,
+  frozen,
+  onToggleWrap,
+  wrapped,
+  rowHeight,
+  onRowHeight,
+  onDuplicateColumn,
   columnId,
   columnKind,
   locked,
@@ -332,21 +358,6 @@ export function StandardColumnMenuPanel({
           }
         />
         <MenuItem
-          label="Edit column"
-          disabledReason={schemaReason(onRename)}
-          onSelect={() =>
-            open({
-              title: `Edit “${label}”`,
-              consequence: `Editing a column here changes its label. To change how its values are read, use Change type — the two are separate so a rename can never silently reinterpret your data.`,
-              input: { kind: "text", value: label },
-              confirmLabel: "Save",
-              run: async (value) => {
-                await onRename?.(value);
-              },
-            })
-          }
-        />
-        <MenuItem
           label="Change type"
           disabledReason={schemaReason(onChangeType)}
           onSelect={() =>
@@ -390,11 +401,10 @@ export function StandardColumnMenuPanel({
           }}
         />
         <MenuItem
-          label="Group"
-          // The old wording ("this column cannot group the current View") implied a
-          // per-column condition that does not exist: TableView never passes
-          // `onGroup`, so Group is disabled for EVERY column on every View.
-          disabledReason={onGroup ? undefined : "Unavailable: grouping is not wired for this View yet"}
+          label={grouped ? "Ungroup" : "Group"}
+          // TASK-109 wired it: TableView passes `onGroup` now, so this is only
+          // disabled on a surface that genuinely cannot persist a View change.
+          disabledReason={onGroup ? undefined : "Unavailable: this surface cannot persist a View change"}
           onSelect={() => {
             onGroup?.();
             onClose();
@@ -431,6 +441,30 @@ export function StandardColumnMenuPanel({
           }}
         />
         <MenuItem
+          label={frozen ? "Unfreeze columns" : "Freeze up to this column"}
+          disabledReason={onFreeze ? undefined : "Unavailable: this surface cannot persist a View change"}
+          onSelect={() => {
+            onFreeze?.();
+            onClose();
+          }}
+        />
+        <MenuItem
+          label={wrapped ? "Stop wrapping cells" : "Wrap cells"}
+          disabledReason={onToggleWrap ? undefined : "Unavailable: this surface cannot persist a View change"}
+          onSelect={() => {
+            onToggleWrap?.();
+            onClose();
+          }}
+        />
+        <MenuItem
+          label={`Row height: ${rowHeight ?? "short"}`}
+          disabledReason={onRowHeight ? undefined : "Unavailable: this surface cannot persist a View change"}
+          onSelect={() => {
+            onRowHeight?.();
+            onClose();
+          }}
+        />
+        <MenuItem
           label="Add column left"
           disabledReason={addReason()}
           onSelect={() => open(addCommand("left"))}
@@ -440,7 +474,22 @@ export function StandardColumnMenuPanel({
           disabledReason={addReason()}
           onSelect={() => open(addCommand("right"))}
         />
-        <MenuItem label="Duplicate column" disabledReason={noStoreReason} />
+        <MenuItem
+          label="Duplicate column"
+          disabledReason={onDuplicateColumn ? addReason() : noStoreReason}
+          onSelect={() =>
+            open({
+              title: `Duplicate “${label}”`,
+              consequence:
+                "The new column arrives beside this one with the same type and NO values — nothing here copies a column's values, so it starts empty and you fill it.",
+              input: { kind: "text", value: `${label} copy` },
+              confirmLabel: "Duplicate column",
+              run: async (value) => {
+                await onDuplicateColumn?.(value);
+              },
+            })
+          }
+        />
         <MenuItem
           label="Delete column"
           disabledReason={schemaReason(onDelete)}
@@ -590,7 +639,7 @@ export function StandardColumnMenu(props: StandardColumnMenuItemProps) {
         aria-haspopup="menu"
         aria-expanded={position !== null}
         aria-label={`${props.label} column actions`}
-        title="Right-click for column actions"
+        title={props.description ?? "Right-click for column actions"}
         className="cursor-context-menu rounded outline-none focus-visible:ring-1 focus-visible:ring-current"
         onContextMenu={(event) => {
           event.preventDefault();

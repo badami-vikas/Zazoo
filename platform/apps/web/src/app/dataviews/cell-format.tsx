@@ -119,8 +119,175 @@ export function displayText(col: ColumnSpec, value: unknown): string {
   return formatCell(value);
 }
 
+// ── Kind-shaped cells (TASK-109) ─────────────────────────────────────────────
+// Everything below renders a value AS ITS KIND. Until this landed the grid
+// printed the literal text "true" for a checkbox, left a url as dead text and
+// showed a date as its raw ISO string.
+
+/** What a cell needs from its surface to be more than text. */
+export interface CellContext {
+  /** kind: "checkbox" — toggle in place. Absent = the row is not editable. */
+  onToggle?: (next: boolean) => void;
+  /** kind: "button" — run the column's Action. Absent = no runner is wired. */
+  onRunAction?: (actionId: string) => void;
+  /** Why this cell's own control cannot act, as the SERVER/surface said it. */
+  disabledReason?: string;
+}
+
+/** A cell's own control must never also open the Record behind it. */
+const stopRowOpen = (event: { stopPropagation: () => void }) => event.stopPropagation();
+
+const CHIP =
+  "inline-flex items-center rounded-full px-2 py-0.5 text-[12px] font-medium ring-1 ring-inset";
+
+/** A status option's pill colour comes from its lifecycle group, so "done"
+ *  reads the same in every Module without anyone painting it per Database. */
+const STATUS_TONE = { todo: "gray", doing: "blue", done: "green" } as const;
+
+function chips(values: unknown[]): ReactNode {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {values.map((entry, index) => (
+        <span key={`${String(entry)}-${index}`} className={`${CHIP} ${BADGE_TONES.gray}`}>
+          {String(entry)}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** A bare "bridge.dev" is a relative path to the browser; only an absolute
+ *  href actually opens. */
+function externalHref(value: string): string {
+  return /^[a-z][a-z0-9+.-]*:/i.test(value) ? value : `https://${value}`;
+}
+
+function link(href: string, text: string): ReactNode {
+  return (
+    <a
+      data-stop
+      href={href}
+      target={href.startsWith("http") ? "_blank" : undefined}
+      rel={href.startsWith("http") ? "noreferrer" : undefined}
+      onClick={stopRowOpen}
+      className="underline underline-offset-2"
+      style={{ color: "var(--color-steel)" }}
+    >
+      {text}
+    </a>
+  );
+}
+
+/** A local date, never an ISO string. Invalid input stays verbatim rather than
+ *  becoming "Invalid Date" — a wrong-looking value beats a fabricated one. */
+function localDate(value: unknown): ReactNode {
+  const at = new Date(String(value));
+  return Number.isNaN(at.getTime()) ? String(value) : at.toLocaleDateString();
+}
+
+/**
+ * The kind-shaped rendering, or null when the kind has nothing special to say
+ * and the plain-text projection is right.
+ */
+function renderByKind(col: ColumnSpec, value: unknown, ctx?: CellContext): ReactNode | null {
+  // These two render at an empty value too: an unchecked box and an unpressed
+  // button are states, not blanks.
+  switch (col.kind) {
+    case "checkbox":
+      return (
+        <input
+          data-stop
+          type="checkbox"
+          checked={Boolean(value)}
+          disabled={!ctx?.onToggle}
+          title={ctx?.onToggle ? undefined : ctx?.disabledReason}
+          aria-label={col.label}
+          onClick={stopRowOpen}
+          onChange={(event) => ctx?.onToggle?.(event.target.checked)}
+          className="size-4 accent-current align-middle"
+        />
+      );
+    case "button": {
+      // A button column stores nothing; it runs a governed Action. With no
+      // runner wired the control stays VISIBLE and says so (§3a) rather than
+      // pretending to work.
+      const reason = !col.actionId
+        ? "Unavailable: this column names no Action to run"
+        : !ctx?.onRunAction
+          ? (ctx?.disabledReason ??
+            "Unavailable: this surface has no Action runner wired, so the button has nothing to run")
+          : undefined;
+      return (
+        <button
+          data-stop
+          type="button"
+          disabled={Boolean(reason)}
+          title={reason}
+          onClick={(event) => {
+            stopRowOpen(event);
+            if (col.actionId) ctx?.onRunAction?.(col.actionId);
+          }}
+          className="rounded-md border px-2 py-0.5 text-[12px] disabled:cursor-not-allowed disabled:opacity-60"
+          style={{ borderColor: "var(--color-border)", color: "var(--color-navy)" }}
+        >
+          {col.label}
+        </button>
+      );
+    }
+    default:
+      break;
+  }
+
+  if (value === null || value === undefined || value === "") return null;
+
+  switch (col.kind) {
+    case "url":
+      return link(externalHref(String(value)), String(value));
+    case "email":
+      return link(`mailto:${String(value)}`, String(value));
+    case "phone":
+      return link(`tel:${String(value)}`, String(value));
+    case "date":
+      return localDate(value);
+    case "multiselect":
+      return chips(Array.isArray(value) ? value : String(value).split(",").map((v) => v.trim()));
+    case "status": {
+      const group = col.statusGroups?.[String(value)];
+      const tone = BADGE_TONES[group ? STATUS_TONE[group] : "gray"];
+      return <span className={`${CHIP} ${tone}`}>{String(value)}</span>;
+    }
+    case "autoNumber":
+    case "number":
+      return <span className="tabular-nums">{formatCell(value)}</span>;
+    case "longText":
+      // The full value is the tooltip: clamping must never be the only place a
+      // sentence exists.
+      return (
+        <span className="line-clamp-2 whitespace-pre-line" title={String(value)}>
+          {String(value)}
+        </span>
+      );
+    case "files": {
+      const count = Array.isArray(value) ? value.length : 1;
+      return (
+        <span className={`${CHIP} ${BADGE_TONES.gray}`}>
+          {count} {count === 1 ? "file" : "files"}
+        </span>
+      );
+    }
+    case "person":
+      return chips(Array.isArray(value) ? value : [value]);
+    case "rollup":
+      // Read-only by nature: nothing writes to a rollup, so it renders as the
+      // derived value it is rather than as an editable-looking cell.
+      return <span style={{ color: "var(--color-warm-gray)" }}>{formatCell(value)}</span>;
+    default:
+      return null;
+  }
+}
+
 /** Rich DOM rendering for a cell. Canvas renderers use `displayText` instead. */
-export function renderCell(col: ColumnSpec, value: unknown): ReactNode {
+export function renderCell(col: ColumnSpec, value: unknown, ctx?: CellContext): ReactNode {
   const metadata = formatMetadata(col, value);
   if (metadata !== null) {
     return <span style={{ color: "var(--color-warm-gray)" }}>{metadata}</span>;
@@ -186,5 +353,8 @@ export function renderCell(col: ColumnSpec, value: unknown): ReactNode {
       }
     }
   }
-  return formatCell(value);
+  // The kind's own shape comes AFTER the display hint on purpose: a column that
+  // opted into `badge`/`meter` asked for that glyph specifically, and its kind
+  // must not quietly take the request back.
+  return renderByKind(col, value, ctx) ?? formatCell(value);
 }
