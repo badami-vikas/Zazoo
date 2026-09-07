@@ -92,11 +92,30 @@ export interface ModuleStore {
     moduleName: string,
     displayNameOverride: string | null,
   ): Promise<ModuleInstallationRow[]>;
+  /**
+   * Remove EVERY version row a Module has in one Organization, returning what
+   * was removed.
+   *
+   * Not a state transition: `deprecated` is a Module that still exists and can
+   * be rolled back to, and a Module the user deleted is one that does not.
+   * Keyed by (organization, module name) for the same reason the rename is —
+   * the user is deleting the Module, not the version that happens to be
+   * available today (2026-09-07).
+   */
+  deleteVersions(organizationId: string, moduleName: string): Promise<ModuleInstallationRow[]>;
 }
 
 /** In-memory `ModuleStore` — dev/test default, mirrors InMemoryCapabilityStore's shape. */
 export class InMemoryModuleStore implements ModuleStore {
   readonly rows = new Map<string, ModuleInstallationRow>();
+
+  async deleteVersions(organizationId: string, moduleName: string): Promise<ModuleInstallationRow[]> {
+    const removed = [...this.rows.values()].filter(
+      (row) => row.organizationId === organizationId && row.moduleName === moduleName,
+    );
+    for (const row of removed) this.rows.delete(row.id);
+    return removed;
+  }
 
   async create(row: Omit<ModuleInstallationRow, "id" | "createdAt">): Promise<ModuleInstallationRow> {
     const existing = [...this.rows.values()].find(

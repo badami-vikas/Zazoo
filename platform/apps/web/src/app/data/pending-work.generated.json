@@ -4088,6 +4088,39 @@
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1802,
       "rank": 117
+    },
+    {
+      "id": "TASK-113",
+      "title": "TASK-113 — Deleting a Module asks which of the three things you meant",
+      "status": "completed",
+      "statusNote": "2026-09-07",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "the rail's Module menu offers Delete beside Hide; it opens a confirmation with three answers — delete the Module and keep what it collected, delete the Module and its data, or hide it and delete nothing — each stating its own consequence; the server does exactly the one asked for, refuses an Agent, refuses a Module another Module depends on, and returns the count of what went.",
+      "prototypeTest": "in the installed Egg, right-click a Module in the rail, choose Delete, pick \"Delete Module only\", reinstall it and find its Records still there; do it again with \"Delete Module and its data\" and find the Database empty.",
+      "evidence": [
+        "`apps/api/test/module-uninstall.test.ts` seen failing 0 pass / 4 fail against unchanged source (the procedure did not exist), 4/4 after, on a migrated Local Plane",
+        "`apps/web/test/module-delete.test.mjs` seen failing 0/3 with `Layout.tsx` reverted, 3/3 after",
+        "web 304/304, api modules 27/27 and module-records, module-column-schema, module-db-query, academics-module, saved-views all green",
+        "both typechecks clean",
+        "ui-rules and vocabulary gates OK (2026-09-07)."
+      ],
+      "requests": [
+        "user directive 2026-09-07, verbatim: *\"Currently I can only hide modules, provide me an option to delete module, clicking on which it should show confirmation with delete module only (data is not deleted), delete module and associated data and Hide module (no deletion)\"*"
+      ],
+      "approval": "none needed in itself — the deletion is human-confirmed at the surface, human-only at the server, and reports what it removed. Recorded in the ADR because it is the first irreversible loss a user can cause from the rail.",
+      "dependencies": [
+        "TASK-081 (rail presentation), TASK-096 (installed Modules)."
+      ],
+      "isGoal": false,
+      "path": "8.21",
+      "level": 1,
+      "canonicalStatus": "done",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1817,
+      "rank": 118
     }
   ]
 }

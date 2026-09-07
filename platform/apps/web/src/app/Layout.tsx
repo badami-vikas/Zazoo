@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Suspense } from "react";
-import { Link, Outlet, useLocation } from "react-router";
+import { Link, Outlet, useLocation, useNavigate } from "react-router";
 import { MODULES_CHANGED_EVENT } from "./chat/useChat";
 import { Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles, ChevronRight, Building2 } from "lucide-react";
 import { moduleNavTarget, buildModuleNavTree } from "@bridge/module-manifests";
@@ -160,6 +160,7 @@ function RailMenuPanel({
 export default function Layout() {
   const auth = useAuthSession();
   const location = useLocation();
+  const navigate = useNavigate();
   const isMacDesktop = useIsMacDesktop();
   // K7 (TASK-051): desktop-only, consent-driven app-focus drain loop —
   // feature-detected no-op in browser deploys.
@@ -245,6 +246,18 @@ export default function Layout() {
   const [railMenu, setRailMenu] = useState<{ position: MenuPosition; moduleName?: string } | null>(null);
   /** The Module whose rail row is currently an inline rename input. */
   const [renamingModule, setRenamingModule] = useState<string | null>(null);
+  /**
+   * The Module the user asked to delete, and what came back.
+   *
+   * Deleting is irreversible, so it is never one click: the rail's Delete
+   * opens this, and this asks which of the three things the user meant —
+   * remove the Module and keep what it collected, remove both, or only hide it
+   * (2026-09-07 user directive). `busy` disables the choices mid-flight so a
+   * second click cannot send a second delete.
+   */
+  const [deletingModule, setDeletingModule] = useState<
+    { moduleName: string; displayName: string; busy: boolean; error: string | null } | null
+  >(null);
 
   function updatePresentation(next: RailPresentation) {
     setPresentation(next);
@@ -263,6 +276,42 @@ export default function Layout() {
       }
       return next;
     });
+  }
+
+  /**
+   * Delete the Module the confirmation is open on. `deleteData` is the user's
+   * own answer to "and what it collected?" — the server does one or the other,
+   * never guesses. On success the rail re-reads from the server rather than
+   * patching its own list, so what the user sees is what the server holds.
+   */
+  function confirmModuleDelete(deleteData: boolean) {
+    const target = deletingModule;
+    if (!target || target.busy) return;
+    setDeletingModule({ ...target, busy: true, error: null });
+    trpc.modules.uninstall
+      .mutate({ organizationId: PILOT_ORGANIZATION, moduleName: target.moduleName, deleteData })
+      .then(() => {
+        // Its rail presentation goes with it: a hidden-or-renamed entry for a
+        // Module that no longer exists would come back if it were reinstalled.
+        const names = { ...presentation.names };
+        delete names[target.moduleName];
+        updatePresentation({
+          ...presentation,
+          names,
+          hidden: presentation.hidden.filter((name) => name !== target.moduleName),
+          order: presentation.order.filter((name) => name !== target.moduleName),
+        });
+        setDeletingModule(null);
+        window.dispatchEvent(new Event(MODULES_CHANGED_EVENT));
+        // Standing on a page of the Module just deleted would render a surface
+        // whose Module is gone.
+        if (location.pathname.startsWith(`/module/${target.moduleName}`)) navigate("/");
+      })
+      .catch((failure) => {
+        // The server's own words. A delete refused because another Module
+        // depends on this one names that Module, and the user needs to read it.
+        setDeletingModule({ ...target, busy: false, error: String(failure).replace(/^TRPCClientError:\s*/, "") });
+      });
   }
 
   // TASK-001 VOCAB6: load installed modules from modules.list for the nav.
@@ -1013,6 +1062,26 @@ export default function Layout() {
               >
                 Rename
               </button>
+              {/* Deleting is the one destructive thing on this menu, so it is
+                  last, it is separated, and it opens a question rather than
+                  doing anything (2026-09-07 user directive). */}
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  const target = presentedModules.find((mod) => mod.moduleName === railMenu.moduleName);
+                  setDeletingModule({
+                    moduleName: railMenu.moduleName!,
+                    displayName: target?.displayName ?? railMenu.moduleName!,
+                    busy: false,
+                    error: null,
+                  });
+                  setRailMenu(null);
+                }}
+                className="w-full px-3 py-1.5 text-left text-xs text-[var(--color-destructive)] hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                Delete…
+              </button>
               <div className="my-1 border-t" style={{ borderColor: "var(--color-border)" }} />
             </>
           )}
@@ -1039,6 +1108,88 @@ export default function Layout() {
             );
           })}
         </RailMenuPanel>
+      )}
+
+
+      {/* Three answers, because the user meant three different things by
+          "delete" (2026-09-07): the Module without its Records, the Module with
+          them, or neither — just take it off the rail. Each says its own
+          consequence in one line; none of them is preselected, and the
+          destructive pair is separated from the safe one. */}
+      {deletingModule && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-module-title"
+          onClick={(event) => {
+            if (event.target === event.currentTarget && !deletingModule.busy) setDeletingModule(null);
+          }}
+        >
+          <div
+            className="w-full max-w-sm rounded-lg border p-4 shadow-lg"
+            style={{ backgroundColor: "var(--color-surface)", borderColor: "var(--color-border)" }}
+          >
+            <h2 id="delete-module-title" className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>
+              Delete {deletingModule.displayName}?
+            </h2>
+            {deletingModule.error && (
+              <p className="mt-2 text-xs" style={{ color: "var(--color-destructive)" }} role="alert">
+                {deletingModule.error}
+              </p>
+            )}
+            <div className="mt-3 flex flex-col gap-2">
+              <button
+                type="button"
+                disabled={deletingModule.busy}
+                onClick={() => confirmModuleDelete(false)}
+                className="rounded-md border px-3 py-2 text-left text-xs hover:bg-black/5 disabled:opacity-45 dark:hover:bg-white/10"
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                <span className="block font-medium">Delete Module only</span>
+                <span className="block opacity-70">Everything it collected stays, and is there again if you reinstall it.</span>
+              </button>
+              <button
+                type="button"
+                disabled={deletingModule.busy}
+                onClick={() => confirmModuleDelete(true)}
+                className="rounded-md border px-3 py-2 text-left text-xs hover:bg-black/5 disabled:opacity-45 dark:hover:bg-white/10"
+                style={{ borderColor: "var(--color-destructive)", color: "var(--color-destructive)" }}
+              >
+                <span className="block font-medium">Delete Module and its data</span>
+                <span className="block opacity-70">Its Records, columns, Views and settings go too. This cannot be undone.</span>
+              </button>
+              <button
+                type="button"
+                disabled={deletingModule.busy || !canHideModule(presentedModules, presentation.hidden, deletingModule.moduleName)}
+                title={
+                  canHideModule(presentedModules, presentation.hidden, deletingModule.moduleName)
+                    ? undefined
+                    : "Unavailable: the rail always keeps at least one Module visible"
+                }
+                onClick={() => {
+                  setModuleHidden(deletingModule.moduleName, true);
+                  setDeletingModule(null);
+                }}
+                className="rounded-md border px-3 py-2 text-left text-xs hover:bg-black/5 disabled:opacity-45 dark:hover:bg-white/10"
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                <span className="block font-medium">Hide it instead</span>
+                <span className="block opacity-70">Nothing is deleted. It leaves the rail and comes back from View options.</span>
+              </button>
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                disabled={deletingModule.busy}
+                onClick={() => setDeletingModule(null)}
+                className="rounded-md px-3 py-1.5 text-xs hover:bg-black/5 disabled:opacity-45 dark:hover:bg-white/10"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="min-w-0 flex-1 overflow-auto pb-14 sm:pb-0 bg-background">

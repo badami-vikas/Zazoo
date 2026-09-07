@@ -236,4 +236,23 @@ export class DrizzleViewConfigStore implements ViewConfigStore {
       if (rows.length === 0) throw new SavedViewNotFoundError(id);
     });
   }
+
+  /** This owner's saved Views on a Database. Called only when the Database
+   * itself is being deleted (2026-09-07); owner-scoped because that is what the
+   * `view_configs_delete` policy permits. */
+  async removeForDatabase(organizationId: string, ownerUserId: string, databaseId: string): Promise<number> {
+    return this.#scoped(organizationId, ownerUserId, async (tx) => {
+      const rows = await tx
+        .delete(viewConfigs)
+        .where(
+          and(
+            eq(viewConfigs.organizationId, organizationId),
+            eq(viewConfigs.ownerUserId, ownerUserId),
+            eq(viewConfigs.databaseId, databaseId),
+          ),
+        )
+        .returning();
+      return rows.length;
+    });
+  }
 }

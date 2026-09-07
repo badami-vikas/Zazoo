@@ -127,8 +127,14 @@ test("the rail wires the context menu, the View options restore, and drag-reorde
   assert.ok(/onDrop=/.test(layout), "a drop must commit the new order");
   assert.ok(/View options/.test(layout), "hidden Modules must be restorable from View options");
   assert.ok(/rail-module-presentation/.test(layout), "the rail must use the shared presentation model");
-  // Hiding is rail presentation only — it must never reach an install path.
-  assert.ok(!/modules\.uninstall|modules\.install\b/.test(layout));
+  // HIDING is still rail presentation only: it writes localStorage and reaches
+  // no install path. The rail DOES now call `modules.uninstall`, but only from
+  // the Delete confirmation, which is a different control with a different
+  // question (2026-09-07 user directive) — so the assertion narrowed from "the
+  // rail never uninstalls" to "hiding never does".
+  assert.ok(!/modules\.install\b/.test(layout), "the rail must never install");
+  const hideCall = layout.slice(layout.indexOf("function setModuleHidden"), layout.indexOf("function setModuleHidden") + 800);
+  assert.ok(!/trpc\./.test(hideCall), "hiding a Module must not reach the server at all");
 });
 
 test("the Organization admin surface hangs off the Organization control, not off a Module", () => {

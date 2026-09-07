@@ -1811,3 +1811,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: none needed (new renderers over the existing View grammar; no new data reach).
 - Dependencies: TASK-062, TASK-100.
 - NOT LANDED (stated): the Timeline is read-only — no drag to reschedule — and stops adding ticks past 400, so a multi-year range at day zoom is coarse rather than unreadable. Chart offers bar, line and donut only, drawn in plain SVG because the web app has no charting dependency and three shapes do not justify one. Chart eligibility excludes plain text columns, since one bar per Record is a list wearing a chart's clothes.
+
+## Deleting a Module asks which of the three things you meant
+
+- ID: TASK-113
+- Status: done (2026-09-07)
+- Priority: P1
+- Horizon: Living Software
+- Outcome: the rail's Module menu offers Delete beside Hide; it opens a confirmation with three answers — delete the Module and keep what it collected, delete the Module and its data, or hide it and delete nothing — each stating its own consequence; the server does exactly the one asked for, refuses an Agent, refuses a Module another Module depends on, and returns the count of what went.
+- Prototype test: in the installed Egg, right-click a Module in the rail, choose Delete, pick "Delete Module only", reinstall it and find its Records still there; do it again with "Delete Module and its data" and find the Database empty.
+- Evidence: `apps/api/test/module-uninstall.test.ts` seen failing 0 pass / 4 fail against unchanged source (the procedure did not exist), 4/4 after, on a migrated Local Plane; `apps/web/test/module-delete.test.mjs` seen failing 0/3 with `Layout.tsx` reverted, 3/3 after; web 304/304, api modules 27/27 and module-records, module-column-schema, module-db-query, academics-module, saved-views all green; both typechecks clean; ui-rules and vocabulary gates OK (2026-09-07).
+- Requests: user directive 2026-09-07, verbatim: *"Currently I can only hide modules, provide me an option to delete module, clicking on which it should show confirmation with delete module only (data is not deleted), delete module and associated data and Hide module (no deletion)"*
+- Approval: none needed in itself — the deletion is human-confirmed at the surface, human-only at the server, and reports what it removed. Recorded in the ADR because it is the first irreversible loss a user can cause from the rail.
+- Dependencies: TASK-081 (rail presentation), TASK-096 (installed Modules).
+- NOT LANDED (stated): saved Views another member of the Organization made on a deleted Database are left behind, because the delete policy on `view_configs` is owner-only and widening a security policy to tidy up is the wrong trade; theirs will open nothing until they remove it. A share grant pointing at a deleted View is not revoked, for the same reason — it resolves to nothing. Files the Module wrote under `~/Documents/Bridge/<Organization>/<Module>/` are NOT removed: they are the user's own documents on their own disk, and deleting them needs its own question. The Local Plane keeps the Events the Module's writes produced; they are the audit trail, not the Module's data.

@@ -477,6 +477,21 @@ export class DrizzleModuleStore implements ModuleStore {
     });
   }
 
+  /** Every version row this Module has in one Organization, deleted. Keyed the
+   * same way the rename is, and for the same reason: the user is deleting the
+   * Module, not the version that happens to be available today (2026-09-07). */
+  async deleteVersions(organizationId: string, moduleName: string): Promise<ModuleInstallationRow[]> {
+    return withDefaultOrganization(this.#db, this.#defaultOrganizationId, async (tx) => {
+      const removed = await tx.delete(moduleInstallations)
+        .where(and(
+          eq(moduleInstallations.organizationId, organizationId),
+          eq(moduleInstallations.moduleName, moduleName),
+        ))
+        .returning();
+      return removed.map(unpack);
+    });
+  }
+
   async setNormalizedManifest(id: string, manifest: ModuleManifest): Promise<ModuleInstallationRow> {
     return withDefaultOrganization(this.#db, this.#defaultOrganizationId, async (tx) => {
       const [current] = await tx.select().from(moduleInstallations)

@@ -104,6 +104,17 @@ export interface ViewConfigStore {
   ): Promise<SavedViewRecord>;
   /** Owner-only. */
   remove(organizationId: string, ownerUserId: string, id: string): Promise<void>;
+  /**
+   * This owner's saved Views on a Database, removed — the Database itself is
+   * gone (2026-09-07). Returns how many were removed.
+   *
+   * Owner-scoped like `remove`, because the delete policy on `view_configs` is:
+   * a member may delete their own rows and no one else's. Another member's
+   * saved View on a Database this Organization deleted is therefore left
+   * behind, and opens nothing until they delete it — stated on TASK-113 rather
+   * than worked around by widening a security policy.
+   */
+  removeForDatabase(organizationId: string, ownerUserId: string, databaseId: string): Promise<number>;
 }
 
 /** Shared by both implementations so the in-memory double and the database
@@ -239,5 +250,16 @@ export class InMemoryViewConfigStore implements ViewConfigStore {
   async remove(organizationId: string, ownerUserId: string, id: string): Promise<void> {
     this.#owned(organizationId, ownerUserId, id);
     this.#views.delete(id);
+  }
+
+  async removeForDatabase(organizationId: string, ownerUserId: string, databaseId: string): Promise<number> {
+    const doomed = [...this.#views.values()].filter(
+      (view) =>
+        view.organizationId === organizationId &&
+        view.ownerUserId === ownerUserId &&
+        view.databaseId === databaseId,
+    );
+    for (const view of doomed) this.#views.delete(view.id);
+    return doomed.length;
   }
 }

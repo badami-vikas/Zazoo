@@ -3,9 +3,11 @@ import { z } from "zod";
 import { resolveActivationApproval, canonicalizeJson, parseModuleManifest, ModuleManifestValidationError, computeModuleRisk, maxRisk, evaluateSandboxRequirement, isUntrustedOrigin, trustGrantsForOrigin, advanceModuleState, promoteToAvailable, rollbackFromHistory, InvalidModuleTransitionError, type CapabilityManifest, type CapabilityManifestRow, type CapabilityOrigin, type TrustGrantView, type Proposal, type ModuleInstallationRow, type ModuleManifest } from "@bridge/core";
 import { LEARNING_RECOMMENDATION_SKILL_ID, resolveModuleAgentRuntimeId, resolveModuleAutomationRuntimeId } from "@bridge/module-manifests";
 import { assertCommonsEntryContentTrusted } from "../commons-client.js";
+import { MODULE_RECORDS_NAMESPACE_PREFIX } from "./moduleRecords.js";
+import { TABLE_SCHEMA_NAMESPACE_PREFIX } from "../table-schema.js";
 import { MODULE_MANIFEST_FILE, readModuleManifestFile, registerModuleManifest } from "../module-register.js";
 import { listModuleFiles, renameModuleFolder, MAX_MODULE_FILE_BYTES, ModuleFilesPathError, withOrganizationFileOperationLock, saveModuleFile } from "../module-files.js";
-import { activateApprovedModuleInstallation, assertCurrentCommonsAttachment, assertMembership, assertPilotOrganization, authenticatedProcedure, currentSupportedRelationshipOwner, findPendingProposalById, isSupportedCitedRoleModelInstallation, isSupportedCitedRoleModelManifest, moduleFolderLabel, moduleIdInput, moduleInstallIdFromProposal, moduleInstallInput, moduleInstallationLedgerResourceId, modulePromoteInput, moduleRegisterInput, moduleRollbackInput, organizationGuard, paginatedInput, procedure, requireOrganizationNameForFiles, stableModuleInstallProposalId, t, verifiedCommonsDependencyInstallations } from "../router-shared.js";
+import { MODULE_GOVERNANCE_NAMESPACE_PREFIX, RECORD_NOTES_NAMESPACE_PREFIX, RECORD_SECTIONS_NAMESPACE_PREFIX, assertHumanIdentity, activateApprovedModuleInstallation, assertCurrentCommonsAttachment, assertMembership, assertPilotOrganization, authenticatedProcedure, currentSupportedRelationshipOwner, findPendingProposalById, isSupportedCitedRoleModelInstallation, isSupportedCitedRoleModelManifest, moduleFolderLabel, moduleIdInput, moduleInstallIdFromProposal, moduleInstallInput, moduleInstallationLedgerResourceId, modulePromoteInput, moduleRegisterInput, moduleRollbackInput, organizationGuard, paginatedInput, procedure, requireOrganizationNameForFiles, stableModuleInstallProposalId, t, verifiedCommonsDependencyInstallations } from "../router-shared.js";
 
 /**
  * P2 Capability modules (docs/raw/capability-module-format.md, ADR-018) —
@@ -780,6 +782,114 @@ export const modulesRouter = t.router({
    * other Bridge mutation). The forked row still needs its own `install` to
    * go live — rollback alone does not activate it.
    */
+
+  /**
+   * Delete a Module. Two answers, and the caller says which (2026-09-07 user
+   * directive: *"provide me an option to delete module, clicking on which it
+   * should show confirmation with delete module only (data is not deleted),
+   * delete module and associated data and Hide module (no deletion)"*).
+   *
+   * `deleteData: false` removes the Module — every version row it has in this
+   * Organization — and leaves what it collected on the Local Plane, so
+   * installing it again finds its Records where it left them.
+   * `deleteData: true` additionally deletes, for each Database the Module
+   * declares: its Records, the column overlay, the Record Sections and Notes
+   * settings, this caller's saved Views on it, and the Module's governance
+   * overlay.
+   *
+   * IRREVERSIBLE, so: human identity only, never an Agent (AP-182 lists
+   * irreversible loss as one of the four things governance blocks on), and the
+   * count of what went is returned rather than a bare success, because a user
+   * who just deleted their work is owed the number.
+   *
+   * Hiding is NOT here. It is rail presentation, it deletes nothing, and it
+   * never reached the server in the first place.
+   */
+  uninstall: authenticatedProcedure
+    .input(z.object({
+      organizationId: z.string().min(1),
+      moduleName: z.string().min(1),
+      /** Delete the Records and settings this Module collected, not just the
+       * Module. The surface asks before sending this true. */
+      deleteData: z.boolean(),
+    }))
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
+      assertHumanIdentity(ctx, "deleting a Module");
+      const versions = await ctx.wiring.moduleStore.listVersions(input.organizationId, input.moduleName);
+      if (versions.length === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `Module "${input.moduleName}" is not installed here` });
+      }
+
+      // A Module another Module is attached to cannot go first: the dependent
+      // would be left pointing at something that no longer exists. Say which
+      // one, so the user can act on it rather than guess.
+      const { items: everyInstallation } = await ctx.wiring.moduleStore.list(input.organizationId, {
+        limit: 500,
+        offset: 0,
+      });
+      const dependents = [...new Set(everyInstallation
+        .filter((row) => row.moduleAttachment?.ownerModuleName === input.moduleName && row.moduleName !== input.moduleName)
+        .map((row) => row.moduleName))];
+      if (dependents.length > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `"${input.moduleName}" cannot be deleted while ${dependents.join(", ")} ${dependents.length === 1 ? "depends" : "depend"} on it. Delete ${dependents.length === 1 ? "that Module" : "those Modules"} first.`,
+        });
+      }
+
+      // The Databases to clear come from whichever version is live, falling
+      // back to the newest row — a Module the user never promoted still has
+      // Records under the same spec ids.
+      const live = versions.find((row) => row.state === "available")
+        ?? versions.find((row) => row.state === "promoted")
+        ?? versions[versions.length - 1]!;
+      const databases = live.manifest.module?.databases ?? [];
+
+      let deletedRecords = 0;
+      let deletedViews = 0;
+      const clearedDatabases: string[] = [];
+      if (input.deleteData) {
+        for (const database of databases) {
+          const specId = `${input.moduleName}.${database.id}`;
+          const stored = await ctx.wiring.localPlane.state.read(
+            input.organizationId,
+            `${MODULE_RECORDS_NAMESPACE_PREFIX}${specId}`,
+          );
+          const rows = (stored as { rows?: unknown[] } | null)?.rows;
+          deletedRecords += Array.isArray(rows) ? rows.length : 0;
+          for (const prefix of [
+            MODULE_RECORDS_NAMESPACE_PREFIX,
+            TABLE_SCHEMA_NAMESPACE_PREFIX,
+            RECORD_SECTIONS_NAMESPACE_PREFIX,
+            RECORD_NOTES_NAMESPACE_PREFIX,
+          ]) {
+            await ctx.wiring.localPlane.state.remove(input.organizationId, `${prefix}${specId}`);
+          }
+          deletedViews += await ctx.wiring.viewConfigs.removeForDatabase(
+            input.organizationId,
+            ctx.identity.id,
+            specId,
+          );
+          clearedDatabases.push(database.name);
+        }
+        await ctx.wiring.localPlane.state.remove(
+          input.organizationId,
+          `${MODULE_GOVERNANCE_NAMESPACE_PREFIX}${input.moduleName}`,
+        );
+      }
+
+      const removed = await ctx.wiring.moduleStore.deleteVersions(input.organizationId, input.moduleName);
+      return {
+        moduleName: input.moduleName,
+        displayName: moduleFolderLabel(live),
+        removedVersions: removed.length,
+        dataDeleted: input.deleteData,
+        deletedRecords,
+        deletedViews,
+        clearedDatabases,
+      };
+    }),
+
   rollback: procedure.input(moduleRollbackInput).use(organizationGuard).mutation(async ({ input, ctx }) => {
     const rollbackTarget = await ctx.wiring.moduleStore.get(input.rollbackTargetId);
     if (!rollbackTarget || rollbackTarget.organizationId !== input.organizationId) {
