@@ -11,6 +11,14 @@ import {
 import { Input } from "../ui/input.js";
 import { useDismiss } from "../../lib/useDismiss";
 import {
+  AddColumnDialog,
+  CHOICE_KINDS,
+  COLUMN_TYPES,
+  ColumnOptionsEditor,
+  type ColumnDraft,
+  type ColumnTypeName,
+} from "./AddColumnDialog.js";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -71,50 +79,9 @@ export interface ColumnSchemaCapability {
   addReason?: string | null;
 }
 
-export type ColumnTypeName =
-  | "text"
-  | "longText"
-  | "number"
-  | "email"
-  | "phone"
-  | "person"
-  | "files"
-  | "status"
-  | "rollup"
-  | "autoNumber"
-  | "button"
-  | "select"
-  | "multiselect"
-  | "date"
-  | "checkbox"
-  | "url"
-  | "relation"
-  | "formula"
-  | "skill"
-  | "location";
-
-const COLUMN_TYPES: ColumnTypeName[] = [
-  "text",
-  "longText",
-  "number",
-  "email",
-  "phone",
-  "person",
-  "files",
-  "status",
-  "rollup",
-  "autoNumber",
-  "button",
-  "select",
-  "multiselect",
-  "date",
-  "checkbox",
-  "url",
-  "relation",
-  "formula",
-  "skill",
-  "location",
-];
+/** Re-exported so every existing consumer keeps its one import: the list and
+ * the type now live beside the dialog that offers them (TASK-112). */
+export type { ColumnTypeName };
 
 export interface StandardColumnMenuItemProps {
   label: string;
@@ -150,12 +117,14 @@ export interface StandardColumnMenuItemProps {
   locked?: boolean;
   capability?: ColumnSchemaCapability | null;
   onRename?: (label: string) => Promise<void>;
-  onChangeType?: (kind: ColumnTypeName) => Promise<void>;
+  onChangeType?: (kind: ColumnTypeName, options: string[]) => Promise<void>;
   onSetLocked?: (locked: boolean) => Promise<void>;
   onDelete?: () => Promise<void>;
   /** Add a column beside this one. Present only where the server said this
-   * Database's row store can hold a column its spec never declared. */
-  onAddColumn?: (label: string, side: "left" | "right") => Promise<void>;
+   * Database's row store can hold a column its spec never declared. Takes the
+   * whole draft the shared dialog collected — name, type and, for a choice
+   * kind, its choices (TASK-112). */
+  onAddColumn?: (draft: ColumnDraft, side: "left" | "right") => Promise<void>;
   /** Fetches the dependency preview shown in the delete warning. */
   onPreviewDelete?: () => Promise<ColumnDependencyPreview>;
   onUndo?: () => Promise<void>;
@@ -194,6 +163,8 @@ interface PendingCommand {
   consequence: string;
   detail?: ReactNode;
   input?: { kind: "text"; value: string } | { kind: "columnType"; value: ColumnTypeName };
+  /** The retype path's choices, sent alongside the new kind (TASK-112). */
+  runWithOptions?: (value: string, options: string[]) => Promise<void>;
   confirmLabel: string;
   run: (value: string) => Promise<void>;
 }
@@ -263,16 +234,21 @@ export function StandardColumnMenuPanel({
 }: StandardColumnMenuItemProps & { position: MenuPosition; onClose: () => void }) {
   const [pending, setPending] = useState<PendingCommand | null>(null);
   const [draft, setDraft] = useState("");
+  /** The choices a retype names, and which side an add lands on. Both feed the
+   * SAME editor/dialog the toolbar's Add column uses (TASK-112). */
+  const [options, setOptions] = useState<string[]>([]);
+  const [addSide, setAddSide] = useState<"left" | "right" | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
   // While a warning dialog is open the menu must not dismiss under it — the
   // dialog owns the interaction until the person answers it.
-  useDismiss(!pending, onClose);
+  useDismiss(!pending && addSide === null, onClose);
 
   const open = (command: PendingCommand) => {
     setFailure(null);
     setDraft(command.input?.value ?? "");
+    setOptions([]);
     setPending(command);
   };
 
@@ -308,18 +284,13 @@ export function StandardColumnMenuPanel({
     return undefined;
   };
 
-  const addCommand = (side: "left" | "right"): PendingCommand => ({
-    title: `Add a column ${side === "left" ? "before" : "after"} “${label}”`,
-    consequence:
-      "It arrives as a text column with no values. Change its type once you know what it will hold — adding and retyping are separate, so adding can never reinterpret data you already have.",
-    input: { kind: "text", value: "New column" },
-    confirmLabel: "Add column",
-    run: async (value) => {
-      await onAddColumn?.(value, side);
-    },
-  });
-
-  const busyReason = busy ? "Working…" : undefined;
+  const busyReason = busy
+    ? "Working…"
+    : pending?.input?.kind === "columnType" &&
+        CHOICE_KINDS.includes(draft as ColumnTypeName) &&
+        options.length === 0
+      ? "Add at least one option, or choose a type that does not have any"
+      : undefined;
 
   return (
     <>
@@ -368,7 +339,10 @@ export function StandardColumnMenuPanel({
               input: { kind: "columnType", value: columnKind ?? "text" },
               confirmLabel: "Change type",
               run: async (value) => {
-                await onChangeType?.(value as ColumnTypeName);
+                await onChangeType?.(value as ColumnTypeName, []);
+              },
+              runWithOptions: async (value, chosen) => {
+                await onChangeType?.(value as ColumnTypeName, chosen);
               },
             })
           }
@@ -467,12 +441,12 @@ export function StandardColumnMenuPanel({
         <MenuItem
           label="Add column left"
           disabledReason={addReason()}
-          onSelect={() => open(addCommand("left"))}
+          onSelect={() => setAddSide("left")}
         />
         <MenuItem
           label="Add column right"
           disabledReason={addReason()}
-          onSelect={() => open(addCommand("right"))}
+          onSelect={() => setAddSide("right")}
         />
         <MenuItem
           label="Duplicate column"
@@ -542,6 +516,20 @@ export function StandardColumnMenuPanel({
         )}
       </div>
 
+      {/* ADD COLUMN — the same dialog the toolbar's Add column opens, so a
+          column added from the header and a column added from the toolbar ask
+          the identical questions (TASK-112). */}
+      <AddColumnDialog
+        open={addSide !== null}
+        title={`Add a column ${addSide === "left" ? "before" : "after"} “${label}”`}
+        onCancel={() => setAddSide(null)}
+        onSubmit={async (column) => {
+          await onAddColumn?.(column, addSide ?? "right");
+          setAddSide(null);
+          onClose();
+        }}
+      />
+
       {/* THE WARNING. Bridge's own Dialog, never the browser's `confirm` — a
           native dialog cannot state a consequence, cannot show the dependency
           preview, and is a counted violation in `check:ui-rules`. */}
@@ -574,6 +562,15 @@ export function StandardColumnMenuPanel({
               </SelectContent>
             </Select>
           )}
+          {pending?.input?.kind === "columnType" && (
+            // A retype to a choice kind used to produce a chooser over nothing.
+            // SAME editor the Add column dialog uses (TASK-112).
+            <ColumnOptionsEditor
+              kind={draft as ColumnTypeName}
+              options={options}
+              onChange={setOptions}
+            />
+          )}
           {failure && (
             <p role="alert" className="text-xs" style={{ color: "var(--color-danger)" }}>
               {failure}
@@ -591,7 +588,8 @@ export function StandardColumnMenuPanel({
                 setBusy(true);
                 setFailure(null);
                 try {
-                  await pending.run(draft);
+                  if (pending.runWithOptions) await pending.runWithOptions(draft, options);
+                  else await pending.run(draft);
                   setPending(null);
                   onClose();
                 } catch (error) {

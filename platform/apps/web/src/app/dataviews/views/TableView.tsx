@@ -650,7 +650,7 @@ export function TableView({
                       }
                       onChangeType={
                         columnSchema?.changeType
-                          ? (kind) => columnSchema.changeType!(col.id, kind)
+                          ? (kind, options) => columnSchema.changeType!(col.id, kind, options)
                           : undefined
                       }
                       onSetLocked={
@@ -663,13 +663,14 @@ export function TableView({
                       }
                       onAddColumn={
                         columnSchema?.addColumn
-                          ? (label, side) =>
-                              columnSchema.addColumn!(
-                                columnIdFromLabel(label, spec.columns),
-                                label,
-                                "text",
-                                { relativeTo: col.id, side },
-                              )
+                          ? (column, side) =>
+                              columnSchema.addColumn!({
+                                columnId: columnIdFromLabel(column.label, spec.columns),
+                                label: column.label,
+                                kind: column.kind,
+                                ...(column.options.length > 0 ? { options: column.options } : {}),
+                                position: { relativeTo: col.id, side },
+                              })
                           : undefined
                       }
                       // DUPLICATE (TASK-109): the governed add-column path with
@@ -679,12 +680,18 @@ export function TableView({
                       onDuplicateColumn={
                         columnSchema?.addColumn && !isMetadataColumn(col.kind)
                           ? (label) =>
-                              columnSchema.addColumn!(
-                                columnIdFromLabel(label, spec.columns),
+                              columnSchema.addColumn!({
+                                columnId: columnIdFromLabel(label, spec.columns),
                                 label,
-                                col.kind as Parameters<typeof columnSchema.addColumn>[2],
-                                { relativeTo: col.id, side: "right" },
-                              )
+                                kind: col.kind as Parameters<
+                                  NonNullable<typeof columnSchema.addColumn>
+                                >[0]["kind"],
+                                // The choices come with the type: duplicating a
+                                // select that offered nothing would be the same
+                                // empty chooser TASK-112 removed.
+                                ...(col.options?.length ? { options: [...col.options] } : {}),
+                                position: { relativeTo: col.id, side: "right" },
+                              })
                           : undefined
                       }
                       onPreviewDelete={
