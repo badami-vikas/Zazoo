@@ -14,9 +14,19 @@ function isParentRelation(spec: TableSpec, column: ColumnSpec): boolean {
   );
 }
 
+/**
+ * A column a chart can put on its category axis. Deliberately NOT plain text:
+ * grouping a free-text column produces one bar per Record, which is a list
+ * drawn as a chart rather than a summary of anything.
+ */
+const GROUPABLE_KINDS = new Set(["select", "multiselect", "status", "checkbox"]);
+
 function driverColumn(spec: TableSpec, kind: ViewKind): ColumnSpec | undefined {
   if (kind === "board") return spec.columns.find((column) => column.kind === "select");
-  if (kind === "calendar") return spec.columns.find((column) => column.kind === "date");
+  if (kind === "calendar" || kind === "timeline") {
+    return spec.columns.find((column) => column.kind === "date");
+  }
+  if (kind === "chart") return spec.columns.find((column) => GROUPABLE_KINDS.has(column.kind));
   if (kind === "map") return spec.columns.find((column) => column.kind === "location");
   if (kind === "tree") return spec.columns.find((column) => isParentRelation(spec, column));
   if (kind === "graph") {
@@ -30,8 +40,10 @@ function driverColumn(spec: TableSpec, kind: ViewKind): ColumnSpec | undefined {
 export function computeEligibleKinds(spec: TableSpec, _legacyRelationshipFlag = false): ViewKind[] {
   const kinds: ViewKind[] = ["table"];
   if (driverColumn(spec, "board")) kinds.push("board");
-  kinds.push("gallery", "form");
+  kinds.push("list", "gallery", "form");
   if (driverColumn(spec, "calendar")) kinds.push("calendar");
+  if (driverColumn(spec, "timeline")) kinds.push("timeline");
+  if (driverColumn(spec, "chart")) kinds.push("chart");
   if (driverColumn(spec, "map")) kinds.push("map");
   if (driverColumn(spec, "graph")) kinds.push("graph");
   if (driverColumn(spec, "tree")) kinds.push("tree");
@@ -52,7 +64,10 @@ export function viewConfigForKind(
   };
 
   if (kind === "board") next.groupBy = next.groupBy ?? driverColumn(spec, kind)?.id ?? null;
-  if (kind === "calendar") next.dateBy = next.dateBy ?? driverColumn(spec, kind)?.id;
+  if (kind === "calendar" || kind === "timeline") {
+    next.dateBy = next.dateBy ?? driverColumn(spec, kind)?.id;
+  }
+  if (kind === "chart") next.groupBy = next.groupBy ?? driverColumn(spec, kind)?.id ?? null;
   if (kind === "map") next.locationBy = next.locationBy ?? driverColumn(spec, kind)?.id;
   if (kind === "graph") {
     next.relationBy = next.relationBy ?? driverColumn(spec, kind)?.id;

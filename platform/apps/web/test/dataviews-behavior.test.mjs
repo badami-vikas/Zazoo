@@ -37,19 +37,23 @@ const richSpec = {
 };
 
 test("eligibility: a bare text table gets exactly the driverless kinds", () => {
-  assert.deepEqual(computeEligibleKinds(bareSpec), ["table", "gallery", "form"]);
+  assert.deepEqual(computeEligibleKinds(bareSpec), ["table", "list", "gallery", "form"]);
 });
 
 test("eligibility: each driver column unlocks exactly its view kind", () => {
   const kinds = computeEligibleKinds(richSpec);
-  // select → board, date → calendar, location → map, self-relation → tree,
-  // outward relation → graph. Order is the grammar's canonical order.
+  // select → board AND chart, date → calendar AND timeline, location → map,
+  // self-relation → tree, outward relation → graph. `list` needs no driver.
+  // Order is the grammar's canonical order.
   assert.deepEqual(kinds, [
     "table",
     "board",
+    "list",
     "gallery",
     "form",
     "calendar",
+    "timeline",
+    "chart",
     "map",
     "graph",
     "tree",

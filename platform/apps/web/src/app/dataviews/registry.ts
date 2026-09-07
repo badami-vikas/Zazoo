@@ -41,6 +41,9 @@ import { GraphView } from "./views/GraphView.js";
 import { MapView } from "./views/MapView.js";
 import { FormView } from "./views/FormView.js";
 import { TreeView } from "./views/TreeView.js";
+import { ListView } from "./views/ListView.js";
+import { TimelineView } from "./views/TimelineView.js";
+import { ChartView } from "./views/ChartView.js";
 import { computeEligibleKinds } from "./eligibility.js";
 
 /** Exactly @bridge/tables' ViewConfig["kind"] — the data-view grammar. Dashboard/
@@ -58,6 +61,9 @@ import { computeEligibleKinds } from "./eligibility.js";
 export const VIEW_COMPONENT_REGISTRY: Partial<Record<ViewConfig["kind"], ComponentType<DataViewProps>>> = {
   table: TableView,
   board: BoardView,
+  list: ListView,
+  timeline: TimelineView,
+  chart: ChartView,
   gallery: GalleryView,
   form: FormView,
   calendar: CalendarView,
