@@ -16,7 +16,6 @@
  * Mobile-width-safe: `grid-cols-1` at the base breakpoint (375px = one card per
  * row, no horizontal scroll needed) widening at `sm:`/`lg:`.
  */
-import { useState } from "react";
 import { applyFilters, applySorts, isMetadataColumn, type ViewConfig } from "@bridge/tables";
 import { Plus, SlidersHorizontal } from "lucide-react";
 import { Button } from "../../components/ui/button.js";
@@ -66,9 +65,14 @@ export function GalleryView({ spec, view, data, onViewChange, onInsert, onOpenRe
   );
   const previewColumn = spec.columns.find((column) => column.id === view.cardPreviewField);
 
-  const [shown, setShown] = useState<Set<string>>(
-    () => new Set(bodyColumns.slice(0, DEFAULT_PROPERTY_LIMIT).map((column) => column.id)),
+  // Which properties a card shows is part of the saved View (2026-09-06).
+  // Absent means the view's own default rather than "none", so a List saved
+  // before this shipped still shows a populated card.
+  const shown = new Set(
+    view.cardProperties ?? bodyColumns.slice(0, DEFAULT_PROPERTY_LIMIT).map((column) => column.id),
   );
+  const setShown = (next: Set<string>) =>
+    onViewChange({ ...view, cardProperties: [...next] });
   const propertyColumns = bodyColumns.filter(
     (column) => shown.has(column.id) && column.id !== previewColumn?.id,
   );
@@ -114,14 +118,12 @@ export function GalleryView({ spec, view, data, onViewChange, onInsert, onOpenRe
             <label key={column.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted/50">
               <Checkbox
                 checked={shown.has(column.id)}
-                onCheckedChange={(checked) =>
-                  setShown((current) => {
-                    const next = new Set(current);
-                    if (checked) next.add(column.id);
-                    else next.delete(column.id);
-                    return next;
-                  })
-                }
+                onCheckedChange={(checked) => {
+                  const next = new Set(shown);
+                  if (checked) next.add(column.id);
+                  else next.delete(column.id);
+                  setShown(next);
+                }}
               />
               <span className="truncate">{column.label}</span>
             </label>

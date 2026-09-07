@@ -6993,6 +6993,12 @@ export const savedViewConfigSchema = z
     pageSize: z.number().int().min(10).max(500).optional(),
     cardSize: z.enum(["small", "medium", "large"]).optional(),
     cardPreviewField: z.string().trim().min(1).max(200).optional(),
+    cardProperties: z.array(z.string().trim().min(1).max(200)).max(200).optional(),
+    endDateBy: z.string().trim().min(1).max(200).optional(),
+    timelineZoom: z.enum(["day", "week", "month"]).optional(),
+    chartShape: z.enum(["bar", "line", "donut"]).optional(),
+    chartAggregate: z.string().trim().min(1).max(40).optional(),
+    chartValueField: z.string().trim().min(1).max(200).optional(),
   })
   .strict();
 

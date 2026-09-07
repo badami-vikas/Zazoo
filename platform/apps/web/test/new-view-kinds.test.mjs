@@ -106,3 +106,24 @@ test("gallery is a real gallery: card size, preview field and a property picker"
   assert.match(gallery, /<img/, "gallery never renders a cover image");
   assert.match(gallery, /Properties/, "gallery has no property picker");
 });
+
+// A setting the user chose and then saved as a List has to come back. Timeline's
+// zoom and end-date column, the chart's shape/reduction/value column and the
+// gallery's chosen properties were local component state when these three views
+// first landed, so a saved List forgot them (2026-09-06).
+test("timeline, chart and gallery settings live in the saved View, not in local state", () => {
+  const timeline = read("views/TimelineView.tsx");
+  assert.match(timeline, /view\.timelineZoom/, "timeline zoom is not persisted");
+  assert.match(timeline, /view\.endDateBy/, "timeline end-date column is not persisted");
+
+  const chart = read("views/ChartView.tsx");
+  for (const field of ["chartShape", "chartAggregate", "chartValueField"]) {
+    assert.match(chart, new RegExp(`view\\.${field}`), `chart ${field} is not persisted`);
+  }
+
+  assert.match(read("views/GalleryView.tsx"), /view\.cardProperties/, "gallery properties are not persisted");
+
+  for (const file of ["views/TimelineView.tsx", "views/ChartView.tsx", "views/GalleryView.tsx"]) {
+    assert.doesNotMatch(readOrEmpty(file), /useState/, `${file} still holds a view setting in local state`);
+  }
+});

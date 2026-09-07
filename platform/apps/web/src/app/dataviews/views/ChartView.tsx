@@ -15,7 +15,7 @@
  * with the board) but has no field for either of the other two, and adding one
  * is a change to the grammar package, owned elsewhere.
  */
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { applyFilters, groupBy } from "@bridge/tables";
 import { Button } from "../../components/ui/button.js";
 import { StandardDropdown } from "../../components/shared/StandardDropdown.js";
@@ -44,13 +44,16 @@ function tidy(value: number): string {
 }
 
 export function ChartView({ spec, view, data, onViewChange }: DataViewProps) {
-  const [shape, setShape] = useState<ChartShape>("bar");
-  const [aggregate, setAggregate] = useState<AggregateKind>("count");
+  // Shape, reduction and value column live in the saved View, not in local
+  // state: a Chart the user set up and saved as a List must come back as the
+  // same chart (2026-09-06).
+  const shape = (view.chartShape ?? "bar") as ChartShape;
+  const aggregate = (view.chartAggregate ?? "count") as AggregateKind;
 
   const groupableColumns = spec.columns.filter((column) => GROUPABLE.has(column.kind));
   const numericColumns = spec.columns.filter((column) => NUMERIC.has(column.kind));
   const groupField = view.groupBy ?? groupableColumns[0]?.id;
-  const [valueField, setValueField] = useState<string | undefined>(numericColumns[0]?.id);
+  const valueField = view.chartValueField ?? numericColumns[0]?.id;
 
   const buckets = useMemo(() => {
     if (!groupField) return [] as { key: string; value: number | null; count: number }[];
@@ -91,7 +94,7 @@ export function ChartView({ spec, view, data, onViewChange }: DataViewProps) {
               size="sm"
               variant={shape === value ? "secondary" : "ghost"}
               className="h-7 capitalize"
-              onClick={() => setShape(value)}
+              onClick={() => onViewChange({ ...view, chartShape: value })}
             >
               {value}
             </Button>
@@ -109,14 +112,14 @@ export function ChartView({ spec, view, data, onViewChange }: DataViewProps) {
           ariaLabel="Aggregate"
           activeId={aggregate}
           options={CHART_AGGREGATES.map((kind) => ({ id: kind, label: AGGREGATE_LABELS[kind] }))}
-          onSelect={(id) => setAggregate(id as AggregateKind)}
+          onSelect={(id) => onViewChange({ ...view, chartAggregate: id })}
         />
         {needsValue && numericColumns.length > 0 && (
           <StandardDropdown
             ariaLabel="Value column"
             activeId={valueField ?? null}
             options={numericColumns.map((column) => ({ id: column.id, label: `of ${column.label}` }))}
-            onSelect={setValueField}
+            onSelect={(id) => onViewChange({ ...view, chartValueField: id })}
           />
         )}
       </div>

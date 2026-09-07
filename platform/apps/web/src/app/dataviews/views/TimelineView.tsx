@@ -11,7 +11,7 @@
  * end column and the zoom are LOCAL state — `ViewConfig` has no field for
  * either, and inventing one here would be a schema change owned elsewhere.
  */
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { applyFilters, applySorts } from "@bridge/tables";
 import { Button } from "../../components/ui/button.js";
 import { StandardDropdown } from "../../components/shared/StandardDropdown.js";
@@ -55,8 +55,9 @@ function tickLabel(date: Date, zoom: Zoom): string {
 }
 
 export function TimelineView({ spec, view, data, onViewChange, onInsert, onOpenRecord }: DataViewProps) {
-  const [zoom, setZoom] = useState<Zoom>("week");
-  const [endField, setEndField] = useState<string | null>(null);
+  // Both live in the saved View so a Timeline reopens as the user left it.
+  const zoom = (view.timelineZoom ?? "week") as Zoom;
+  const endField = view.endDateBy ?? null;
 
   const startField = view.dateBy ?? spec.columns.find((column) => column.kind === "date")?.id;
   const dateColumns = spec.columns.filter((column) => column.kind === "date");
@@ -125,7 +126,7 @@ export function TimelineView({ spec, view, data, onViewChange, onInsert, onOpenR
               size="sm"
               variant={zoom === value ? "secondary" : "ghost"}
               className="h-7 capitalize"
-              onClick={() => setZoom(value)}
+              onClick={() => onViewChange({ ...view, timelineZoom: value })}
             >
               {value}
             </Button>
@@ -142,7 +143,10 @@ export function TimelineView({ spec, view, data, onViewChange, onInsert, onOpenR
                 .filter((column) => column.id !== startField)
                 .map((column) => ({ id: column.id, label: `Ends: ${column.label}` })),
             ]}
-            onSelect={(id) => setEndField(id === "" ? null : id)}
+            onSelect={(id) => {
+              const { endDateBy: _dropped, ...rest } = view;
+              onViewChange(id === "" ? rest : { ...view, endDateBy: id });
+            }}
           />
         )}
       </div>

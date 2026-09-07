@@ -94,7 +94,7 @@ Ours with no Notion equivalent: map, graph and tree, the last with drag-to-repar
 | Personal vs shared | in the type, no UI | TASK-110 |
 | Lock a view | ABSENT | ABSENT |
 | Linked view of a database | ABSENT | ABSENT |
-| Card preview and size | ABSENT | `cardSize` / `cardPreviewField`, TASK-111 |
+| Card preview and size | ABSENT | `cardSize`, `cardPreviewField` and `cardProperties`, all persisted (TASK-111) |
 
 ## 4. Rows
 

@@ -321,6 +321,17 @@ export interface ViewConfig {
   /** Gallery/board card settings. */
   cardSize?: "small" | "medium" | "large";
   cardPreviewField?: string;
+  /** Which fields a card shows. Absent means the view's own default. */
+  cardProperties?: string[];
+  /** Timeline: the column holding a Record's END date, turning its point into a
+   * bar; and how far the axis is zoomed. */
+  endDateBy?: string;
+  timelineZoom?: "day" | "week" | "month";
+  /** Chart: the shape, the reduction, and the numeric column being reduced.
+   * `groupBy` names the axis, so it is not repeated here. */
+  chartShape?: "bar" | "line" | "donut";
+  chartAggregate?: string;
+  chartValueField?: string;
 }
 
 /** Grid row heights in pixels, so the virtualizer and the cell agree. */

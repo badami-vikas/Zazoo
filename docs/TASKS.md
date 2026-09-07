@@ -1810,4 +1810,4 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-09-06, verbatim in `docs/raw/notion-database-parity-2026-09-06.md`.
 - Approval: none needed (new renderers over the existing View grammar; no new data reach).
 - Dependencies: TASK-062, TASK-100.
-- NOT LANDED (stated): filled at merge.
+- NOT LANDED (stated): the Timeline is read-only — no drag to reschedule — and stops adding ticks past 400, so a multi-year range at day zoom is coarse rather than unreadable. Chart offers bar, line and donut only, drawn in plain SVG because the web app has no charting dependency and three shapes do not justify one. Chart eligibility excludes plain text columns, since one bar per Record is a list wearing a chart's clothes.
