@@ -14,6 +14,10 @@ export type {
 export {
   VIEW_KINDS,
   METADATA_COLUMN_KINDS,
+  ROW_HEIGHT_PX,
+  VALUELESS_FILTER_OPS,
+  FILTER_OP_LABELS,
+  filterOpsForKind,
   defaultViewConfig,
   isMetadataColumn,
   normalizeViewKind,

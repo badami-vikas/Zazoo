@@ -30,7 +30,7 @@
  * 16px/10px cell padding, 13px body, 10px uppercase headers at 0.07em).
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { applyFilters, applySorts, groupBy, isMetadataColumn } from "@bridge/tables";
+import { applyFilters, applySorts, groupBy, isMetadataColumn, ROW_HEIGHT_PX } from "@bridge/tables";
 import type { ColumnSpec, TableSpec, ViewConfig } from "@bridge/tables";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Check, ChevronDown, ChevronRight, Plus } from "lucide-react";
@@ -87,21 +87,6 @@ import {
  * must be exact are set as pixels and the utilities are used only where a
  * proportional value is genuinely wanted.
  */
-/**
- * The three row heights, in pixels.
- *
- * MIRRORS `ROW_HEIGHT_PX` in `@bridge/tables/src/types.ts`, which is not on that
- * package's export surface — its `package.json` publishes only `.`, and
- * `index.ts` does not re-export the constant. Declared here rather than reached
- * for through a path the package does not expose.
- * ponytail: delete this and import the shared one the moment `@bridge/tables`
- * exports it.
- */
-const ROW_HEIGHT_PX: Record<"short" | "medium" | "tall", number> = {
-  short: 40,
-  medium: 64,
-  tall: 96,
-};
 const ROW_HEIGHTS = ["short", "medium", "tall"] as const;
 const HEADER_HEIGHT = 36;
 /** Width assumed for a column the spec never sized, when a FROZEN column's

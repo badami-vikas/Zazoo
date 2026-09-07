@@ -1780,7 +1780,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-09-06, verbatim in `docs/raw/notion-database-parity-2026-09-06.md`.
 - Approval: none needed (presentation and editing over the existing governed write path).
 - Dependencies: TASK-084, TASK-104.
-- NOT LANDED (stated): filled at merge.
+- NOT LANDED (stated): a `button` cell is always disabled — no Action runner reaches the grid, so the control states that rather than pretending; the `onRunAction` hook is in place and nothing supplies it. A grouped body is not windowed, because group headers make row heights uneven against the virtualizer's fixed estimate. Duplicate column creates a column of the same kind and says values are not copied. Verification is source-level: nothing was rendered in a browser.
 
 ## Filters, sorts and Lists a person can actually build
 
