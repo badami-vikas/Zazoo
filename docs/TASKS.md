@@ -1695,7 +1695,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 ## Table controls a person can actually reach: aligned toolbar, right-click column menu, grid lines, add and rename columns, Add List
 
 - ID: TASK-104
-- Status: in_progress (2026-09-06)
+- Status: done (2026-09-06)
 - Priority: P0
 - Horizon: Living Software
 - Outcome: on any View of any Module, List/View/Search sit left, Filter and the 3-dots sit right, no other button is in the row; column commands open on right-click of the header, not from a per-column 3-dots; columns are separated by vertical rules; add, rename, retype, lock, remove and undo reach the governed schema path from a Module Page.
@@ -1710,7 +1710,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 ## Adding an element opens the element page; Sections are inline and appear once
 
 - ID: TASK-105
-- Status: in_progress (2026-09-06)
+- Status: done (2026-09-06)
 - Priority: P0
 - Horizon: Living Software
 - Outcome: adding a Record opens its own Record page instead of swapping the table inline, so Intelligence and Governance render once; the Governance policy is edited in place in its Section; "Manage in Module Detail" is gone; standing explainer prose is a tooltip on the control it concerns or is deleted.
@@ -1725,7 +1725,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 ## A new Module onboards: it asks for the software it connects to and the first Records it needs
 
 - ID: TASK-106
-- Status: in_progress (2026-09-06)
+- Status: done (2026-09-06)
 - Priority: P0
 - Horizon: Living Software
 - Outcome: when a Module the Builder just installed declares outside software or has required columns, the Builder runs ONE onboarding message on its own session — what to connect, what to fill — before the user has to discover the gap; a Module needing neither says nothing extra.
@@ -1740,7 +1740,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 ## The OS keychain item is named for Bridge, not for DealPilot
 
 - ID: TASK-107
-- Status: in_progress (2026-09-06)
+- Status: done (2026-09-06)
 - Priority: P1
 - Horizon: Living Software
 - Outcome: the macOS prompt a user sees names `Bridge`, because the item holds this app's own secrets (Source credentials, model-provider API keys, the Claude sign-in); a credential written under the old `com.bridge.dealpilot` service is still read and deleted where it lives, never orphaned.
@@ -1751,3 +1751,63 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: none needed (no boundary moves: the same vault, the same scoping checks, one rename with a read-through fallback).
 - Dependencies: none.
 - NOT LANDED (stated): macOS re-asks after every local rebuild because each build is ad-hoc signed (`Signing with identity "-"`), so the OS sees a different app each time; only a stable Developer ID signing certificate stops that, and this repository has none. The DealPilot-named vault class keeps its name in code — it is the general secret vault now, and renaming the class is a separate cleanup.
+
+## Module Databases get a real query and a real gate on what is written to them
+
+- ID: TASK-108
+- Status: in_progress (2026-09-06)
+- Priority: P1
+- Horizon: Living Software
+- Outcome: `moduleRecords.list` filters, sorts, groups, searches and pages server-side over the whole Database rather than handing back one JSON document; `insert` and `update` coerce and check each value against its column kind, enforce `required`, and refuse a derived column; a manifest's `skillId`, `defaultValue`, `relationParent`, `hiddenInForm`, `description`, status groups and rollup fields stop being dropped at the parser; a `relationTarget` naming no Database is refused at registration.
+- Prototype test: on a Database of more than one page of Records, a filter matches a Record on a later page and the total reflects the filter; writing text into a number column is refused by name; a Module whose relation points nowhere fails to register with a plain reason.
+- Scope: `apps/api/src/routers/moduleRecords.ts`, `apps/api/src/table-schema.ts`, `apps/api/src/routers/tableSchema.ts`, `packages/core/src/module/manifest.ts`, `packages/module-manifests/**`.
+- Evidence: EVIDENCE_PARITY
+- Requests: user directive 2026-09-06, verbatim in `docs/raw/notion-database-parity-2026-09-06.md`.
+- Approval: none needed (the governed write path and its human-only guards are unchanged; validation only narrows what may be stored).
+- Dependencies: TASK-104 (the governed schema path reaching Module Databases).
+- NOT LANDED (stated): filled at merge.
+
+## Cells look like what they hold, and columns can be shaped
+
+- ID: TASK-109
+- Status: in_progress (2026-09-06)
+- Priority: P1
+- Horizon: Living Software
+- Outcome: every column kind renders and edits as itself — a checkbox toggles, a link opens, a date has a picker, a status is a pill, a number is a number and not a string; columns resize, reorder, wrap, freeze and carry a description tooltip; the grid groups and sub-groups with collapsible headers; row height is a setting; the summary row remembers its choice in the saved List.
+- Prototype test: on Academics → Courses, tick a checkbox in the grid, open a URL cell, drag a column narrower and reload the saved List to find it still narrow, and group the table by a column from the right-click menu.
+- Scope: `apps/web/src/app/dataviews/views/TableView.tsx`, `cell-format.tsx`, `components/shared/StandardColumnMenu.tsx`, `dataviews/aggregate.ts`.
+- Evidence: EVIDENCE_PARITY
+- Requests: user directive 2026-09-06, verbatim in `docs/raw/notion-database-parity-2026-09-06.md`.
+- Approval: none needed (presentation and editing over the existing governed write path).
+- Dependencies: TASK-084, TASK-104.
+- NOT LANDED (stated): filled at merge.
+
+## Filters, sorts and Lists a person can actually build
+
+- ID: TASK-110
+- Status: in_progress (2026-09-06)
+- Priority: P1
+- Horizon: Living Software
+- Outcome: the Filter control builds many filters, each with the operators its column kind allows, joined by a Match all / Match any the user sets; sorting is multi-level with later rows breaking ties; a saved List can be renamed, duplicated, deleted, made the default and marked personal or shared; one pagination control with a page size replaces the per-page inventions and the silent 100-row cap on a Module Page.
+- Prototype test: on Academics → Courses, build two filters joined by Match any, sort by two columns, save it as a List, make it the default, reopen the Module and land on it.
+- Scope: `apps/web/src/app/dataviews/DataViews.tsx`, `useSavedViews.ts`, `pages/ModulePage.tsx`, new filter/sort/pagination components; `apps/api/src/routers/view.ts`, `packages/core/src/view-config.ts`, `packages/db/src/view-config-store.ts`, migration `0051_task110_view_defaults`.
+- Evidence: EVIDENCE_PARITY
+- Requests: user directive 2026-09-06, verbatim in `docs/raw/notion-database-parity-2026-09-06.md`.
+- Approval: none needed (saved Views are already a governed, owner-scoped store; this adds verbs to it, not reach).
+- Dependencies: TASK-062 (saved Views), TASK-064 (share grants).
+- NOT LANDED (stated): filled at merge.
+
+## List, Timeline and Chart Views, and a Gallery worth the name
+
+- ID: TASK-111
+- Status: in_progress (2026-09-06)
+- Priority: P2
+- Horizon: Living Software
+- Outcome: the three Notion View shapes we lacked exist and are offered only where their driver column does — List one line per Record, Timeline on a date axis with day/week/month zoom, Chart summarising a grouped column as bar, line or donut; Gallery gains card size, a preview field and a property picker.
+- Prototype test: on Academics → Lecture Sessions, switch to Timeline and see the sessions on a date axis; on Courses, switch to Chart and see a count by a select column; neither appears on a Database without the column that drives it.
+- Scope: `apps/web/src/app/dataviews/registry.ts`, `eligibility.ts`, `views/GalleryView.tsx`, new `views/ListView.tsx`, `views/TimelineView.tsx`, `views/ChartView.tsx`.
+- Evidence: EVIDENCE_PARITY
+- Requests: user directive 2026-09-06, verbatim in `docs/raw/notion-database-parity-2026-09-06.md`.
+- Approval: none needed (new renderers over the existing View grammar; no new data reach).
+- Dependencies: TASK-062, TASK-100.
+- NOT LANDED (stated): filled at merge.

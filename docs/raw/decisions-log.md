@@ -7132,3 +7132,20 @@ remove work from a Module Page — the same checks, a wider reach. One more agen
 Module that needs it, on the existing session, with no new egress. macOS will still re-prompt after
 every local rebuild: each build is ad-hoc signed, so the OS sees a different application; only a
 stable Developer ID certificate stops that and this repository has none.
+
+## 2026-09-06 — One table grammar, four parity slices: what Notion has, measured from code (TASK-108/109/110/111)
+
+**Context.** The user asked for every Notion database feature to be present in our tables. A 2026-08-10 audit existed but predates saved Views, share grants, the governed schema mutation and the metadata columns, so its verdicts were stale. Two read-only inventories were taken first, one of the view layer and one of the server, scoring a capability ABSENT whenever it was only a type-union member, a disabled control, or a hook with no caller.
+
+**What the measurement found.** Three holes underneath every visible gap: the Filter control built exactly one hardcoded `contains` filter and `ViewConfig.filterMatch` was read by seven views and written by nothing; `moduleRecords.list` returned the whole stored JSON document with no filter, sort or paging, and a Module Page capped silently at 100 rows; and no write path validated a value against its column kind, so a number column accepted an object and a manifest's `required` was never enforced.
+
+**Decision.** Land the grammar centrally first, then four independent slices against it.
+
+1. **One shared vocabulary, in `@bridge/tables`.** Nine column kinds (`longText`, `email`, `phone`, `person`, `files`, `status`, `rollup`, `autoNumber`, `button`), three view kinds (`list`, `timeline`, `chart`), the number, date, choice and checkbox filter operators, and the view mechanics Notion persists — sub-group, row height, cell wrap, column widths and order, a frozen column, per-column summaries, page size, card settings. Every addition to `ViewConfig` is optional, so a config saved before today resolves unchanged.
+2. **`filterOpsForKind` decides which operators a column may offer.** A picker built from a fixed list is how the old single `contains` filter happened. Deriving the list from the kind means "before" can never appear on a number.
+3. **The SQL engine says what it can do.** The People and Communities query engine reads text columns only, so it implements the text half of the operator grammar and the rest is refused at the router edge, rather than falling through to `contains` and returning wrong rows quietly.
+4. **A view kind with no renderer states that.** `VIEW_COMPONENT_REGISTRY` became partial and the shell renders a plain sentence, so the grammar can name a kind before its component exists without a crash or a blank pane.
+
+**Rejected alternatives.** Adding the new column kinds only where a renderer already existed (the grammar would then differ per surface, which is the divergence this engine exists to prevent). Widening the SQL filter operators to the full union and letting unsupported ones behave like `contains` (silently wrong rows are worse than a refusal). Building the four slices off four separate grammars and reconciling at merge (guaranteed conflict in the one file they all read). A peek panel for opening a Record (our Record page carries Intelligence and Governance Sections that a peek cannot hold, and duplicating them is the bug fixed the same day in TASK-105).
+
+**Consequences.** Four parallel slices with disjoint file ownership: TASK-108 the server query and validation, TASK-109 cells and column mechanics, TASK-110 the filter builder and saved-List verbs, TASK-111 the three new View kinds. The audit states plainly what none of them closes: row comments, row history, sub-items, row templates, bulk property edit, manual row order, row undo and trash, CSV import and export, cell-range paste, database automations, a public API, external sync, a route that opens a shared View, web publishing, database- and column-level permissions, linked views, locked views, and nested AND/OR filter groups.

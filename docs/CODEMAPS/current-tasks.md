@@ -43,7 +43,7 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-096 | in_progress | P1 | The installable Egg: kernel-only profile, Commons directory, and the Builder's standard build process | TASK-092, TASK-031 |
 | TASK-101 | in_progress | P1 | `@` in Chat addresses another Agent; the footer names Modules as Modules | TASK-093 |
 | TASK-103 | in_progress | P0 | The Builder finishes the job: repairs a rejected definition, installs the Module, speaks plainly | TASK-102, TASK-098 |
-| TASK-104 | in_progress | P0 | Table controls a person can actually reach: aligned toolbar, right-click column menu, grid lines, add and rename columns, Add List | TASK-084, TASK-062, TASK-100 |
-| TASK-105 | in_progress | P0 | Adding an element opens the element page; Sections are inline and appear once | TASK-088, TASK-100 |
-| TASK-106 | in_progress | P0 | A new Module onboards: it asks for the software it connects to and the first Records it needs | TASK-103, TASK-102 |
-| TASK-107 | in_progress | P1 | The OS keychain item is named for Bridge, not for DealPilot | non-task gate (see TASKS.md) |
+| TASK-108 | in_progress | P1 | Module Databases get a real query and a real gate on what is written to them | TASK-104 |
+| TASK-109 | in_progress | P1 | Cells look like what they hold, and columns can be shaped | TASK-084, TASK-104 |
+| TASK-110 | in_progress | P1 | Filters, sorts and Lists a person can actually build | TASK-062, TASK-064 |
+| TASK-111 | in_progress | P2 | List, Timeline and Chart Views, and a Gallery worth the name | TASK-062, TASK-100 |

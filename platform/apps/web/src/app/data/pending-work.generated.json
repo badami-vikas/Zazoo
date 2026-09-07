@@ -3830,7 +3830,7 @@
     {
       "id": "TASK-104",
       "title": "TASK-104 — Table controls a person can actually reach: aligned toolbar, right-click column menu, grid lines, add and rename columns, Add List",
-      "status": "in-progress",
+      "status": "completed",
       "statusNote": "2026-09-06",
       "priority": "P0",
       "horizon": "Living Software",
@@ -3854,7 +3854,7 @@
       "isGoal": false,
       "path": "8.13",
       "level": 1,
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
@@ -3864,7 +3864,7 @@
     {
       "id": "TASK-105",
       "title": "TASK-105 — Adding an element opens the element page; Sections are inline and appear once",
-      "status": "in-progress",
+      "status": "completed",
       "statusNote": "2026-09-06",
       "priority": "P0",
       "horizon": "Living Software",
@@ -3887,7 +3887,7 @@
       "isGoal": false,
       "path": "8.14",
       "level": 1,
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
@@ -3897,7 +3897,7 @@
     {
       "id": "TASK-106",
       "title": "TASK-106 — A new Module onboards: it asks for the software it connects to and the first Records it needs",
-      "status": "in-progress",
+      "status": "completed",
       "statusNote": "2026-09-06",
       "priority": "P0",
       "horizon": "Living Software",
@@ -3920,7 +3920,7 @@
       "isGoal": false,
       "path": "8.15",
       "level": 1,
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
@@ -3930,7 +3930,7 @@
     {
       "id": "TASK-107",
       "title": "TASK-107 — The OS keychain item is named for Bridge, not for DealPilot",
-      "status": "in-progress",
+      "status": "completed",
       "statusNote": "2026-09-06",
       "priority": "P1",
       "horizon": "Living Software",
@@ -3953,12 +3953,141 @@
       "isGoal": false,
       "path": "8.16",
       "level": 1,
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "parentId": "HORIZON-living-software",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1742,
       "rank": 113
+    },
+    {
+      "id": "TASK-108",
+      "title": "TASK-108 — Module Databases get a real query and a real gate on what is written to them",
+      "status": "in-progress",
+      "statusNote": "2026-09-06",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "`moduleRecords.list` filters, sorts, groups, searches and pages server-side over the whole Database rather than handing back one JSON document; `insert` and `update` coerce and check each value against its column kind, enforce `required`, and refuse a derived column; a manifest's `skillId`, `defaultValue`, `relationParent`, `hiddenInForm`, `description`, status groups and rollup fields stop being dropped at the parser; a `relationTarget` naming no Database is refused at registration.",
+      "prototypeTest": "on a Database of more than one page of Records, a filter matches a Record on a later page and the total reflects the filter; writing text into a number column is refused by name; a Module whose relation points nowhere fails to register with a plain reason.",
+      "scope": [
+        "`apps/api/src/routers/moduleRecords.ts`, `apps/api/src/table-schema.ts`, `apps/api/src/routers/tableSchema.ts`, `packages/core/src/module/manifest.ts`, `packages/module-manifests/**`."
+      ],
+      "evidence": [
+        "EVIDENCE_PARITY"
+      ],
+      "requests": [
+        "user directive 2026-09-06, verbatim in `docs/raw/notion-database-parity-2026-09-06.md`."
+      ],
+      "approval": "none needed (the governed write path and its human-only guards are unchanged; validation only narrows what may be stored).",
+      "dependencies": [
+        "TASK-104 (the governed schema path reaching Module Databases)."
+      ],
+      "isGoal": false,
+      "path": "8.17",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1757,
+      "rank": 114
+    },
+    {
+      "id": "TASK-109",
+      "title": "TASK-109 — Cells look like what they hold, and columns can be shaped",
+      "status": "in-progress",
+      "statusNote": "2026-09-06",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "every column kind renders and edits as itself — a checkbox toggles, a link opens, a date has a picker, a status is a pill, a number is a number and not a string; columns resize, reorder, wrap, freeze and carry a description tooltip; the grid groups and sub-groups with collapsible headers; row height is a setting; the summary row remembers its choice in the saved List.",
+      "prototypeTest": "on Academics → Courses, tick a checkbox in the grid, open a URL cell, drag a column narrower and reload the saved List to find it still narrow, and group the table by a column from the right-click menu.",
+      "scope": [
+        "`apps/web/src/app/dataviews/views/TableView.tsx`, `cell-format.tsx`, `components/shared/StandardColumnMenu.tsx`, `dataviews/aggregate.ts`."
+      ],
+      "evidence": [
+        "EVIDENCE_PARITY"
+      ],
+      "requests": [
+        "user directive 2026-09-06, verbatim in `docs/raw/notion-database-parity-2026-09-06.md`."
+      ],
+      "approval": "none needed (presentation and editing over the existing governed write path).",
+      "dependencies": [
+        "TASK-084, TASK-104."
+      ],
+      "isGoal": false,
+      "path": "8.18",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1772,
+      "rank": 115
+    },
+    {
+      "id": "TASK-110",
+      "title": "TASK-110 — Filters, sorts and Lists a person can actually build",
+      "status": "in-progress",
+      "statusNote": "2026-09-06",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "the Filter control builds many filters, each with the operators its column kind allows, joined by a Match all / Match any the user sets; sorting is multi-level with later rows breaking ties; a saved List can be renamed, duplicated, deleted, made the default and marked personal or shared; one pagination control with a page size replaces the per-page inventions and the silent 100-row cap on a Module Page.",
+      "prototypeTest": "on Academics → Courses, build two filters joined by Match any, sort by two columns, save it as a List, make it the default, reopen the Module and land on it.",
+      "scope": [
+        "`apps/web/src/app/dataviews/DataViews.tsx`, `useSavedViews.ts`, `pages/ModulePage.tsx`, new filter/sort/pagination components",
+        "`apps/api/src/routers/view.ts`, `packages/core/src/view-config.ts`, `packages/db/src/view-config-store.ts`, migration `0051_task110_view_defaults`."
+      ],
+      "evidence": [
+        "EVIDENCE_PARITY"
+      ],
+      "requests": [
+        "user directive 2026-09-06, verbatim in `docs/raw/notion-database-parity-2026-09-06.md`."
+      ],
+      "approval": "none needed (saved Views are already a governed, owner-scoped store; this adds verbs to it, not reach).",
+      "dependencies": [
+        "TASK-062 (saved Views), TASK-064 (share grants)."
+      ],
+      "isGoal": false,
+      "path": "8.19",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1787,
+      "rank": 116
+    },
+    {
+      "id": "TASK-111",
+      "title": "TASK-111 — List, Timeline and Chart Views, and a Gallery worth the name",
+      "status": "in-progress",
+      "statusNote": "2026-09-06",
+      "priority": "P2",
+      "horizon": "Living Software",
+      "outcome": "the three Notion View shapes we lacked exist and are offered only where their driver column does — List one line per Record, Timeline on a date axis with day/week/month zoom, Chart summarising a grouped column as bar, line or donut; Gallery gains card size, a preview field and a property picker.",
+      "prototypeTest": "on Academics → Lecture Sessions, switch to Timeline and see the sessions on a date axis; on Courses, switch to Chart and see a count by a select column; neither appears on a Database without the column that drives it.",
+      "scope": [
+        "`apps/web/src/app/dataviews/registry.ts`, `eligibility.ts`, `views/GalleryView.tsx`, new `views/ListView.tsx`, `views/TimelineView.tsx`, `views/ChartView.tsx`."
+      ],
+      "evidence": [
+        "EVIDENCE_PARITY"
+      ],
+      "requests": [
+        "user directive 2026-09-06, verbatim in `docs/raw/notion-database-parity-2026-09-06.md`."
+      ],
+      "approval": "none needed (new renderers over the existing View grammar; no new data reach).",
+      "dependencies": [
+        "TASK-062, TASK-100."
+      ],
+      "isGoal": false,
+      "path": "8.20",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1802,
+      "rank": 117
     }
   ]
 }
