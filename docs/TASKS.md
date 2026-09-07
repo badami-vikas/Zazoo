@@ -1812,6 +1812,21 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Dependencies: TASK-062, TASK-100.
 - NOT LANDED (stated): the Timeline is read-only — no drag to reschedule — and stops adding ticks past 400, so a multi-year range at day zoom is coarse rather than unreadable. Chart offers bar, line and donut only, drawn in plain SVG because the web app has no charting dependency and three shapes do not justify one. Chart eligibility excludes plain text columns, since one bar per Record is a list wearing a chart's clothes.
 
+## Adding a column asks what it is, and Task Manager can reshape its own
+
+- ID: TASK-112
+- Status: done (2026-09-07)
+- Priority: P1
+- Horizon: Living Software
+- Outcome: Add column opens a dialog — name, type over the twenty kinds the server accepts, and an option list for select, multi-select and status — and creates nothing until confirmed; the same dialog carries options on a retype; Task Manager's columns can be renamed, retyped, locked and deleted, with adding refused in the server's own words because its rows are real database columns.
+- Prototype test: in Academics → Courses, Add column, name it, pick Select, add two options, confirm, and see exactly that column; in Task Manager, rename a column and see it stick, and find Add column disabled with the reason shown.
+- Scope: `apps/web/src/app/components/shared/AddColumnDialog.tsx` (new), `StandardColumnMenu.tsx`, `dataviews/DataViews.tsx`, `dataviews/types.ts`, `views/TableView.tsx`, `pages/TaskManagerPage.tsx`, `pages/ModulePage.tsx`, `pages/AccountingPage.tsx`, `apps/api/src/table-schema.ts`, `src/routers/tableSchema.ts`, `src/router-shared.ts`.
+- Evidence: `apps/web/test/add-column-dialog.test.mjs` seen failing 0 pass / 6 fail against unchanged source, 7/7 after; `apps/api/test/hand-written-column-schema.test.ts` seen failing — two `setKind` options cases would not compile (TS2353), the other three 0 pass / 3 fail — then green; after merge to main: web 311/311, api hand-written-column-schema + module-column-schema + table-schema-mutation + module-uninstall + module-records 33/33, both typechecks clean, ui-rules OK (381 held at baseline) and vocabulary OK (2026-09-07).
+- Requests: user directive 2026-09-07, verbatim: *"Adding a column, just adds column, it doesnt ask me for column type, column name, I want the interface of adding new columns similar to notion. Also why am I still unable to add column in task manager module?"*
+- Approval: none needed (a dialog over an existing governed schema capability; Task Manager gains the capability it was already meant to have, and its shipped columns stay unaddable).
+- Dependencies: TASK-084 (ColumnOverlay), TASK-105 (column menu).
+- NOT LANDED (stated): `options` and `position` had been accepted by the server and silently dropped, so "Add column left" landed at the end — fixed here, but it means older overlays carry no position intent to recover. The three D2C pages have the server capability and still lack the client wiring; the ten Pilot, Events, Signals, Relationship, Organization, Research and Second Brain pages would need a server spec first. Neither was reported, so neither was done quietly. Undo is still one level. No browser verification — the slice was headless.
+
 ## Deleting a Module asks which of the three things you meant
 
 - ID: TASK-113
