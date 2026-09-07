@@ -113,7 +113,7 @@ import {
 import { eq, desc } from "drizzle-orm";
 import { schema as accountingSchema, validateExpression } from "@bridge/accounting";
 import { applyColumnOverlay, VIEW_KINDS } from "@bridge/tables";
-import type { ColumnKind, ColumnOverlay, TableSpec } from "@bridge/tables";
+import type { ColumnKind, ColumnOverlay, FilterOp, TableSpec } from "@bridge/tables";
 import {
   TABLE_SCHEMA_NAMESPACE_PREFIX,
   applyColumnOp,
@@ -2692,7 +2692,18 @@ export const relationshipSignalEvidenceInput = relationshipSignalEvidencePayload
 export const viewSortSpecInput = z.object({ id: z.string(), dir: z.enum(["asc", "desc"]) });
 export const viewRowFilterInput = z.object({
   field: z.string(),
-  op: z.enum(["contains", "is", "is_not", "is_empty", "is_not_empty", "starts_with"]),
+  op: z.enum([
+    "contains",
+    "does_not_contain",
+    "is",
+    "is_not",
+    "is_empty",
+    "is_not_empty",
+    "starts_with",
+    "ends_with",
+    "is_any_of",
+    "is_none_of",
+  ]),
   value: z.string(),
 });
 export const humanInteractionFieldsSchema = interactionCreateFieldsSchema.omit({
@@ -6650,7 +6661,16 @@ export const SCHEMA_MUTABLE_SPECS: Record<string, TableSpec> = Object.fromEntrie
  * Zod enum needs the literals; the typecheck below fails if the two drift. */
 export const COLUMN_KINDS = [
   "text",
+  "longText",
   "number",
+  "email",
+  "phone",
+  "person",
+  "files",
+  "status",
+  "rollup",
+  "autoNumber",
+  "button",
   "select",
   "multiselect",
   "date",
@@ -6926,12 +6946,26 @@ export const savedViewConfigSchema = z
             field: z.string().trim().min(1).max(200),
             op: z.enum([
               "contains",
+              "does_not_contain",
               "is",
               "is_not",
               "is_empty",
               "is_not_empty",
               "starts_with",
-            ]),
+              "ends_with",
+              "gt",
+              "gte",
+              "lt",
+              "lte",
+              "before",
+              "after",
+              "on_or_before",
+              "on_or_after",
+              "is_any_of",
+              "is_none_of",
+              "is_checked",
+              "is_not_checked",
+            ] as const satisfies readonly FilterOp[]),
             value: z.string().max(1_000),
           })
           .strict(),
@@ -6946,6 +6980,19 @@ export const savedViewConfigSchema = z
     graphScope: z.enum(["single_database", "multi_database", "full"]).optional(),
     graphDatabaseIds: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
     formDefaults: z.record(z.unknown()).optional(),
+    // Notion-parity view mechanics (2026-09-06). Every one is optional, so a
+    // config written before they existed still validates unchanged.
+    subGroupBy: z.string().trim().min(1).max(200).nullable().optional(),
+    collapsedGroups: z.array(z.string().max(400)).max(500).optional(),
+    rowHeight: z.enum(["short", "medium", "tall"]).optional(),
+    wrapCells: z.boolean().optional(),
+    columnWidths: z.record(z.number().int().min(48).max(1_200)).optional(),
+    columnOrder: z.array(z.string().trim().min(1).max(200)).max(500).optional(),
+    frozenColumnId: z.string().trim().min(1).max(200).nullable().optional(),
+    aggregates: z.record(z.string().trim().min(1).max(40)).optional(),
+    pageSize: z.number().int().min(10).max(500).optional(),
+    cardSize: z.enum(["small", "medium", "large"]).optional(),
+    cardPreviewField: z.string().trim().min(1).max(200).optional(),
   })
   .strict();
 

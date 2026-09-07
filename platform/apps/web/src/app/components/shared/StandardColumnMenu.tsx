@@ -73,7 +73,16 @@ export interface ColumnSchemaCapability {
 
 export type ColumnTypeName =
   | "text"
+  | "longText"
   | "number"
+  | "email"
+  | "phone"
+  | "person"
+  | "files"
+  | "status"
+  | "rollup"
+  | "autoNumber"
+  | "button"
   | "select"
   | "multiselect"
   | "date"
@@ -86,7 +95,16 @@ export type ColumnTypeName =
 
 const COLUMN_TYPES: ColumnTypeName[] = [
   "text",
+  "longText",
   "number",
+  "email",
+  "phone",
+  "person",
+  "files",
+  "status",
+  "rollup",
+  "autoNumber",
+  "button",
   "select",
   "multiselect",
   "date",

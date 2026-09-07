@@ -50,6 +50,21 @@ const PAGES: Array<{ id: RelationshipPageId; label: string; icon: typeof Radio }
 ];
 
 const CONTEXT_PAGE_SIZE = 25;
+
+/** The operators `relationship.listPeople|listCommunities` can evaluate in SQL. */
+const SERVER_FILTER_OPS = [
+  "contains",
+  "does_not_contain",
+  "is",
+  "is_not",
+  "is_empty",
+  "is_not_empty",
+  "starts_with",
+  "ends_with",
+  "is_any_of",
+  "is_none_of",
+] as const;
+type ServerFilterOp = (typeof SERVER_FILTER_OPS)[number];
 const PEOPLE_SPEC: TableSpec = {
   id: "people",
   columns: [
@@ -267,7 +282,16 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
     // display layer; since the page it receives already satisfies the same
     // filter/sort, that is a no-op, not a second source of truth.
     const activeSorts = view.sorts.length ? view.sorts : undefined;
-    const activeRowFilters = view.rowFilters.length ? view.rowFilters : undefined;
+    // The server engine reads TEXT columns only, so it implements the text half
+    // of the filter grammar (`@bridge/db`'s `ViewFilterOp`). Every column on
+    // these two Databases IS text, so the picker cannot produce anything else —
+    // but a filter that arrived some other way is dropped here rather than sent
+    // and quietly treated as `contains` (2026-09-06).
+    const serverFilters = view.rowFilters.filter(
+      (filter): filter is (typeof view.rowFilters)[number] & { op: ServerFilterOp } =>
+        (SERVER_FILTER_OPS as readonly string[]).includes(filter.op),
+    );
+    const activeRowFilters = serverFilters.length ? serverFilters : undefined;
     const request =
       kind === "person"
         ? trpc.relationship.listPeople.query({

@@ -64,7 +64,38 @@ export interface ViewSortSpec {
   id: string;
   dir: "asc" | "desc";
 }
-export type ViewFilterOp = "contains" | "is" | "is_not" | "is_empty" | "is_not_empty" | "starts_with";
+/**
+ * The operators this SQL engine can express over its allowlisted TEXT columns.
+ *
+ * It is deliberately a SUBSET of `@bridge/tables`' `FilterOp`: every column
+ * reachable here holds text, so the number, date and checkbox operators have
+ * nothing to compare and are refused at the router edge rather than quietly
+ * behaving like `contains` (2026-09-06).
+ */
+export type ViewFilterOp =
+  | "contains"
+  | "does_not_contain"
+  | "is"
+  | "is_not"
+  | "is_empty"
+  | "is_not_empty"
+  | "starts_with"
+  | "ends_with"
+  | "is_any_of"
+  | "is_none_of";
+
+export const VIEW_FILTER_OPS: readonly ViewFilterOp[] = [
+  "contains",
+  "does_not_contain",
+  "is",
+  "is_not",
+  "is_empty",
+  "is_not_empty",
+  "starts_with",
+  "ends_with",
+  "is_any_of",
+  "is_none_of",
+] as const;
 export interface ViewRowFilter {
   field: string;
   op: ViewFilterOp;
@@ -659,6 +690,28 @@ function viewRowFilterCondition(column: SQL<string | null>, filter: ViewRowFilte
       return filter.value
         ? sql<boolean>`coalesce(${column}, '') ILIKE ${`${escapeLikePattern(filter.value)}%`} ESCAPE '!'`
         : sql<boolean>`true`;
+    case "ends_with":
+      return filter.value
+        ? sql<boolean>`coalesce(${column}, '') ILIKE ${`%${escapeLikePattern(filter.value)}`} ESCAPE '!'`
+        : sql<boolean>`true`;
+    case "does_not_contain":
+      return filter.value
+        ? sql<boolean>`coalesce(${column}, '') NOT ILIKE ${`%${escapeLikePattern(filter.value)}%`} ESCAPE '!'`
+        : sql<boolean>`true`;
+    // `is_any_of` / `is_none_of` carry a comma-separated option list, matching
+    // the client engine's reading of the same operator (2026-09-06).
+    case "is_any_of":
+    case "is_none_of": {
+      const options = filter.value
+        .split(",")
+        .map((part) => part.trim().toLowerCase())
+        .filter((part) => part.length > 0);
+      if (!options.length) return sql<boolean>`true`;
+      const list = sql.join(options.map((option) => sql`${option}`), sql`, `);
+      return filter.op === "is_any_of"
+        ? sql<boolean>`lower(coalesce(${column}, '')) IN (${list})`
+        : sql<boolean>`lower(coalesce(${column}, '')) NOT IN (${list})`;
+    }
     case "contains":
     default:
       return filter.value

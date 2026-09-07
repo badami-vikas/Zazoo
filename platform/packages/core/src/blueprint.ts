@@ -48,7 +48,16 @@ const LEGACY_BLUEPRINT_SCHEMA_VERSION = 1 as const;
 /** Canonical field-kind contract shared by parsers and API boundaries. */
 export const BLUEPRINT_FIELD_KINDS = [
   "text",
+  "longText",
   "number",
+  "email",
+  "phone",
+  "person",
+  "files",
+  "status",
+  "rollup",
+  "autoNumber",
+  "button",
   "select",
   "multiselect",
   "date",
@@ -88,7 +97,20 @@ export interface BlueprintTableSpec {
 }
 
 export type BlueprintSortSpec = { id: string; dir: "asc" | "desc" };
-export type BlueprintFilterOp = "contains" | "is" | "is_not" | "is_empty" | "is_not_empty" | "starts_with";
+/** The text operators a compiled blueprint View may carry — the same subset the
+ * SQL engine can express (`@bridge/db`'s `ViewFilterOp`), widened with the four
+ * added for Notion parity on 2026-09-06. */
+export type BlueprintFilterOp =
+  | "contains"
+  | "does_not_contain"
+  | "is"
+  | "is_not"
+  | "is_empty"
+  | "is_not_empty"
+  | "starts_with"
+  | "ends_with"
+  | "is_any_of"
+  | "is_none_of";
 export type BlueprintRowFilter = { field: string; op: BlueprintFilterOp; value: string };
 
 /** View kinds this compiler understands as @bridge/tables-backed data views —

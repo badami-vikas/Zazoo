@@ -873,6 +873,12 @@ export function DataViews({
               : {})}
             onCancel={() => setCreating(false)}
           />
+        ) : !ViewComponent ? (
+          // A kind the grammar names but this build has no renderer for. Say so
+          // rather than showing an empty pane (ADR-247).
+          <div className="p-6 text-sm" style={{ color: "var(--color-warm-gray)" }}>
+            This build has no {VIEW_METADATA[activeView.kind]?.label ?? activeView.kind} view yet.
+          </div>
         ) : (
         <ViewComponent
           spec={visibleSpec}

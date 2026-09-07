@@ -27,6 +27,9 @@ import {
   Network,
   Rows3,
   TextCursorInput,
+  List,
+  GanttChartSquare,
+  BarChart3,
   type LucideIcon,
 } from "lucide-react";
 import type { DataViewProps } from "./types.js";
@@ -45,7 +48,14 @@ import { computeEligibleKinds } from "./eligibility.js";
  * blueprint.ts) are NOT @bridge/tables-backed and are registered separately by
  * DashboardView's own small registry below; <DataViews> itself only renders
  * TableSpec-shaped data views. */
-export const VIEW_COMPONENT_REGISTRY: Record<ViewConfig["kind"], ComponentType<DataViewProps>> = {
+/**
+ * A View kind with no entry here has no renderer IN THIS BUILD. The map is
+ * deliberately partial (2026-09-06): the grammar in @bridge/tables can name a
+ * kind before its component exists, and the honest answer at that point is a
+ * stated reason, not a crash or a silently missing option. `computeEligibleKinds`
+ * filters against these keys, so an unrendered kind is never offered.
+ */
+export const VIEW_COMPONENT_REGISTRY: Partial<Record<ViewConfig["kind"], ComponentType<DataViewProps>>> = {
   table: TableView,
   board: BoardView,
   gallery: GalleryView,
@@ -64,6 +74,9 @@ export interface ViewMetadata {
 
 export const VIEW_METADATA: Record<ViewKind, ViewMetadata> = {
   table: { kind: "table", label: "Table", icon: Rows3 },
+  list: { kind: "list", label: "List", icon: List },
+  timeline: { kind: "timeline", label: "Timeline", icon: GanttChartSquare },
+  chart: { kind: "chart", label: "Chart", icon: BarChart3 },
   board: { kind: "board", label: "Board", icon: Columns3 },
   gallery: { kind: "gallery", label: "Gallery", icon: Images },
   form: { kind: "form", label: "Form", icon: TextCursorInput },
