@@ -10,7 +10,7 @@
  *   2. A command HIDDEN because it cannot run — ADR-001 (present-not-absent) is
  *      unchanged: nothing is ever removed, at any stage.
  *
- * So the assertions are: every one of the 17 commands is still present; a
+ * So the assertions are: every command is still present; a
  * command whose handler is absent is disabled AND carries a reason; and the
  * warning-on-confirm flow uses Bridge's own dialog rather than the browser's
  * (`confirm`/`prompt`/`alert` are counted violations in `check:ui-rules`, and a
@@ -26,10 +26,17 @@ const APP = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "app");
 const MENU = readFileSync(join(APP, "components", "shared", "StandardColumnMenu.tsx"), "utf8");
 const EDITOR = readFileSync(join(APP, "components", "shared", "FormulaCellEditor.tsx"), "utf8");
 
-/** Every command the menu has ever shown. ADR-001: this list only ever grows. */
+/**
+ * Every command the menu shows. ADR-001 keeps a command that cannot run VISIBLE
+ * and disabled — it does not keep a command that was never a command.
+ *
+ * "Edit column" left under TASK-109 (2026-09-06): it opened the same rename
+ * dialog Rename opens, so it was one command wearing two labels, and the second
+ * label taught people the menu had a second behaviour it never had. Removing a
+ * DUPLICATE is not hiding a capability; Rename is still right there.
+ */
 const COMMANDS = [
   "Rename",
-  "Edit column",
   "Change type",
   "AI Smartfill",
   "Filter",
@@ -39,6 +46,8 @@ const COMMANDS = [
   "Calculate",
   "Lock column",
   "Hide column",
+  "Wrap cells",
+  "Freeze up to this column",
   "Add column left",
   "Add column right",
   "Duplicate column",
@@ -47,7 +56,7 @@ const COMMANDS = [
   "Remove page",
 ];
 
-test("all 17 commands are still present — nothing is hidden because it cannot run", () => {
+test("every command is still present — nothing is hidden because it cannot run", () => {
   for (const command of COMMANDS) {
     assert.ok(
       MENU.includes(`"${command}"`),
