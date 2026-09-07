@@ -73,7 +73,7 @@ test("a registered, installed Module serves its definition and rows; an undeclar
     );
 
     const empty = await caller.moduleRecords.list(target);
-    assert.deepEqual(empty, { items: [], total: 0 });
+    assert.deepEqual(empty, { items: [], total: 0, hasMore: false });
 
     const row = await caller.moduleRecords.insert({
       ...target,

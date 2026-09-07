@@ -19,7 +19,14 @@
  * they report adding unavailable with that reason rather than enabling a
  * command that would write nowhere (ADR-001, ADR-247).
  */
-import { applyColumnOverlay, type ColumnKind, type ColumnOverlay, type TableSpec } from "@bridge/tables";
+import {
+  applyColumnOverlay,
+  isMetadataColumn,
+  type ColumnKind,
+  type ColumnOverlay,
+  type ColumnSpec,
+  type TableSpec,
+} from "@bridge/tables";
 import type { ModuleDatabaseBinding } from "@bridge/core";
 import { extractDependencies, transitiveDependencies, buildDependencyGraph } from "@bridge/accounting";
 
@@ -73,10 +80,49 @@ export function moduleDatabaseSpec(
   database: ModuleDatabaseBinding,
   storedOverlay: unknown,
 ): TableSpec {
-  return applyColumnOverlay(
+  return resolveColumnOverlay(
     moduleDatabaseBaseSpec(moduleName, database),
     readStoredTableSchema(storedOverlay).overlay,
   );
+}
+
+/**
+ * A column the user added, plus the options a choice column needs to be worth
+ * anything (TASK-108).
+ *
+ * ponytail: `options` rides on the stored `added` entry and is re-attached
+ * HERE rather than inside `applyColumnOverlay`, because `@bridge/tables`'
+ * `ColumnOverlay` is owned by a parallel slice. Move the field onto that type
+ * and delete `resolveColumnOverlay`'s second pass when it lands.
+ */
+export type AddedColumn = NonNullable<ColumnOverlay["added"]>[number] & { options?: string[] };
+
+/**
+ * `applyColumnOverlay`, plus the choice options an added `select`/`status`
+ * column carries. Without this a user-added select rendered a chooser over
+ * nothing — a control that cannot be honoured (ADR-247).
+ *
+ * Rename and retype go through `applyColumnOverlay` untouched, so both keep
+ * the options: they are keyed by column id, not by label or kind.
+ */
+export function resolveColumnOverlay(
+  spec: TableSpec,
+  overlay: ColumnOverlay | null | undefined,
+): TableSpec {
+  const resolved = applyColumnOverlay(spec, overlay);
+  const optionsById = new Map<string, string[]>();
+  for (const added of (overlay?.added ?? []) as AddedColumn[]) {
+    if (added.options?.length) optionsById.set(added.id, [...added.options]);
+  }
+  if (optionsById.size === 0) return resolved;
+  return {
+    ...resolved,
+    columns: resolved.columns.map((column) =>
+      optionsById.has(column.id) && !column.options
+        ? { ...column, options: optionsById.get(column.id)! }
+        : column,
+    ),
+  };
 }
 
 /** The manifest's own spec, with no overlay. Manifests are immutable (ADR-178):
@@ -97,12 +143,221 @@ export function moduleDatabaseBaseSpec(
       ...(column.required ? { required: true } : {}),
       ...(column.defaultValue !== undefined ? { defaultValue: column.defaultValue } : {}),
       ...(column.relationTarget ? { relationTarget: column.relationTarget } : {}),
+      // Parsed by `parseModuleManifest` since TASK-108. Copied here since this
+      // file was written — they were dead branches only because the parser
+      // dropped them off the binding.
+      ...(column.relationParent ? { relationParent: true } : {}),
+      ...(column.hiddenInForm ? { hiddenInForm: true } : {}),
+      ...(column.description ? { description: column.description } : {}),
+      ...(column.statusGroups ? { statusGroups: { ...column.statusGroups } } : {}),
+      ...(column.rollupSource ? { rollupSource: column.rollupSource } : {}),
+      ...(column.rollupProperty ? { rollupProperty: column.rollupProperty } : {}),
+      ...(column.rollupFunction ? { rollupFunction: column.rollupFunction } : {}),
+      ...(column.actionId ? { actionId: column.actionId } : {}),
     })),
   };
 }
 
 export function moduleRecordsSpecId(moduleName: string, databaseId: string): string {
   return `${moduleName}.${databaseId}`;
+}
+
+// ── What a column can actually hold (TASK-108) ──────────────────────────────
+//
+// `pickDeclared` used to check KEY MEMBERSHIP only: a `number` column accepted
+// `{"a":1}`, a `select` accepted an option nobody declared, and `required` in a
+// manifest was never enforced. A Database whose values do not match their kinds
+// cannot be filtered or sorted honestly — a `gt` over a column holding objects
+// is not a query, it is a coin toss. So the floor goes HERE, at the write.
+
+/** A refusal a caller can act on: which column, and what was wrong with it. */
+export class RecordValueError extends Error {
+  constructor(readonly columnId: string, reason: string) {
+    // The reason usually opens with the column's own LABEL ("Amount holds a
+    // number"), so the id is prefixed only when it would otherwise be absent.
+    super(reason.startsWith(columnId) ? reason : `${columnId}: ${reason}`);
+    this.name = "RecordValueError";
+  }
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Why this column can never be written, or null when it can. */
+export function unwritableReason(column: ColumnSpec): string | null {
+  if (isMetadataColumn(column.kind)) {
+    return `${column.label} is filled from the Event log, so nothing can set it`;
+  }
+  switch (column.kind) {
+    case "rollup":
+      return `${column.label} is rolled up from a relation, so nothing can set it`;
+    case "button":
+      return `${column.label} runs an Action; it holds no value`;
+    case "formula":
+      // NOT LANDED, said honestly: a Module Database has no expression engine,
+      // so a formula column has no value to compute and none to store either.
+      return `${column.label} is a formula column, and a Module Database cannot evaluate an expression yet`;
+    default:
+      return null;
+  }
+}
+
+function coerceOne(column: ColumnSpec, value: unknown): unknown {
+  // Clearing a cell is always expressible; `required` is checked separately so
+  // the message can say "required", not "wrong type".
+  if (value === null || value === undefined || value === "") return null;
+  const text = typeof value === "string" ? value.trim() : value;
+  switch (column.kind) {
+    case "number":
+    case "autoNumber": {
+      const parsed = typeof text === "number" ? text : typeof text === "string" ? Number(text) : Number.NaN;
+      if (!Number.isFinite(parsed)) {
+        throw new RecordValueError(column.id, `${column.label} holds a number, got ${JSON.stringify(value)}`);
+      }
+      return parsed;
+    }
+    case "checkbox": {
+      if (typeof value === "boolean") return value;
+      if (text === "true") return true;
+      if (text === "false") return false;
+      throw new RecordValueError(column.id, `${column.label} is a checkbox: true or false, got ${JSON.stringify(value)}`);
+    }
+    case "date":
+    case "createdTime":
+    case "lastEditedTime": {
+      if (typeof text !== "string" || Number.isNaN(new Date(text).getTime())) {
+        throw new RecordValueError(column.id, `${column.label} holds a date, got ${JSON.stringify(value)}`);
+      }
+      return text;
+    }
+    case "select":
+    case "status": {
+      if (typeof text !== "string") {
+        throw new RecordValueError(column.id, `${column.label} holds one of its options, got ${JSON.stringify(value)}`);
+      }
+      if (column.options?.length && !column.options.includes(text)) {
+        throw new RecordValueError(
+          column.id,
+          `${column.label} has no option ${JSON.stringify(text)} — it offers ${column.options.join(", ")}`,
+        );
+      }
+      return text;
+    }
+    case "multiselect": {
+      if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+        throw new RecordValueError(column.id, `${column.label} holds a list of its options, got ${JSON.stringify(value)}`);
+      }
+      const chosen = (value as string[]).map((entry) => entry.trim());
+      const unknown = column.options?.length ? chosen.filter((entry) => !column.options!.includes(entry)) : [];
+      if (unknown.length) {
+        throw new RecordValueError(
+          column.id,
+          `${column.label} has no option ${unknown.map((entry) => JSON.stringify(entry)).join(", ")} — it offers ${column.options!.join(", ")}`,
+        );
+      }
+      return chosen;
+    }
+    case "email": {
+      if (typeof text !== "string" || !EMAIL_RE.test(text)) {
+        throw new RecordValueError(column.id, `${column.label} holds an email address, got ${JSON.stringify(value)}`);
+      }
+      return text;
+    }
+    case "url": {
+      if (typeof text !== "string" || !URL.canParse(text)) {
+        throw new RecordValueError(column.id, `${column.label} holds a link, got ${JSON.stringify(value)}`);
+      }
+      return text;
+    }
+    case "relation": {
+      if (typeof text !== "string") {
+        throw new RecordValueError(column.id, `${column.label} holds the id of a related Record, got ${JSON.stringify(value)}`);
+      }
+      return text;
+    }
+    case "files": {
+      if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+        throw new RecordValueError(column.id, `${column.label} holds a list of file ids, got ${JSON.stringify(value)}`);
+      }
+      return value;
+    }
+    default: {
+      // text / longText / phone / person / location / skill: prose, and prose
+      // is not an object. A number reaching a text column is written as text
+      // rather than refused — that one is a formatting question, not a lie.
+      if (typeof text === "string") return text;
+      if (typeof value === "number" || typeof value === "boolean") return String(value);
+      throw new RecordValueError(column.id, `${column.label} holds text, got ${JSON.stringify(value)}`);
+    }
+  }
+}
+
+/**
+ * The row as it may be STORED: only declared columns, each coerced to what its
+ * kind can hold, derived columns refused rather than written, and — on insert —
+ * every `required` column present.
+ */
+export function coerceRecordFields(
+  spec: TableSpec,
+  fields: Record<string, unknown>,
+  options: { applyDefaults: boolean },
+): Record<string, unknown> {
+  const byId = new Map(spec.columns.map((column) => [column.id, column]));
+  const picked: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    const column = byId.get(key);
+    // The pre-existing membership refusal, word for word: callers test it.
+    if (!column) throw new RecordValueError(key, `${key} is not a column of ${spec.id}`);
+    const unwritable = unwritableReason(column);
+    if (unwritable) throw new RecordValueError(key, unwritable);
+    picked[key] = coerceOne(column, value);
+  }
+  if (!options.applyDefaults) return picked;
+  for (const column of spec.columns) {
+    if (unwritableReason(column)) continue;
+    if (picked[column.id] === undefined && column.defaultValue !== undefined) {
+      picked[column.id] = coerceOne(column, column.defaultValue);
+    }
+    if (column.required && (picked[column.id] === undefined || picked[column.id] === null)) {
+      throw new RecordValueError(column.id, `${column.label} is required`);
+    }
+  }
+  return picked;
+}
+
+/**
+ * The relation targets a manifest names that no Database anywhere answers to
+ * (TASK-108).
+ *
+ * `parseModuleManifest` checks the SAME-manifest half; this is the other half,
+ * and it can only be asked here because it needs the manifests already
+ * installed. A relation to a Database nobody declares renders a chooser over
+ * nothing, which is the control ADR-247 forbids — so registration refuses it
+ * rather than installing a Module whose column can never be filled.
+ */
+export function unknownRelationTargets(
+  manifest: { name: string; module?: { databases?: ModuleDatabaseBinding[] } | undefined },
+  installed: { moduleName: string; manifest: { module?: { databases?: ModuleDatabaseBinding[] } | undefined } }[],
+): string[] {
+  const known = new Set<string>();
+  for (const database of manifest.module?.databases ?? []) {
+    known.add(moduleRecordsSpecId(manifest.name, database.id));
+  }
+  for (const row of installed) {
+    for (const database of row.manifest.module?.databases ?? []) {
+      known.add(moduleRecordsSpecId(row.moduleName, database.id));
+    }
+  }
+  const missing = new Set<string>();
+  for (const database of manifest.module?.databases ?? []) {
+    for (const column of database.columns) {
+      if (!column.relationTarget) continue;
+      const target = column.relationTarget.includes(".")
+        ? column.relationTarget
+        : moduleRecordsSpecId(manifest.name, column.relationTarget);
+      if (!known.has(target)) missing.add(column.relationTarget);
+    }
+  }
+  return [...missing].sort();
 }
 
 /** One column-menu command, as the server understands it. */
@@ -116,6 +371,8 @@ export type ColumnOp =
       columnId: string;
       label: string;
       columnKind: ColumnKind;
+      /** `select`/`status`/`multiselect` only — the choices the column offers. */
+      options?: string[] | undefined;
       position?: { relativeTo: string; side: "left" | "right" } | undefined;
     };
 
@@ -153,8 +410,9 @@ export function applyColumnOp(overlay: ColumnOverlay, op: ColumnOp, updatedAt: s
         id: op.columnId,
         label: op.label,
         kind: op.columnKind,
+        ...(op.options?.length ? { options: [...op.options] } : {}),
         ...(op.position ? { position: op.position } : {}),
-      });
+      } as AddedColumn);
       break;
   }
   return next;

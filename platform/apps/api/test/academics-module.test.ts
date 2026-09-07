@@ -52,7 +52,7 @@ test("an Egg installs Academics from its Commons manifest and serves Subjects, L
       ["name", "code", "term", "instructor", "credits"],
     );
     for (const databaseId of ["subjects", "lecture-sessions", "assignments"]) {
-      assert.deepEqual(await caller.moduleRecords.list(target(databaseId)), { items: [], total: 0 });
+      assert.deepEqual(await caller.moduleRecords.list(target(databaseId)), { items: [], total: 0, hasMore: false });
     }
 
     const subject = await caller.moduleRecords.insert({

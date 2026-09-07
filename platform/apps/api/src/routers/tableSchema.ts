@@ -103,6 +103,10 @@ export const tableSchemaRouter = t.router({
               ),
             label: z.string().trim().min(1).max(120),
             columnKind: z.enum(COLUMN_KINDS),
+            /** The choices a `select`/`status`/`multiselect` column offers
+             * (TASK-108). Without them an added choice column rendered a
+             * chooser over nothing — a control that cannot be honoured. */
+            options: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
             /** Where it lands. Omitted, the column goes to the end — which is
              * what "Add column" in the toolbar means; the column menu's own
              * left/right items name the column they were opened on. */
@@ -140,6 +144,14 @@ export const tableSchemaRouter = t.router({
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
             message: capability.addReason ?? `${input.specId} cannot gain a column`,
+          });
+        }
+        // Options belong to a column that HAS options. Storing them on a text
+        // column would be an overlay entry nothing could ever read.
+        if (input.op.options?.length && !["select", "status", "multiselect"].includes(input.op.columnKind)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `A ${input.op.columnKind} column has no options to choose from`,
           });
         }
         // A duplicate would render twice and write to one cell.

@@ -88,7 +88,32 @@ export interface BlueprintColumnSpec {
   relationTarget?: string;
   relationParent?: boolean;
   hiddenInForm?: boolean;
+  /** Shown as a tooltip on the column name. Notion calls it a description. */
+  description?: string;
+  /** `kind: "status"` — option id -> which end of the lifecycle it sits at. */
+  statusGroups?: Record<string, "todo" | "doing" | "done">;
+  /** `kind: "rollup"` — the relation column, the far-side column, and the
+   * reduction. Mirrors @bridge/tables' ColumnSpec, same as everything above. */
+  rollupSource?: string;
+  rollupProperty?: string;
+  rollupFunction?: BlueprintRollupFunction;
+  /** `kind: "button"` — the governed Action id the cell runs. */
+  actionId?: string;
 }
+
+/** How a rollup reduces the far-side values. Mirrors @bridge/tables. */
+export const BLUEPRINT_ROLLUP_FUNCTIONS = [
+  "count",
+  "sum",
+  "average",
+  "min",
+  "max",
+  "earliest",
+  "latest",
+  "unique",
+  "show_original",
+] as const;
+export type BlueprintRollupFunction = (typeof BLUEPRINT_ROLLUP_FUNCTIONS)[number];
 
 /** Structural mirror of @bridge/tables' TableSpec. */
 export interface BlueprintTableSpec {
