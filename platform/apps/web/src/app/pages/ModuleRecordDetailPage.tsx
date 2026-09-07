@@ -53,9 +53,18 @@ export function ModuleRecordDetailPage() {
     try {
       const [definition, list] = await Promise.all([
         trpc.moduleRecords.definition.query({ organizationId: PILOT_ORGANIZATION, moduleName, databaseId: page.databaseId }),
-        trpc.moduleRecords.list.query({ organizationId: PILOT_ORGANIZATION, moduleName, databaseId: page.databaseId }),
+        // Ask the server for THIS Record, not for the Database. Scanning a
+        // page of rows for an id stopped working the moment `list` grew a
+        // default window: the 51st Record could not be opened (TASK-108).
+        trpc.moduleRecords.list.query({
+          organizationId: PILOT_ORGANIZATION,
+          moduleName,
+          databaseId: page.databaseId,
+          rowFilters: [{ field: "id", op: "is", value: recordId ?? "" }],
+          limit: 1,
+        }),
       ]);
-      const found = list.items.find((candidate) => candidate.id === recordId) ?? null;
+      const found = list.items[0] ?? null;
       setSpec(definition.spec);
       setRow(found);
       setDraft(found ? { ...found } : {});

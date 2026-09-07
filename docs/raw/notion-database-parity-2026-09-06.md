@@ -42,8 +42,8 @@ Notion has 24. We had 15 declared, of which four are derived metadata.
 | Email | ABSENT | `email` |
 | Phone | ABSENT | `phone` |
 | Formula | declared; ONE hardcoded instance (`accounting.reports.value`); a user-added formula column carries no `expressionField` and is inert | unchanged in this batch — TASK-108 must either implement or keep refusing it |
-| Relation | declared and stored, **never dereferenced**; `relationTarget` unvalidated; no back-reference | validation and traversal are TASK-108 |
-| Rollup | ABSENT | `rollup` in the grammar; computation is TASK-108 |
+| Relation | declared and stored, **never dereferenced**; `relationTarget` unvalidated; no back-reference | a target naming no Database is refused at registration, and a rollup traverses the relation on read (TASK-108). A two-way back-reference is still ABSENT |
+| Rollup | ABSENT | IMPLEMENTED — computed on read through the relation, nine reductions, never stored so it cannot go stale (TASK-108) |
 | Created time / by | `createdTime` / `createdBy`, derived from the Event log | unchanged |
 | Last edited time / by | `lastEditedTime` / `lastEditedBy` | unchanged |
 | ID (auto-number) | ABSENT | `autoNumber` |
@@ -84,7 +84,7 @@ Ours with no Notion equivalent: map, graph and tree, the last with drag-to-repar
 | Wrap cells | ABSENT — every cell `whitespace-nowrap` | `wrapCells`, TASK-109 |
 | Row height | a hard 40px constant | `rowHeight` with `ROW_HEIGHT_PX`, TASK-109 |
 | Calculate summary row | IMPLEMENTED, ten aggregates, but the choice lived in `useState` and died on reload | `aggregates` persisted, TASK-109 |
-| Page size and load more | per-page and inconsistent; a Module Page capped silently at 100 rows | one control, TASK-110 |
+| Page size and load more | per-page and inconsistent; a Module Page capped silently at 100 rows | one control, and on a Module Database the window is the server's (TASK-110 + TASK-108) |
 | Open as peek | ABSENT — a Record opens as a full page | still ABSENT, and deliberate: our Record page carries Sections a peek panel cannot hold |
 | Search in database | IMPLEMENTED | unchanged |
 | Duplicate a view | ABSENT | TASK-110 |
@@ -116,8 +116,8 @@ Ours with no Notion equivalent: map, graph and tree, the last with drag-to-repar
 
 | Notion capability | Verdict |
 |---|---|
-| Server-side query | Before: only People and Communities, six string operators over a five-column allowlist. `moduleRecords.list` returned the whole document with no filter, sort or paging. TASK-108 |
-| Value validation on write | ABSENT — `pickDeclared` checked key membership only, so a number column accepted an object and `required` was never enforced. TASK-108 |
+| Server-side query | IMPLEMENTED — `moduleRecords.list` searches, filters, sorts, groups and pages over every stored Record before slicing, with the column kinds so numbers and dates compare correctly, and returns the count of the whole match (TASK-108) |
+| Value validation on write | IMPLEMENTED — each value is coerced and checked against its kind, `required` is enforced on insert after defaults, and a derived column is refused rather than stored (TASK-108) |
 | CSV import and export | ABSENT server-side; the only CSV writer is the audit ledger's |
 | Copy and paste cell ranges | ABSENT |
 | Database automations | ABSENT — the trigger vocabulary is `manual | schedule | event`, no row-created or property-changed trigger, and event dispatch says in code that nothing starts an Automation |

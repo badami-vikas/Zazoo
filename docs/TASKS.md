@@ -1765,7 +1765,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-09-06, verbatim in `docs/raw/notion-database-parity-2026-09-06.md`.
 - Approval: none needed (the governed write path and its human-only guards are unchanged; validation only narrows what may be stored).
 - Dependencies: TASK-104 (the governed schema path reaching Module Databases).
-- NOT LANDED (stated): filled at merge.
+- NOT LANDED (stated): a formula column on a Module Database is refused on write with that as its reason — there is no expression engine for these Records, and a half-formula that silently stored nothing would be worse. `autoNumber` is validated, not assigned by the server, so nothing yet fills it. An added choice column keeps its options on the stored overlay entry and they are re-attached on read, rather than living on `ColumnOverlay` itself. Rollup is computed on read and never stored, so a Database with many related Records pays for it on every list.
 
 ## Cells look like what they hold, and columns can be shaped
 

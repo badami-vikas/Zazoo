@@ -87,6 +87,11 @@ export function ModulePage() {
   const [view, setView] = useState<ViewConfig>(() =>
     defaultViewConfig(`${moduleName}.${pageId}:table`),
   );
+  /** How many Records match in the WHOLE Database, as the server counted them —
+   * what the pagination control reports, not the length of the loaded page. */
+  const [total, setTotal] = useState(0);
+  /** The window and search the shell asked for. */
+  const [windowState, setWindowState] = useState({ offset: 0, pageSize: 50, search: "" });
 
   const structure = useMemo(
     () => moduleStructure(installation?.manifest ?? { module: undefined }),
@@ -107,16 +112,21 @@ export function ModulePage() {
           moduleName,
           databaseId: page.databaseId,
         }),
-        // Every row, and `<DataViews>` pages them (TASK-110). Built against
-        // the CURRENT `moduleRecords.list` signature, which takes no window and
-        // returns `{ items, total }` for the whole Database; the server-side
-        // filter/sort/page work lands separately, and a `limit` sent today
-        // would be silently stripped rather than honoured — a page control
-        // that quietly does nothing is worse than one that pages here.
+        // ONE page, chosen by the server (TASK-108). The View's search,
+        // filters and sorts go with it, so a filter matches a Record on a
+        // later page and "of N" counts the whole match rather than what
+        // happens to be loaded.
         trpc.moduleRecords.list.query({
           organizationId: PILOT_ORGANIZATION,
           moduleName,
           databaseId: page.databaseId,
+          limit: windowState.pageSize,
+          offset: windowState.offset,
+          ...(windowState.search ? { query: windowState.search } : {}),
+          ...(view && view.rowFilters.length
+            ? { rowFilters: view.rowFilters, filterMatch: view.filterMatch }
+            : {}),
+          ...(view && view.sorts.length ? { sorts: view.sorts } : {}),
         }),
         // The column menu's capability, exactly as Accounting reads it: the
         // server says whether this Database may be reshaped and whether it can
@@ -135,10 +145,11 @@ export function ModulePage() {
       });
       setSpec(definition.spec);
       setRows(list.items);
+      setTotal(list.total);
     } catch (failure) {
       setError(String(failure));
     }
-  }, [moduleName, page]);
+  }, [moduleName, page, windowState, view]);
 
   useEffect(() => {
     setSpec(null);
@@ -257,6 +268,16 @@ export function ModulePage() {
           table={
             <section aria-label={`${installation.manifest?.module?.displayName ?? moduleName} ${page.name}`} className="h-full">
               <DataViews
+                serverTotal={total}
+                onWindowChange={(next) =>
+                  setWindowState((current) =>
+                    current.offset === next.offset &&
+                    current.pageSize === next.pageSize &&
+                    current.search === next.search
+                      ? current
+                      : next,
+                  )
+                }
                 spec={spec}
                 view={view}
                 data={rows}

@@ -180,6 +180,20 @@ export interface DataViewsProps
    */
   onOpenNewRecord?: () => void;
   /**
+   * Server-paged mode. Supply this when the SURFACE has already asked the
+   * server for this View's search, filters, sorts and page window: `data` is
+   * then ONE page and this is how many Records match in the whole Database.
+   * The shell stops filtering, sorting and slicing a second time, and the
+   * pagination control counts the server's answer rather than the page it can
+   * see — which is what lets a filter match a Record beyond the loaded page
+   * (TASK-108/110).
+   */
+  serverTotal?: number;
+  /** In server-paged mode, the window and search the shell now needs. Filters
+   * and sorts are not repeated here: they live in the View the surface already
+   * holds, so `onViewChange` is what tells it those moved. */
+  onWindowChange?: (window: { offset: number; pageSize: number; search: string }) => void;
+  /**
    * The Module this Database belongs to, for an Record page's Sections.
    * Defaults to the spec id's own prefix (`deal-pilot.deals` → `deal-pilot`),
    * which is how nearly every spec in the repository is named; the handful
@@ -208,6 +222,8 @@ export function DataViews({
   insights,
   actions,
   onOpenNewRecord,
+  serverTotal,
+  onWindowChange,
   moduleName,
   recordEntityType,
   ...viewProps
@@ -234,6 +250,17 @@ export function DataViews({
   /** The first row on screen. Pagination is the SHELL's, not each page's
    * (TASK-110) — see <PaginationBar>. */
   const [offset, setOffset] = useState(0);
+  // Server-paged surfaces are told the window and search they now need. The
+  // delay is for typing: one query per keystroke would be a request storm.
+  useEffect(() => {
+    if (!onWindowChange) return undefined;
+    const timer = window.setTimeout(
+      () => onWindowChange({ offset, pageSize: view.pageSize ?? DEFAULT_PAGE_SIZE, search }),
+      250,
+    );
+    return () => window.clearTimeout(timer);
+  }, [onWindowChange, offset, view.pageSize, search]);
+
   /** Managing the selected List: rename draft and the delete confirmation.
    * Deleting a List is destructive and irreversible, so it asks first. */
   const [listRenameDraft, setListRenameDraft] = useState("");
@@ -325,7 +352,9 @@ export function DataViews({
    */
   const resolved = useMemo(
     () =>
-      activeView
+      serverTotal !== undefined
+        ? data
+        : activeView
         ? applySorts(
             applyFilters(
               searchedData,
@@ -336,15 +365,19 @@ export function DataViews({
             activeView.sorts,
           )
         : searchedData,
-    [searchedData, activeView, columnKinds],
+    [serverTotal, data, searchedData, activeView, columnKinds],
   );
   const pageSize = activeView?.pageSize ?? DEFAULT_PAGE_SIZE;
+  /** In server-paged mode `data` IS the page, so there is nothing to slice and
+   * the total is the server's, not the length of what arrived. */
+  const serverPaged = serverTotal !== undefined;
+  const totalRows = serverPaged ? serverTotal : resolved.length;
   /** A filter that shrinks the result below the current window would otherwise
    * leave the user staring at an empty page four. */
-  const pageOffset = offset >= resolved.length ? 0 : offset;
+  const pageOffset = offset >= totalRows ? 0 : offset;
   const pageRows = useMemo(
-    () => resolved.slice(pageOffset, pageOffset + pageSize),
-    [resolved, pageOffset, pageSize],
+    () => (serverPaged ? data : resolved.slice(pageOffset, pageOffset + pageSize)),
+    [serverPaged, data, resolved, pageOffset, pageSize],
   );
   if (!activeView || !isRegisteredViewKind(activeView.kind)) {
     // The enforcement boundary: an unregistered kind never reaches a component.
@@ -1046,7 +1079,7 @@ export function DataViews({
           rows the shell actually filtered, so "of N" is the real N. */}
       {!creating && (
         <PaginationBar
-          total={resolved.length}
+          total={totalRows}
           pageSize={pageSize}
           offset={pageOffset}
           onOffsetChange={setOffset}

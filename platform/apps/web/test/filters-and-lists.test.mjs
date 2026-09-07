@@ -171,3 +171,24 @@ test("the toolbar row still holds only List, View and Search on the left and Fil
     `the row opens at most the List popover, the Filter popover and the ⋮ menu (found ${triggers.length})`,
   );
 });
+
+// The server query landed with a default window (TASK-108), which silently
+// truncated both Module surfaces: the Module Page showed 50 Records however
+// many existed, and the Record page scanned a page of rows for an id, so the
+// 51st Record could not be opened at all.
+test("the Module surfaces ask the server for the window they need, not for the Database", () => {
+  const page = read("pages", "ModulePage.tsx");
+  assert.match(page, /limit: windowState\.pageSize/, "the Module Page does not send a page window");
+  assert.match(page, /offset: windowState\.offset/, "the Module Page does not send an offset");
+  assert.match(page, /serverTotal=\{total\}/, "the Module Page does not report the server's count");
+
+  const detail = read("pages", "ModuleRecordDetailPage.tsx");
+  assert.match(detail, /rowFilters: \[\{ field: "id"/, "the Record page still scans rows for an id");
+  assert.match(detail, /limit: 1/, "the Record page still asks for more than the one Record");
+});
+
+test("in server-paged mode the shell does not filter, sort or slice a second time", () => {
+  const shell = read("dataviews", "DataViews.tsx");
+  assert.match(shell, /serverTotal !== undefined\s*\?\s*data/s, "the shell re-runs its own pipeline over a server page");
+  assert.match(shell, /total=\{totalRows\}/, "pagination counts the loaded page, not the server's total");
+});
