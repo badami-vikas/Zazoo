@@ -38,7 +38,7 @@ export function SortEditor({ spec, sorts, onChange }: SortEditorProps) {
       ) : (
         sorts.map((sort, index) => (
           <div key={sort.id} className="flex items-center gap-1">
-            <span className="w-10 shrink-0 text-[11px] text-muted-foreground">
+            <span className="w-10 shrink-0 text-xs text-muted-foreground">
               {index === 0 ? "Sort" : "then"}
             </span>
             <StandardDropdown

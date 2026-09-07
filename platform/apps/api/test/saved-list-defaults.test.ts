@@ -37,7 +37,7 @@ const config = (overrides: Record<string, unknown> = {}) => ({
 
 async function onLocalPlane(body: (wiring: Wiring) => Promise<void>): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "bridge-task110-"));
-  const wiring = await buildWiring({ profile: "egg", localDir: join(root, "local") });
+  const wiring = await buildWiring({ localDir: join(root, "local") });
   try {
     await body(wiring);
   } finally {
