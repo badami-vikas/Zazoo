@@ -302,6 +302,13 @@
       "when": 1786986662650,
       "tag": "0043_task075_jobpilot_onboarding",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1788000000000,
+      "tag": "0044_authored_modules",
+      "breakpoints": true
     }
   ]
 }

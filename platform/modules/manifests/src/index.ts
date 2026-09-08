@@ -3,7 +3,7 @@
  * manifests the module store installs; no frontend inventory is hardcoded.
  */
 import { TASK_PLAYBOOKS } from "@bridge/core";
-import type { CapabilityManifest, CommonsProvenance, ModuleManifest, RiskBand } from "@bridge/core";
+import type { CapabilityManifest, CommonsProvenance, ModuleManifest, ModuleSurfaceManifest, RiskBand } from "@bridge/core";
 
 export type BuiltInModule = {
   manifest: ModuleManifest;
@@ -1731,9 +1731,25 @@ export function moduleNavTarget(
   const mod = BUILT_IN_MODULES.find(
     (candidate) => candidate.manifest.name === moduleName,
   )?.manifest.module;
-  if (!mod) return undefined;
-  const routes = mod.pages.map((page) => page.route).filter((route) => route.length > 0);
-  if (routes.length === 0) return { landing: mod.route, base: mod.route };
+  return mod ? moduleNavTargetFromSurface(mod) : undefined;
+}
+
+/**
+ * The same nav target computed from a manifest surface the caller already
+ * holds, rather than by name from the built-in table.
+ *
+ * A Module the owner AUTHORED is installed at runtime and is not in
+ * `BUILT_IN_MODULES`, so the by-name lookup above cannot find it — and a nav
+ * entry whose landing route is unresolvable falls back to `/home`, which is the
+ * "a surface quietly disappears" failure `buildModuleNavTree` is written to
+ * refuse. `modules.list` already returns the whole manifest, so the caller can
+ * answer this without a registry lookup at all.
+ */
+export function moduleNavTargetFromSurface(
+  surface: Pick<ModuleSurfaceManifest, "route" | "pages">,
+): { landing: string; base: string } {
+  const routes = surface.pages.map((page) => page.route).filter((route) => route.length > 0);
+  if (routes.length === 0) return { landing: surface.route, base: surface.route };
   return { landing: routes[0]!, base: commonRoutePrefix(routes) };
 }
 

@@ -826,6 +826,11 @@ export const CHIEF_OF_STAFF_ALLOWED_SKILLS: readonly string[] = [
   // behind it; adding it now is what makes ADR-107's ownership of routing
   // something Chief of Staff can exercise rather than only be named for.
   "task-manager.agent-task-routing",
+  // The Skill behind "Chief of Staff, build me a Module". Granted here for the
+  // same reason `agent-task-routing` was: there is now a caller. It drafts a
+  // Module as Databases and the Pages over them, and the proposal it raises
+  // installs nothing until a Human approves — CoS still never decides.
+  "chief-of-staff.author-module",
 ];
 
 /**
@@ -853,6 +858,15 @@ export async function ensureChiefOfStaffGovernance(
     additionalGrants: [
       { resourceType: "record", action: "read", capabilityToken: "record:read" },
       { resourceType: "record", action: "write", capabilityToken: "record:write" },
+      // Drafting a Module install. NOT `capability:write` — that is on the
+      // agent floor (governance self-modification) and stays there: the
+      // capabilities an authored Module declares are registered by the HUMAN's
+      // decision, never by this Agent.
+      {
+        resourceType: "module_installation",
+        action: "write",
+        capabilityToken: "module_installation:write",
+      },
     ],
     allowedSkills: CHIEF_OF_STAFF_ALLOWED_SKILLS,
     dataScope: "all",

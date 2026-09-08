@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
 import { Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles, ChevronRight } from "lucide-react";
-import { moduleNavTarget, buildModuleNavTree } from "@bridge/module-manifests";
+import { moduleNavTarget, moduleNavTargetFromSurface, buildModuleNavTree } from "@bridge/module-manifests";
 import { trpc, PILOT_ORGANIZATION } from "./lib/trpc";
 import { useAppFocusCapture } from "./lib/app-focus-capture";
 import { useInputCaptureDrain } from "./lib/input-capture-drain";
@@ -155,7 +155,15 @@ export default function Layout() {
   // TASK-001 VOCAB6: installed modules from modules.list (real API, not
   // hardcoded). Only `available` state modules appear in the nav.
   const [installedModules, setInstalledModules] = useState<
-    { moduleName: string; displayName: string; parentModule?: string | undefined }[] | null
+    {
+      moduleName: string;
+      displayName: string;
+      parentModule?: string | undefined;
+      /** Landing/active-highlight routes taken from this Module's OWN manifest.
+       * A Module the owner authored is not in the built-in table, so the
+       * by-name lookup cannot resolve it. */
+      nav?: { landing: string; base: string } | undefined;
+    }[] | null
   >(null);
   const [expandedModules, setExpandedModules] = useState<string[]>(() => loadExpandedModules());
 
@@ -191,6 +199,9 @@ export default function Layout() {
             moduleName: p.moduleName,
             displayName: p.manifest?.module?.displayName ?? p.manifest?.name ?? p.moduleName,
             parentModule: p.manifest?.module?.parentModule,
+            nav: p.manifest?.module
+              ? moduleNavTargetFromSurface(p.manifest.module)
+              : undefined,
           }));
         setInstalledModules(available);
       })
@@ -315,7 +326,9 @@ export default function Layout() {
   // was removed 2026-08-10 — a Module with no declared Page has nowhere of its
   // own to land, so it goes to Home rather than a dead `/module/:name` link.
   const apiModules: NavModule[] = (installedModules ?? []).map((mod) => {
-    const nav = moduleNavTarget(mod.moduleName);
+    // The Module's own manifest first — it is authoritative and covers
+    // authored Modules; the built-in table is the fallback.
+    const nav = mod.nav ?? moduleNavTarget(mod.moduleName);
     return {
       moduleName: mod.moduleName,
       displayName: mod.displayName,

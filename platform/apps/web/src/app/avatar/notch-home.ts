@@ -248,3 +248,56 @@ export function landingSquash(t: number): { scaleX: number; scaleY: number } {
 export function squashSettled(t: number): boolean {
   return t >= 1 && Math.exp(-6 * (t - 1)) < 0.02;
 }
+
+/**
+ * Is the companion window on screen right now?
+ *
+ * Zazoo lives in the notch and stays THERE. He is on screen only while he is
+ * wanted: the cursor is at the cutout, the cursor is on his own revealed
+ * panel, a composer is open, or the push-to-talk shortcut summoned him.
+ * Anything else conceals the window, so a sleeping companion costs the desktop
+ * nothing (user directive 2026-09-08: "it should stay hidden in notch and when
+ * not hovered over notch or when shortcut isnt pressed, it should disappear
+ * into notch (unless explicitly dragged outside the notch)").
+ *
+ * DRAGGING HIM OUT IS THE OPT-OUT. `home: "free"` is a deliberate gesture that
+ * survives restarts, and a free-floating companion is meant to be visible — so
+ * that home presents whenever the session is ready and this contract does not
+ * apply to it.
+ *
+ * GEOMETRY IS NOT PART OF THIS DECISION, and that is the fix for the reported
+ * bug. `inNotchHome` used to mean "notch home AND we know where the cutout is",
+ * and drove presentation as well as rendering. When the geometry probe gave up
+ * (it retries with backoff and then stops), that one flag went false and the
+ * FREE home's effect took over — presenting the window permanently, in the
+ * notch home, with nothing able to conceal it. Whether we know where the cutout
+ * is decides what to DRAW and where; it must never decide whether an
+ * un-summoned companion is on screen. Without geometry there is no Rust hover
+ * signal, so ⌘⇧Space (`panel: "ask"`) is what summons him — still reachable,
+ * no longer permanently parked on the desktop.
+ */
+export interface CompanionVisibilityInputs {
+  home: "notch" | "free";
+  sessionReady: boolean;
+  /** Rust cursor poll says the pointer is in the cutout's hot zone. */
+  notchHover: boolean;
+  /** The revealed panel's own DOM hover — the geometric wake zone is
+   * deliberately smaller than the drawn content. */
+  notchDomHover: boolean;
+  /** Zazoo is sitting up in his chat pose rather than asleep on the bed. */
+  notchPose: string;
+  /** Which composer is open, if any. "ask" is what ⌘⇧Space opens. */
+  panel: string;
+}
+
+export function companionWindowVisible(input: CompanionVisibilityInputs): boolean {
+  if (!input.sessionReady) return false;
+  if (input.home === "free") return true;
+  return (
+    input.notchHover ||
+    input.notchDomHover ||
+    input.notchPose === "chat" ||
+    input.panel === "ask" ||
+    input.panel === "chat"
+  );
+}

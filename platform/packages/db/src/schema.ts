@@ -2311,3 +2311,67 @@ export const claimRows = pgTable(
     }),
   ],
 );
+
+// =====================================================================
+// AUTHORED MODULES — the storage an owner-authored Module's Databases use.
+//
+// Every built-in Module got its own pgTable and its own migration (see
+// `academics_subjects`, `devpilot_repos`, `jobpilot_jobs`). That is right for
+// a Module written in TypeScript, and impossible for one Chief of Staff
+// authors at runtime: a person asking for a Module cannot wait on a
+// migration. These two tables are the generic substrate that lets an authored
+// Module hold real Records instead of rendering an empty shell forever.
+//
+// The shape is DECLARED in `authored_databases.columns` (an
+// `AuthoredColumnSpec[]`, the same value the installed manifest was projected
+// from) and the rows live in `authored_records.properties`, validated against
+// that declaration at the API seam before every write — same "validated at the
+// seam" discipline the other jsonb columns here follow. Storing declared
+// shape + jsonb rows is the ONLY way to add a Database without a migration;
+// the cost is that Postgres cannot type-check a cell, so the seam must.
+
+/** One Database inside an authored Module. */
+export const authoredDatabases = pgTable(
+  "authored_databases",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    /** The authored Module's manifest `name`. */
+    moduleName: text("module_name").notNull(),
+    /** Database id WITHIN the Module (manifest page id). */
+    databaseId: text("database_id").notNull(),
+    /** `<moduleName>.<databaseId>` — the governed capability this Database is
+     * installed under, denormalized so a read never has to re-derive it. */
+    capabilityId: text("capability_id").notNull(),
+    label: text("label").notNull(),
+    /** AuthoredColumnSpec[] — the declared column shape rows are checked against. */
+    columns: jsonb("columns").notNull().default([]),
+    createdAt: now(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("authored_databases_module_database_uq").on(
+      t.organizationId, t.moduleName, t.databaseId,
+    ),
+    index("authored_databases_organization_idx").on(t.organizationId, t.moduleName),
+  ],
+);
+
+/** One Record in an authored Database. */
+export const authoredRecords = pgTable(
+  "authored_records",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    databaseRowId: uuid("database_row_id").notNull().references(() => authoredDatabases.id),
+    /** Cell values keyed by AuthoredColumnSpec.id. Validated against the
+     * owning row's `columns` at the API seam — never trusted as arriving. */
+    properties: jsonb("properties").notNull().default({}),
+    createdAt: now(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("authored_records_database_idx").on(t.organizationId, t.databaseRowId),
+  ],
+);

@@ -2,6 +2,40 @@
 
 > This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
+- **OPEN 2026-09-08 — one `@bridge/core` test is timezone-dependent and fails outside UTC (attach: TASK-054, P4).**
+  Found while running the suite for unrelated work (ADR-256); NOT caused by it — `test/input-capture.test.ts` is
+  byte-identical to HEAD. `"suppressed bursts signal the reason and never the text"` (line 307) hardcodes
+  `typedAt: "2026-08-16T22:00:00.000Z"` and asserts `attributes.timeOfDay === "night"`, but the bucket is derived in
+  **local** time. In `America/Chicago` that instant is 17:00 → `"evening"`, and the test fails.
+  **Proven, not assumed**: `TZ=UTC node --test dist/test/input-capture.test.js` passes; the same command without `TZ`
+  fails on the same build. Full core suite is 788/788 under `TZ=UTC`.
+  **The product code is right, the test is wrong**: "what time of day was the person typing" is a local-time question,
+  so `timeOfDay` should stay local. The fix belongs in the test — pin the timezone, or build the instant from a local
+  time rather than a `Z` literal. Left unfixed here deliberately: it is the K11 capture lane's own surface, and this
+  session's change is in the Module/Chat lane.
+  **Consequence**: any contributor outside UTC sees one red core test that is not theirs. CI runs UTC, so it is green
+  there — which is why it survived.
+
+- **FIXED 2026-09-08 — the companion (Zazoo) sat on the desktop permanently instead of hiding in the notch (attach: TASK-027, ADR-257).**
+  User report, verbatim: *"The zazoo is visible even when not explicitly invoked. It should stay hidden in notch and when
+  not hovered over notch or when shortcut isnt pressed, it should disappear into notch (unless explicitly dragged outside
+  the notch)"*.
+  **Root cause** (not the symptom): `OverlayApp.tsx` derived ONE flag,
+  `inNotchHome = home === "notch" && notchGeometry !== null`, and used it to answer two unrelated questions — whose
+  contract decides visibility, and which surface to draw. `notch_geometry` is fetched with backoff and **gives up after
+  ~8s**; when it did, `inNotchHome` went false, so the notch effect's `overlay_conceal` never ran and the FREE home's
+  effect took over, calling `overlay_present` on every session-ready render. Nothing was left that could conceal the
+  window. The same early-return also meant `!sessionReady` skipped conceal entirely.
+  **Fix**: split the flag — `notchHome` (stored home only) owns visibility, `notchSurface` (home + geometry) owns
+  rendering. The rule itself moved into the pure, host-free module that exists for exactly this
+  (`companionWindowVisible()` in `notch-home.ts`) and is pinned by tests, including one asserting that losing geometry
+  cannot reveal an un-summoned companion.
+  **Evidence**: `apps/web/test/notch-home.test.mjs` — 18 pass; seen RED (2 fail) against a mutation that restores the
+  always-visible behaviour.
+  **Deliberately accepted**: with no geometry there is no Rust hover signal, so ⌘⇧Space becomes the only summon. That
+  keeps the 2026-08-12 report (*"the avatar is missing as Desktop overlay"*) fixed — he is reachable, just no longer
+  permanently on screen.
+
 - **OPEN 2026-08-16 — `pnpm verify` is red on `main` for two reasons unrelated to any current work (attach: TASK-074, P2).**
   Found while landing the Accounting/D2C module merge, not from a user report. Both were proven
   pre-existing rather than assumed: the implicated files are **byte-identical to `main`** (`diff -q`

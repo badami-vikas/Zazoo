@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate, useParams } from "react-router";
 import { moduleNavTarget, requireBuiltInModule } from "@bridge/module-manifests";
 import Layout from "./Layout";
 import { DealPilotPage } from "./pages/DealPilotPage";
+import { AuthoredModulePage } from "./pages/AuthoredModulePage";
 import { GoogleIntegrationPanel } from "./pages/GoogleIntegrationPanel";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { JobPilotPage } from "./pages/JobPilotPage";
@@ -173,6 +174,13 @@ export const router = createBrowserRouter([
       // back-link — on a blank router miss. A redirect keeps those links
       // working without reintroducing a detail surface.
       { path: "module/:moduleId", Component: ModuleRootRedirect },
+      // Every Module the owner AUTHORED, on one route. A built-in Module names
+      // its Pages statically above, and React Router ranks a static segment
+      // above a dynamic one, so `module/whatsapp/chats` and
+      // `module/academics/:page` still win over this — it only catches the
+      // Modules that have no hand-written Page, which is all of them once
+      // Chief of Staff is the one building them.
+      { path: "module/:moduleName/:pageId", Component: AuthoredModulePage },
       { path: `${childPath(relationshipSignalsRoute)}/:signalId/event`, Component: SignalSourceEventPage },
       { path: `${childPath(relationshipSignalsRoute)}/:signalId`, Component: SignalDetailPage },
       { path: `${childPath(relationshipModule.route)}/people/:recordId`, element: <RelationshipRecordDetailPage kind="person" /> },

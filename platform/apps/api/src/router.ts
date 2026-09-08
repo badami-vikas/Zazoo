@@ -59,6 +59,9 @@ import {
   INTERNAL_STRATEGIST_AGENT,
   GOVERNANCE_AGENT,
   CHIEF_OF_STAFF_AGENT,
+  MODULE_AUTHORING_SKILL_ID,
+  MODULE_AUTHORING_GOAL_TYPE,
+  MODULE_AUTHORING_TASK_TYPE,
   TASK_ROUTING_CANDIDATE_AGENTS,
   PILOT_ORGANIZATION,
   LEARNING_ROLE_MODEL_GOAL_TYPE,
@@ -171,6 +174,14 @@ import {
   profileFromRow,
   parseModuleManifest,
   ModuleManifestValidationError,
+  AUTHORABLE_COLUMN_KINDS,
+  AuthoredModuleValidationError,
+  AuthoredRecordValidationError,
+  parseAuthoredColumns,
+  authoredModuleToManifest,
+  parseAuthoredModuleSpec,
+  validateAuthoredRecord,
+  type AuthoredColumnSpec,
   computeModuleRisk,
   maxRisk,
   evaluateSandboxRequirement,
@@ -3723,7 +3734,69 @@ const chatAssistantEnvelopeSchema = z.discriminatedUnion("kind", [
     outcome: z.string().trim().min(1).max(2_000),
     exitTest: z.string().trim().min(1).max(2_000),
   }).strict(),
+  /** "Chief of Staff, build me a Module." The payload is only shape-checked
+   * here; `parseAuthoredModuleSpec` is the real gate and runs at staging,
+   * where the names already taken by installed Modules are known. */
+  z.object({
+    kind: z.literal("create_module"),
+    text: z.string().trim().min(1).max(2_000),
+    module: z.unknown(),
+  }).strict(),
 ]);
+
+/** The authored-Module half of the model's response schema. Every key is
+ * `required` because the provider's strict JSON-schema mode admits no optional
+ * properties — the same reason `title`/`outcome`/`exitTest` above are required
+ * and sent empty when the turn is not creating a Task. */
+const CHAT_AUTHORED_MODULE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["name", "displayName", "summary", "description", "databases"],
+  properties: {
+    name: { type: "string" },
+    displayName: { type: "string" },
+    summary: { type: "string" },
+    description: { type: "string" },
+    databases: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id", "label", "columns"],
+        properties: {
+          id: { type: "string" },
+          label: { type: "string" },
+          columns: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["id", "label", "kind", "options", "required"],
+              properties: {
+                id: { type: "string" },
+                label: { type: "string" },
+                kind: { type: "string", enum: [...AUTHORABLE_COLUMN_KINDS] },
+                options: { type: "array", items: { type: "string" } },
+                required: { type: "boolean" },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
+/** An all-empty module payload — what the model sends on a turn that is not
+ * building one, since strict mode cannot omit the key. Recognized by
+ * {@link chatModulePayload} and treated as "no Module was requested". */
+const EMPTY_CHAT_MODULE = {
+  name: "",
+  displayName: "",
+  summary: "",
+  description: "",
+  databases: [] as unknown[],
+} as const;
 
 const CHAT_ASSISTANT_RESPONSE_SCHEMA = {
   type: "object",
@@ -3735,6 +3808,37 @@ const CHAT_ASSISTANT_RESPONSE_SCHEMA = {
     outcome: { type: "string" },
     exitTest: { type: "string" },
     text: { type: "string" },
+  },
+} as const;
+
+/** The schema for a turn that may ALSO author a Module. Separate from the
+ * Task-only schema above rather than an extension of it, so a surface with no
+ * module-authoring capability disclosed cannot be handed a schema whose enum
+ * offers `create_module` — the model is never shown a verb it may not use. */
+const CHAT_MODULE_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["kind", "title", "outcome", "exitTest", "text", "module"],
+  properties: {
+    kind: { type: "string", enum: ["answer", "clarification", "create_task", "create_module"] },
+    title: { type: "string" },
+    outcome: { type: "string" },
+    exitTest: { type: "string" },
+    text: { type: "string" },
+    module: CHAT_AUTHORED_MODULE_SCHEMA,
+  },
+} as const;
+
+/** The same, for a surface that may author a Module but NOT create a Task
+ * (the Task Manager is not installed). */
+const CHAT_MODULE_ONLY_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["kind", "text", "module"],
+  properties: {
+    kind: { type: "string", enum: ["answer", "clarification", "create_module"] },
+    text: { type: "string" },
+    module: CHAT_AUTHORED_MODULE_SCHEMA,
   },
 } as const;
 
@@ -4043,6 +4147,60 @@ async function verifiedCommonsDependencyInstallations(
   return [...found.values()];
 }
 
+/** Resolve one authored Database, refusing anything that is not a Database of
+ * an INSTALLED Module — a Record may never be written into a Module that is
+ * still pending review, vetoed, or uninstalled. */
+async function requireAuthoredDatabase(
+  wiring: Wiring,
+  input: { organizationId: string; moduleName: string; databaseId: string },
+) {
+  const installation = await wiring.moduleStore.getAvailable(
+    input.organizationId,
+    input.moduleName,
+  );
+  if (!installation || installation.status !== "installed") {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: `installed Module "${input.moduleName}" not found`,
+    });
+  }
+  const database = await wiring.authoredModules.getDatabase(
+    input.organizationId,
+    input.moduleName,
+    input.databaseId,
+  );
+  if (!database) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: `"${input.moduleName}" has no authored Database "${input.databaseId}"`,
+    });
+  }
+  return database;
+}
+
+/** Validate a Record against its Database's declared columns, turning a
+ * validation refusal into a BAD_REQUEST the person can act on rather than a
+ * 500 that says nothing. */
+function validateAuthoredRecordInput(
+  database: { databaseId: string; columns: unknown },
+  properties: Record<string, unknown>,
+) {
+  try {
+    return validateAuthoredRecord(
+      parseAuthoredColumns(database.columns, database.databaseId),
+      properties,
+    );
+  } catch (error) {
+    if (
+      error instanceof AuthoredRecordValidationError ||
+      error instanceof AuthoredModuleValidationError
+    ) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+    }
+    throw error;
+  }
+}
+
 async function activateApprovedModuleInstallation(
   wiring: Wiring,
   organizationId: string,
@@ -4091,7 +4249,84 @@ async function activateApprovedModuleInstallation(
       message: `module installation cannot activate from state "${installation.state}"`,
     });
   }
+  installation = await materializeAuthoredModule(wiring, installation);
   return installation;
+}
+
+/**
+ * Give a newly-activated authored Module the storage its Databases need, and
+ * put it where the navigation can see it.
+ *
+ * A built-in Module's tables arrive with a migration; an authored one's cannot,
+ * so its declared shape is written to `authored_databases` here — the single
+ * point where an approved Module becomes a Module with somewhere to put data.
+ * Idempotent throughout: `createDatabases` is keyed on
+ * (organization, module, database) and the promotion below is a no-op once the
+ * row is already `available`, so a retried decision cannot double-install.
+ *
+ * A Module with no authored Databases (every built-in, every Commons install)
+ * falls straight through untouched.
+ */
+async function materializeAuthoredModule(
+  wiring: Wiring,
+  installation: ModuleInstallationRow,
+): Promise<ModuleInstallationRow> {
+  const pages = installation.manifest.module?.pages ?? [];
+  const authored = pages.filter((page) =>
+    installation.manifest.capabilities.some(
+      (capability) =>
+        capability.id === page.capabilityId &&
+        capability.capabilityType === "database" &&
+        capability.origin === "ai_generated",
+    ),
+  );
+  if (authored.length === 0) return installation;
+  await wiring.authoredModules.createDatabases(
+    installation.organizationId,
+    installation.moduleName,
+    authored.map((page) => ({
+      databaseId: page.id,
+      capabilityId: page.capabilityId,
+      label: page.name,
+      columns: authoredColumnsForPage(installation.manifest, page.id),
+    })),
+  );
+  // `available` is what `getAvailable` — and therefore the left nav — reads.
+  // Activation alone only reaches `promoted`, which is right for a Commons
+  // Module awaiting promotion and would leave an approved authored Module
+  // invisible to the person who just approved it.
+  if (installation.state === "promoted") {
+    const current = await wiring.moduleStore.getAvailable(
+      installation.organizationId,
+      installation.moduleName,
+    );
+    const promotion = promoteToAvailable(installation, current);
+    const promoted = await wiring.moduleStore.setState(
+      promotion.promoted.installationId,
+      promotion.promoted.nextState,
+    );
+    if (promotion.demoted) {
+      await wiring.moduleStore.setState(
+        promotion.demoted.installationId,
+        promotion.demoted.nextState,
+      );
+    }
+    return promoted;
+  }
+  return installation;
+}
+
+/** The declared columns for one authored Page, read back off the manifest that
+ * was reviewed and approved — never off the model's original draft, so what is
+ * stored is what the owner actually saw. */
+function authoredColumnsForPage(
+  manifest: ModuleManifest,
+  pageId: string,
+): AuthoredColumnSpec[] {
+  const stored = manifest.authoredDatabases?.find((database) => database.id === pageId);
+  // Re-validated, never cast: the manifest only shape-checks these, so this is
+  // where a stored column kind this format refuses would be caught.
+  return stored ? parseAuthoredColumns(stored.columns, pageId) : [];
 }
 
 async function validateDealPilotDiscoveryOutput(wiring: Wiring, inputs: unknown, output: unknown) {
@@ -4835,6 +5070,15 @@ async function replaceTaskProjectionFile(
 
 const CHAT_TASK_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000f9";
 const CHAT_TASK_SKILL_ID = "task-manager.create-task";
+/** The Skill Chief of Staff invokes to draft a Module. Attribution matters
+ * here for the reason ADR-203 spells out: a proposal whose actor is "whoever
+ * happened to be typing" has no Agent Run behind it and no Skill to point at,
+ * so the drafting nobody can see is the drafting nobody can audit.
+ *
+ * Shared with `wiring.ts`, which owns the SkillManifest and the registered
+ * implementation, so the id cannot drift between the two. */
+const CHAT_MODULE_SKILL_ID = MODULE_AUTHORING_SKILL_ID;
+const CHAT_MODULE_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000110";
 const CHAT_MODEL_TIER: ModelTier = "default";
 const CHAT_TURN_STALE_AFTER_MS = 10 * 60_000;
 const chatTurnAbortControllers = new Map<string, AbortController>();
@@ -4924,6 +5168,38 @@ async function chatCanCreateTask(
   );
 }
 
+/**
+ * May this Chat turn author a Module?
+ *
+ * Local Plane only — an authored Module's Databases live in the owner's own
+ * store and its capabilities are `private`, so proposing one from a cloud
+ * thread would be proposing a write the cloud plane may not make. Chief of
+ * Staff must additionally be active, belong to this Organization, and hold the
+ * Skill: the same four-part check `chatCanCreateTask` makes of Internal
+ * Strategist, minus the installed-Module requirement (module authoring is the
+ * Engine's own capability, not a Module's).
+ */
+async function chatCanAuthorModule(
+  wiring: Wiring,
+  organizationId: string,
+): Promise<boolean> {
+  return (
+    (await wiring.agents.organizationId(CHIEF_OF_STAFF_AGENT)) === organizationId &&
+    await wiring.agents.isActive(CHIEF_OF_STAFF_AGENT) &&
+    (await wiring.agents.allowedSkills(CHIEF_OF_STAFF_AGENT)).includes(CHAT_MODULE_SKILL_ID)
+  );
+}
+
+/** Every Module name already spoken for in this Organization — passed to
+ * `parseAuthoredModuleSpec` so a draft cannot shadow an installed Module. */
+async function reservedModuleNames(
+  wiring: Wiring,
+  organizationId: string,
+): Promise<string[]> {
+  const page = await wiring.moduleStore.list(organizationId, { limit: 10_000, offset: 0 });
+  return [...new Set(page.items.map((module) => module.moduleName))];
+}
+
 function resolvedChatSurface(
   surface: z.infer<typeof chatSurfaceInput> | undefined,
 ) {
@@ -4997,11 +5273,15 @@ async function assembleChatCompletion(
   );
   const canCreateTask = !isCloud &&
     await chatCanCreateTask(ctx.wiring, thread.organizationId);
-  const responseSchema = canCreateTask
-    ? CHAT_ASSISTANT_RESPONSE_SCHEMA
-    : provider.id === MANAGED_LLAMA_PROVIDER_ID
-      ? CHAT_LLAMA_PUBLIC_RESPONSE_SCHEMA
-      : CHAT_PUBLIC_RESPONSE_SCHEMA;
+  const canAuthorModule = !isCloud &&
+    await chatCanAuthorModule(ctx.wiring, thread.organizationId);
+  const responseSchema = canAuthorModule
+    ? (canCreateTask ? CHAT_MODULE_RESPONSE_SCHEMA : CHAT_MODULE_ONLY_RESPONSE_SCHEMA)
+    : canCreateTask
+      ? CHAT_ASSISTANT_RESPONSE_SCHEMA
+      : provider.id === MANAGED_LLAMA_PROVIDER_ID
+        ? CHAT_LLAMA_PUBLIC_RESPONSE_SCHEMA
+        : CHAT_PUBLIC_RESPONSE_SCHEMA;
 
   // LA5 retrieval fusion (flight-gated, Local Plane only): the memory slot
   // is filled by structured+vector+graph RRF fusion instead of the naive
@@ -5061,16 +5341,28 @@ async function assembleChatCompletion(
       persona,
       request: message,
       surface: resolvedChatSurface(surface),
-      disclosedCapabilities: canCreateTask
-        ? [{
-            manifestId: CHAT_TASK_SKILL_ID,
-            name: "Create a Task",
-            capabilityType: "skill",
-            audience: "private",
-            reason:
-              "The installed Task Manager exposes a schema-complete create-Task Skill owned by the active Internal Strategist.",
-          }]
-        : [],
+      disclosedCapabilities: [
+        ...(canCreateTask
+          ? [{
+              manifestId: CHAT_TASK_SKILL_ID,
+              name: "Create a Task",
+              capabilityType: "skill" as const,
+              audience: "private" as const,
+              reason:
+                "The installed Task Manager exposes a schema-complete create-Task Skill owned by the active Internal Strategist.",
+            }]
+          : []),
+        ...(canAuthorModule
+          ? [{
+              manifestId: CHAT_MODULE_SKILL_ID,
+              name: "Build a Module",
+              capabilityType: "skill" as const,
+              audience: "private" as const,
+              reason:
+                "Chief of Staff is active and holds the Skill that drafts a Module as Databases and the Pages over them. The draft is a proposal and installs nothing until the owner approves it.",
+            }]
+          : []),
+      ],
       governance: {
         approvalRequirement: "explicit_human",
         trustGrants: [],
@@ -5078,9 +5370,24 @@ async function assembleChatCompletion(
       memory: combinedMemory,
       conversationHistory: history,
       outputContract: {
-        description: canCreateTask
-         ? "Return one JSON object matching the supplied schema. All five keys are required. If the person is not explicitly asking to create a Task, kind MUST be answer or clarification, put the response in text, and set title, outcome, and exitTest to empty strings. If and only if the person explicitly asks to create a Task, kind MUST be create_task, text MUST explain that the Task proposal is ready for review, and the requested Task title, outcome, and exit test MUST be copied into title, outcome, and exitTest. Never put the Task title in text instead of title. Creating a Task is a proposal and must not be described as already completed."
-          : "Return one JSON object matching the supplied schema. Answer directly or ask one clarification. No mutation capability is available in this context.",
+        description: [
+          "Return one JSON object matching the supplied schema. Every key in the schema is required; fill the ones your chosen kind does not use with empty strings, false, or empty arrays.",
+          canCreateTask
+            ? "If and only if the person explicitly asks to create a Task, kind MUST be create_task, text MUST explain that the Task proposal is ready for review, and the requested Task title, outcome, and exit test MUST be copied into title, outcome, and exitTest. Never put the Task title in text instead of title. Creating a Task is a proposal and must not be described as already completed."
+            : "",
+          canAuthorModule
+            ? [
+                "If and only if the person asks you to build, create, or set up a Module (or asks for a place to track something that no installed Module covers), kind MUST be create_module and the module object MUST describe it.",
+                "module.name is lower-case kebab-case and must not match an installed Module. module.displayName is what a person reads in the sidebar.",
+                "Give the Module one Database per distinct kind of thing it tracks, and give each Database the columns a person would actually fill in. Column kinds are exactly: " + AUTHORABLE_COLUMN_KINDS.join(", ") + ". Use select or multiselect only with a non-empty options list; leave options as an empty array for every other kind.",
+                "You are describing Databases and the columns in them. You cannot author a Skill, an Agent, an Automation, an integration, or a column that computes itself — do not promise any of those, and say plainly that the Module holds and shows the data rather than acting on it.",
+                "text MUST say what the Module will contain and that it is waiting for the person's approval. Building a Module is a proposal: never describe it as already created.",
+              ].join(" ")
+            : "",
+          !canCreateTask && !canAuthorModule
+            ? "Answer directly or ask one clarification. No mutation capability is available in this context."
+            : "Otherwise kind MUST be answer or clarification and the response goes in text.",
+        ].filter((line) => line.length > 0).join(" "),
         schema: responseSchema,
       },
     },
@@ -5137,6 +5444,7 @@ async function assembleChatCompletion(
     request,
     contextDigest,
     canCreateTask,
+    canAuthorModule,
     disclosure: {
       providerId: provider.id,
       providerPlane: provider.plane,
@@ -5158,21 +5466,37 @@ function parseChatAssistantEnvelope(text: string) {
     throw new Error("chat model returned invalid JSON");
   }
   const wireResult = z.object({
-    kind: z.enum(["answer", "clarification", "create_task"]),
+    kind: z.enum(["answer", "clarification", "create_task", "create_module"]),
     text: z.string(),
     title: z.string().optional(),
     outcome: z.string().optional(),
     exitTest: z.string().optional(),
+    module: z.unknown().optional(),
   }).strict().safeParse(parsed);
   if (!wireResult.success) {
     throw new Error("chat model returned an invalid response envelope");
   }
+  // Strict JSON-schema mode forces every key to be present, so the unused
+  // halves arrive filled with empties. Each kind is narrowed to exactly the
+  // fields it means, and nothing else survives into the envelope.
   const candidate = wireResult.data.kind === "create_task"
-    ? wireResult.data
-    : {
+    ? {
         kind: wireResult.data.kind,
         text: wireResult.data.text,
-      };
+        title: wireResult.data.title,
+        outcome: wireResult.data.outcome,
+        exitTest: wireResult.data.exitTest,
+      }
+    : wireResult.data.kind === "create_module"
+      ? {
+          kind: wireResult.data.kind,
+          text: wireResult.data.text,
+          module: wireResult.data.module,
+        }
+      : {
+          kind: wireResult.data.kind,
+          text: wireResult.data.text,
+        };
   const result = chatAssistantEnvelopeSchema.safeParse(candidate);
   if (!result.success) {
     throw new Error("chat model returned an invalid response envelope");
@@ -5481,6 +5805,175 @@ async function stageChatTaskProposal(
       alternativesRejected: resolution.alternativesRejected,
     },
   };
+}
+
+/**
+ * The Goal/Task assignment the module-authoring Skill runs under.
+ *
+ * A governed Skill is refused without one (`pipeline.propose`: "requires a
+ * resolved Goal/Task assignment") — an Automation starts an Agent Run, and
+ * only an attributable Agent may invoke a Skill. This mirrors
+ * `ensureTaskManagerAutomation` but mints its OWN Goal rather than borrowing
+ * the one titled "Task Manager guard Automations": building a Module is not
+ * Task Manager work, and filing it there would make the queue lie about what
+ * ran.
+ */
+async function ensureModuleAuthoringAutomation(
+  wiring: Wiring,
+  organizationId: string,
+  run: RunCtx,
+): Promise<{ goalId: string; taskId: string }> {
+  const seam = { nextId: () => run.ids.next(), nowISO: () => run.clock.nowISO() };
+  const goals = await wiring.goalTasks.listGoals(organizationId);
+  const goal =
+    goals.find((candidate) => candidate.type === MODULE_AUTHORING_GOAL_TYPE) ??
+    await wiring.goalTasks.createGoal({
+      organizationId,
+      type: MODULE_AUTHORING_GOAL_TYPE,
+      title: "Modules built on request",
+    }, seam);
+  const existing = (await wiring.goalTasks.listTasksByGoal(organizationId, goal.id))
+    .find((task) =>
+      task.type === MODULE_AUTHORING_TASK_TYPE &&
+      task.assignedAgentId === CHIEF_OF_STAFF_AGENT,
+    );
+  const task = existing ?? await wiring.goalTasks.createTask({
+    organizationId,
+    goalId: goal.id,
+    type: MODULE_AUTHORING_TASK_TYPE,
+    assignedAgentId: CHIEF_OF_STAFF_AGENT,
+    exitTest: "A drafted Module reaches the owner as a reviewable proposal and installs nothing before they approve it",
+  }, seam);
+  await wiring.automationRegistry.save({
+    id: CHAT_MODULE_AUTOMATION_ID,
+    name: "Module authoring",
+    organizationId,
+    agentId: CHIEF_OF_STAFF_AGENT,
+    agentPlane: "local",
+    steps: [{
+      skill: CHAT_MODULE_SKILL_ID,
+      action: "write",
+      resourceType: "module_installation",
+      dataScope: "all",
+      goalTaskRef: { goalId: goal.id, taskId: task.id },
+    }],
+  });
+  return { goalId: goal.id, taskId: task.id };
+}
+
+/**
+ * Stage the Module a Chat turn drafted, as a governed proposal that installs
+ * nothing until the owner approves it.
+ *
+ * This deliberately raises the SAME proposal shape `modules.install` raises —
+ * same deterministic id (`stableModuleInstallProposalId`), same resource id,
+ * same `operation: "module_install"` inputs — so `moduleInstallIdFromProposal`
+ * recognizes it and the EXISTING decide path activates it. Chat does not get a
+ * second, parallel install route that could drift from the reviewed one.
+ *
+ * Two things differ from a human-driven install, both on purpose:
+ *   - the actor is Chief of Staff, not the person typing. CoS drafted this;
+ *     attributing it to the human would put their name on a model's work.
+ *   - `requireHumanReview: true` is passed unconditionally. A human-driven
+ *     install may auto-resolve at a low risk band; an agent-drafted Module
+ *     never may.
+ *
+ * The registered installation row sits at `state: "private"` /
+ * `status: "pending_review"` until approval, exactly where `modules.register`
+ * leaves a manifest a human staged.
+ */
+async function stageChatModuleProposal(
+  ctx: Pick<ApiContext, "identity" | "run" | "wiring">,
+  thread: ChatThread,
+  assistantTurnId: string,
+  envelope: Extract<z.infer<typeof chatAssistantEnvelopeSchema>, { kind: "create_module" }>,
+) {
+  const scope = chatOwnerScope(thread.organizationId, thread.ownerUserId);
+  // The real gate. A malformed draft (an invented column kind, a name already
+  // taken, a Database with no columns) is refused HERE with the reason, which
+  // the turn surfaces — never installed as an empty shell.
+  const spec = parseAuthoredModuleSpec(
+    envelope.module,
+    await reservedModuleNames(ctx.wiring, thread.organizationId),
+  );
+  // Round-trip through the same parser every built-in Module passes, so a
+  // manifest that could not have been shipped by hand cannot arrive this way.
+  const manifest = parseModuleManifest({ module: authoredModuleToManifest(spec) });
+
+  // Idempotent on the turn: a retried send must not register a second copy.
+  const existing = (await ctx.wiring.moduleStore.listVersions(
+    thread.organizationId,
+    manifest.name,
+  )).find((row) => row.moduleVersion === manifest.version);
+  const installation = existing ?? await ctx.wiring.moduleStore.create({
+    organizationId: thread.organizationId,
+    moduleName: manifest.name,
+    moduleVersion: manifest.version,
+    manifest,
+    // Databases holding the owner's own private Records, no egress and nothing
+    // executable — `operational` is the honest band, and the decision below is
+    // forced to a Human regardless of what the band would otherwise allow.
+    computedRisk: "operational",
+    state: "private",
+    status: "pending_review",
+    lineageManifestId: null,
+  });
+
+  const goalTaskRef = await ensureModuleAuthoringAutomation(
+    ctx.wiring,
+    thread.organizationId,
+    ctx.run,
+  );
+  const proposalId = stableModuleInstallProposalId(thread.organizationId, installation.id);
+  const alreadyPending = await findPendingProposalById(
+    ctx.wiring,
+    thread.organizationId,
+    proposalId,
+  );
+  const proposal = alreadyPending ?? await ctx.wiring.pipeline.propose(
+    {
+      organizationId: thread.organizationId,
+      actor: { type: "agent", id: CHIEF_OF_STAFF_AGENT },
+      onBehalfOf: { type: "user", id: thread.ownerUserId },
+      action: "write",
+      resourceType: "module_installation",
+      resourceId: moduleInstallationLedgerResourceId(
+        thread.organizationId,
+        installation.id,
+      ),
+      inputs: {
+        operation: "module_install",
+        installationId: installation.id,
+        moduleName: installation.moduleName,
+        effectiveRisk: "operational",
+        // Named, not just referenced by id: this is what the reviewer reads
+        // before approving, and "install module <uuid>" is not a decision
+        // anyone can make.
+        displayName: spec.displayName,
+        summary: spec.summary,
+        databases: spec.databases.map((database) => ({
+          id: database.id,
+          label: database.label,
+          columns: database.columns.length,
+        })),
+      },
+      skill: CHAT_MODULE_SKILL_ID,
+      trustOrigin: "user_content",
+      taintLabel: chatHumanTaint(thread, `chat:${assistantTurnId}:module`, spec),
+      goalTaskRef,
+    },
+    ctx.run,
+    { proposalId, requireHumanReview: true },
+  );
+  await addChatTurnRef(
+    ctx.wiring,
+    scope,
+    thread.id,
+    assistantTurnId,
+    "proposal",
+    proposal.id,
+  );
+  return { proposal, installation, spec };
 }
 
 async function findChatRetryUser(
@@ -6855,7 +7348,55 @@ export const appRouter = t.router({
               envelope = parseChatAssistantEnvelope(repaired.text);
             }
 
-            if (envelope.kind === "create_task") {
+            if (envelope.kind === "create_module") {
+              if (!prepared.canAuthorModule) {
+                throw new Error("The model selected a capability that was not disclosed");
+              }
+              chatTurnProposalStaging.add(assistantTurnId);
+              let stagedModule: Awaited<ReturnType<typeof stageChatModuleProposal>>;
+              try {
+                stagedModule = await stageChatModuleProposal(
+                  ctx,
+                  thread,
+                  assistantTurnId,
+                  envelope,
+                );
+              } finally {
+                chatTurnProposalStaging.delete(assistantTurnId);
+              }
+              if (stagedModule.proposal.status !== "pending_review") {
+                // Carry the pipeline's own reason. "did not stop for review"
+                // alone says a gate refused and nothing about which one.
+                throw new Error(
+                  `The governed Module proposal did not stop for Human review (${stagedModule.proposal.status}: ${stagedModule.proposal.rejectionReason ?? "no reason given"})`,
+                );
+              }
+              const routingId = await appendChatRoutingDecision(
+                ctx,
+                thread,
+                assistantTurnId,
+                {
+                  kind: "skill",
+                  selectedSkillId: CHAT_MODULE_SKILL_ID,
+                  selectedAgentId: CHIEF_OF_STAFF_AGENT,
+                },
+              );
+              await addChatTurnRef(
+                ctx.wiring,
+                scope,
+                thread.id,
+                assistantTurnId,
+                "routing_decision",
+                routingId,
+              );
+              await ctx.wiring.chatStore.updateTurn(scope, {
+                threadId: thread.id,
+                turnId: assistantTurnId,
+                expectedState: "processing",
+                state: "awaiting_decision",
+                content: envelope.text,
+              });
+            } else if (envelope.kind === "create_task") {
               if (!prepared.canCreateTask) {
                 throw new Error("The model selected a capability that was not disclosed");
               }
@@ -19400,6 +19941,148 @@ export const appRouter = t.router({
    * lifecycle.ts) — promoting auto-demotes the prior available version;
    * rollback forks a NEW draft from history, never an in-place revert.
    */
+  /**
+   * Databases and Records belonging to Modules the owner authored through
+   * Chief of Staff. A built-in Module reads its own table; an authored one has
+   * no table of its own, so this is the surface its Pages read and write.
+   *
+   * Every write re-validates against the columns stored on the APPROVED
+   * manifest (`validateAuthoredRecord`). jsonb is not self-checking, so this
+   * seam is the only thing standing between a typo and a corrupt Record.
+   */
+  authoredModules: t.router({
+    /** The authored Databases of one installed Module, with their columns —
+     * what a Page needs to render a table. */
+    databases: authenticatedProcedure
+      .input(z.object({
+        organizationId: z.string().uuid(),
+        moduleName: z.string().trim().min(1).max(60),
+      }))
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const installation = await ctx.wiring.moduleStore.getAvailable(
+          input.organizationId,
+          input.moduleName,
+        );
+        if (!installation || installation.status !== "installed") {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: `installed Module "${input.moduleName}" not found`,
+          });
+        }
+        const rows = await ctx.wiring.authoredModules.listDatabases(
+          input.organizationId,
+          input.moduleName,
+        );
+        return {
+          displayName: installation.manifest.module?.displayName ?? installation.moduleName,
+          databases: rows.map((row) => ({
+            id: row.id,
+            databaseId: row.databaseId,
+            label: row.label,
+            columns: parseAuthoredColumns(row.columns, row.databaseId),
+          })),
+        };
+      }),
+
+    /** One authored Database's Records. An empty Database returns an empty
+     * list — an honest empty state, never seeded sample rows. */
+    records: authenticatedProcedure
+      .input(z.object({
+        organizationId: z.string().uuid(),
+        moduleName: z.string().trim().min(1).max(60),
+        databaseId: z.string().trim().min(1).max(60),
+        limit: z.number().int().min(1).max(500).default(200),
+        offset: z.number().int().min(0).default(0),
+      }))
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const database = await requireAuthoredDatabase(ctx.wiring, input);
+        const page = await ctx.wiring.authoredModules.listRecords(
+          input.organizationId,
+          database.id,
+          { limit: input.limit, offset: input.offset },
+        );
+        return {
+          columns: parseAuthoredColumns(database.columns, database.databaseId),
+          total: page.total,
+          items: page.items.map((row) => ({
+            id: row.id,
+            properties: row.properties as Record<string, unknown>,
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt,
+          })),
+        };
+      }),
+
+    createRecord: authenticatedProcedure
+      .input(z.object({
+        organizationId: z.string().uuid(),
+        moduleName: z.string().trim().min(1).max(60),
+        databaseId: z.string().trim().min(1).max(60),
+        properties: z.record(z.string(), z.unknown()),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const database = await requireAuthoredDatabase(ctx.wiring, input);
+        const properties = validateAuthoredRecordInput(database, input.properties);
+        const row = await ctx.wiring.authoredModules.createRecord(
+          input.organizationId,
+          database.id,
+          properties,
+        );
+        return { record: { id: row.id, properties: row.properties as Record<string, unknown> } };
+      }),
+
+    updateRecord: authenticatedProcedure
+      .input(z.object({
+        organizationId: z.string().uuid(),
+        moduleName: z.string().trim().min(1).max(60),
+        databaseId: z.string().trim().min(1).max(60),
+        recordId: z.string().uuid(),
+        properties: z.record(z.string(), z.unknown()),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const database = await requireAuthoredDatabase(ctx.wiring, input);
+        const properties = validateAuthoredRecordInput(database, input.properties);
+        const row = await ctx.wiring.authoredModules.updateRecord(
+          input.organizationId,
+          input.recordId,
+          properties,
+        );
+        if (!row || row.databaseRowId !== database.id) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Record not found in this Database" });
+        }
+        return { record: { id: row.id, properties: row.properties as Record<string, unknown> } };
+      }),
+
+    archiveRecord: authenticatedProcedure
+      .input(z.object({
+        organizationId: z.string().uuid(),
+        moduleName: z.string().trim().min(1).max(60),
+        databaseId: z.string().trim().min(1).max(60),
+        recordId: z.string().uuid(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const database = await requireAuthoredDatabase(ctx.wiring, input);
+        const row = await ctx.wiring.authoredModules.archiveRecord(
+          input.organizationId,
+          input.recordId,
+        );
+        if (!row || row.databaseRowId !== database.id) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Record not found in this Database" });
+        }
+        return { archived: true as const, recordId: row.id };
+      }),
+  }),
+
   modules: t.router({
     /** Real local-plane File inventory for one installed Module. */
     files: authenticatedProcedure

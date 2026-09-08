@@ -195,3 +195,61 @@ test("FREE_BOX matches the collapsed free-mode window size — a correctness pin
   // collapsed size ever changes, this constant must change with it.
   assert.deepEqual(FREE_BOX, { width: 96, height: 96 });
 });
+
+// ---------------------------------------------------------------------------
+// Visibility contract (user directive 2026-09-08): hidden in the notch unless
+// hovered, shortcut-summoned, or deliberately dragged out.
+// ---------------------------------------------------------------------------
+
+const AT_REST = {
+  home: "notch",
+  sessionReady: true,
+  notchHover: false,
+  notchDomHover: false,
+  notchPose: "bed",
+  panel: "none",
+};
+
+test("an un-summoned companion in the notch is not on screen", async () => {
+  const { companionWindowVisible } = await loadNotchHome();
+  assert.equal(companionWindowVisible(AT_REST), false);
+});
+
+test("each way of wanting him puts him on screen", async () => {
+  const { companionWindowVisible } = await loadNotchHome();
+  for (const summon of [
+    { notchHover: true },
+    { notchDomHover: true },
+    { notchPose: "chat" },
+    { panel: "ask" },
+    { panel: "chat" },
+  ]) {
+    assert.equal(
+      companionWindowVisible({ ...AT_REST, ...summon }),
+      true,
+      `expected ${JSON.stringify(summon)} to reveal the companion`,
+    );
+  }
+});
+
+// The regression this fix exists for: the geometry probe gives up, and the
+// companion is left permanently on the desktop with nothing able to conceal it.
+// Geometry is not an input here at all, which is what makes that impossible.
+test("losing the notch geometry cannot make an un-summoned companion visible", async () => {
+  const { companionWindowVisible } = await loadNotchHome();
+  assert.equal(companionWindowVisible(AT_REST), false);
+  // ⌘⇧Space still reaches him with no geometry — the summon path that does not
+  // depend on the Rust hover signal.
+  assert.equal(companionWindowVisible({ ...AT_REST, panel: "ask" }), true);
+});
+
+test("dragging him out is the opt-out — a free companion stays visible", async () => {
+  const { companionWindowVisible } = await loadNotchHome();
+  assert.equal(companionWindowVisible({ ...AT_REST, home: "free" }), true);
+});
+
+test("nothing is on screen before the session is ready, in either home", async () => {
+  const { companionWindowVisible } = await loadNotchHome();
+  assert.equal(companionWindowVisible({ ...AT_REST, sessionReady: false, notchHover: true }), false);
+  assert.equal(companionWindowVisible({ ...AT_REST, sessionReady: false, home: "free" }), false);
+});

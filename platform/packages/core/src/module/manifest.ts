@@ -436,6 +436,9 @@ export function parseModuleManifest(raw: unknown): ModuleManifest {
   // blueprint here; parse it through the full declarative gate. Presence also
   // relaxes the capabilities>=1 rule below (an organization_definition composes
   // capabilities by reference inside the blueprint, not by bundling them).
+  const authoredDatabases = parseAuthoredDatabases(
+    manifestRoot.authoredDatabases ?? manifestRoot.authored_databases,
+  );
   const blueprint = manifestRoot.blueprint !== undefined
     ? parseOrganizationBlueprint(manifestRoot.blueprint)
     : undefined;
@@ -493,8 +496,64 @@ export function parseModuleManifest(raw: unknown): ModuleManifest {
     organizationVocab,
     ...(module ? { module } : {}),
     ...(blueprint ? { blueprint } : {}),
+    ...(authoredDatabases ? { authoredDatabases } : {}),
     ...(governance ? { governance } : {}),
   };
+}
+
+/**
+ * `authored_databases` — the declared column shape of a Module the owner
+ * authored. Absent for every built-in and Commons Module.
+ *
+ * Validated here for the same reason every other field is: this is what the
+ * Module's storage gets built from after approval, so a malformed payload must
+ * fail at the seam rather than install a Database whose columns are silently
+ * empty. Shape only — `parseAuthoredModuleSpec` owns the semantic rules (which
+ * kinds are authorable, option lists, caps), and it runs BEFORE a manifest is
+ * ever projected.
+ */
+function parseAuthoredDatabases(raw: unknown): NonNullable<ModuleManifest["authoredDatabases"]> | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) fail("module.authored_databases must be an array when present");
+  return raw.map((entry, index) => {
+    if (!isPlainObject(entry)) fail(`module.authored_databases[${index}] must be an object`);
+    const id = entry.id;
+    const label = entry.label;
+    if (typeof id !== "string" || id.length === 0) {
+      fail(`module.authored_databases[${index}].id must be a non-empty string`);
+    }
+    if (typeof label !== "string" || label.length === 0) {
+      fail(`module.authored_databases[${index}].label must be a non-empty string`);
+    }
+    const columnsRaw = entry.columns;
+    if (!Array.isArray(columnsRaw) || columnsRaw.length === 0) {
+      fail(`module.authored_databases[${index}].columns must be a non-empty array`);
+    }
+    const columns = columnsRaw.map((column, columnIndex) => {
+      const at = `module.authored_databases[${index}].columns[${columnIndex}]`;
+      if (!isPlainObject(column)) fail(`${at} must be an object`);
+      const columnId = column.id;
+      const columnLabel = column.label;
+      const columnKind = column.kind;
+      if (typeof columnId !== "string" || columnId.length === 0) fail(`${at}.id must be a non-empty string`);
+      if (typeof columnLabel !== "string" || columnLabel.length === 0) fail(`${at}.label must be a non-empty string`);
+      if (typeof columnKind !== "string" || columnKind.length === 0) fail(`${at}.kind must be a non-empty string`);
+      const options = column.options === undefined
+        ? undefined
+        : parseStringArray(column.options, `${at}.options`);
+      if (column.required !== undefined && typeof column.required !== "boolean") {
+        fail(`${at}.required must be a boolean when present`);
+      }
+      return {
+        id: columnId as string,
+        label: columnLabel as string,
+        kind: columnKind as string,
+        ...(options ? { options } : {}),
+        ...(column.required !== undefined ? { required: column.required as boolean } : {}),
+      };
+    });
+    return { id: id as string, label: label as string, columns };
+  });
 }
 
 /**

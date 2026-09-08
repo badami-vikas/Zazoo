@@ -59,7 +59,7 @@ function emotionPerformance(emotion: string | undefined) {
 }
 import { tauriInvoke, tauriListen } from "./tauri-internals";
 import { NotchHome, type NotchPose } from "./NotchHome";
-import type { NotchGeometry } from "./notch-home";
+import { companionWindowVisible, type NotchGeometry } from "./notch-home";
 import {
   CAPTURE_EVENT,
   STATUS_LABEL,
@@ -383,25 +383,42 @@ export function OverlayApp() {
   // that), or holding an open composer. Anything else conceals it, so a
   // sleeping Zazoo costs the desktop nothing.
   //
-  // GEOMETRY IS PART OF THE CONTRACT. NotchHome renders only once the cutout is
-  // known, so without geometry the free-floating overlay is what is on screen —
-  // but the visibility effect below used to follow the stored `home` preference
-  // instead, keeping the window concealed and waiting for a notch-hover signal
-  // that Rust only ever emits when it HAS geometry. That combination is a
-  // companion that never appears at all (2026-08-12: "the avatar is missing as
-  // Desktop overlay"). One derived flag now drives presentation and rendering
-  // alike, so the two can no longer disagree about which surface is live.
-  const inNotchHome = home === "notch" && notchGeometry !== null;
-  const notchVisible =
-    inNotchHome &&
-    (notchHover || notchDomHover || notchPose === "chat" || panel === "ask" || panel === "chat");
+  // TWO SEPARATE QUESTIONS, and conflating them was the bug (user report
+  // 2026-09-08: "the zazoo is visible even when not explicitly invoked").
+  //
+  //   `notchHome`      — WHOSE contract decides visibility. The stored home,
+  //                      nothing else. Dragging him out is the only opt-out.
+  //   `notchSurface`   — WHAT to draw and where, which genuinely does need the
+  //                      cutout's geometry.
+  //
+  // These used to be one flag, `home === "notch" && notchGeometry !== null`,
+  // driving presentation AND rendering. The geometry probe retries with
+  // backoff and then gives up; when it did, that flag went false, the FREE
+  // home's effect took over, and the window was presented permanently in the
+  // notch home with nothing able to conceal it. Keeping presentation off
+  // geometry is what makes an un-summoned companion stay hidden — see
+  // `companionWindowVisible`, where the rule is pinned by tests.
+  //
+  // The 2026-08-12 report this replaces ("the avatar is missing as Desktop
+  // overlay") stays fixed: without geometry there is no Rust hover signal, but
+  // ⌘⇧Space still opens the ask panel, which reveals him.
+  const notchHome = home === "notch";
+  const notchSurface = notchHome && notchGeometry !== null;
+  const notchVisible = companionWindowVisible({
+    home,
+    sessionReady,
+    notchHover,
+    notchDomHover,
+    notchPose,
+    panel,
+  });
   useEffect(() => {
-    if (!inNotchHome || !sessionReady) return;
+    if (!notchHome || !sessionReady) return;
     void tauriInvoke(notchVisible ? "overlay_present" : "overlay_conceal");
     // Once concealed, the window's own hover has nothing to report — clear it
     // so a stale `true` doesn't pin the window open forever the next wake.
     if (!notchVisible) setNotchDomHover(false);
-  }, [inNotchHome, sessionReady, notchVisible]);
+  }, [notchHome, sessionReady, notchVisible]);
 
   const expanded = panel !== "none";
 
@@ -473,9 +490,9 @@ export function OverlayApp() {
     // In the notch home, visibility is the hover contract's to decide (the
     // window is concealed at rest so the desktop is untouched). Presenting
     // here too would race that effect for control of one window.
-    if (inNotchHome) return;
+    if (notchHome) return;
     void tauriInvoke(sessionReady ? "overlay_present" : "overlay_conceal");
-  }, [sessionReady, inNotchHome]);
+  }, [sessionReady, notchHome]);
 
   // Derived companion state (the machine's read model).
   const working =
@@ -816,7 +833,7 @@ export function OverlayApp() {
   // idle/resting surface — it only renders once geometry is known, since
   // placing a notch panel from guessed coordinates would put it somewhere
   // arbitrary on the display.
-  if (inNotchHome) {
+  if (notchSurface) {
     if (panel === "ask") {
       return (
         <div

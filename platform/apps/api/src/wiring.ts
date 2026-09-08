@@ -192,6 +192,7 @@ import {
   DrizzleHelpdeskStore,
   DrizzleResourcesStore,
   DrizzleAcademicsStore,
+  DrizzleAuthoredModuleStore,
   DrizzleEventsStore,
   DrizzleCapabilityStore,
   DrizzleEvalStore,
@@ -535,6 +536,10 @@ export interface Wiring {
   resourcesStore: DrizzleResourcesStore;
   /** Academics Module — Subjects/Lecture Sessions/Assignments (TASK-067). */
   academicsStore: DrizzleAcademicsStore;
+  /** Databases and Records belonging to Modules the owner authored through
+   * Chief of Staff. Local Plane only — an authored Module is private by
+   * construction (its capabilities are `private`, no egress). */
+  authoredModules: DrizzleAuthoredModuleStore;
   /** NetworkManager's Events sub-module (TASK-068). */
   eventsStore: DrizzleEventsStore;
   /** Capability Trust Model — capability_manifests + capability_states (docs/wiki/vision.md). */
@@ -4111,6 +4116,39 @@ const TASK_MANAGER_READ_ONLY_SKILLS: readonly string[] = [
   "task-manager.agent-task-routing",
 ];
 
+/**
+ * The Skill behind "Chief of Staff, build me a Module" (ADR-256).
+ *
+ * A registered SkillManifest is not optional here: the pipeline's AGS1 gate
+ * fails CLOSED for any Skill that has neither a manifest nor a structurally
+ * agent-floor-denied (action, resourceType). `module_installation:write` is
+ * deliberately NOT floor-denied — that is what lets an Agent draft an install
+ * at all — so the manifest is what makes this Skill invocable, and its
+ * `permissions` are a requirement the resolver checks against Chief of Staff's
+ * existing scope, never a grant conferred here.
+ *
+ * `riskBand: "operational"` matches what the installation row is created with:
+ * Databases holding the owner's own private Records, no egress, nothing
+ * executable. The decision is forced to a Human regardless of the band.
+ */
+export const MODULE_AUTHORING_SKILL_ID = "chief-of-staff.author-module";
+export const MODULE_AUTHORING_GOAL_TYPE = "module-authoring";
+export const MODULE_AUTHORING_TASK_TYPE = "author-module";
+
+export const MODULE_AUTHORING_SKILL_MANIFEST: SkillManifest = {
+  organizationId: PILOT_ORGANIZATION,
+  skillId: MODULE_AUTHORING_SKILL_ID,
+  version: "1.0.0",
+  goalTypes: [MODULE_AUTHORING_GOAL_TYPE],
+  taskTypes: [MODULE_AUTHORING_TASK_TYPE],
+  permissions: ["module_installation:write"],
+  plane: "local",
+  dataScopes: ["all"],
+  riskBand: "operational",
+  evalVersion: "1.0.0",
+  defaultAgents: [CHIEF_OF_STAFF_AGENT],
+};
+
 export const TASK_MANAGER_SKILL_MANIFESTS: readonly SkillManifest[] = Object.entries(TASK_MANAGER_SKILL_OWNERS)
   .map(([skillId, owner]) => ({
     organizationId: PILOT_ORGANIZATION,
@@ -4151,6 +4189,7 @@ export const TASK_MANAGER_SKILL_MANIFESTS: readonly SkillManifest[] = Object.ent
  * against — one list, two durability backends, never drift between them.
  */
 export const GOVERNED_SKILL_MANIFEST_CATALOG: readonly SkillManifest[] = [
+  MODULE_AUTHORING_SKILL_MANIFEST,
   AGENT_ORCHESTRATION_SKILL_MANIFEST,
   LEARNING_RECOMMENDATION_SKILL_MANIFEST,
   WEB_RESEARCH_SKILL_MANIFEST,
@@ -4362,12 +4401,16 @@ function seedGovernance(
   // archives. Shared allow-list with the persistent seed for the same
   // anti-drift reason as Internal Strategist's above.
   agents.assumed.set(CHIEF_OF_STAFF_AGENT, "role-chief-of-staff");
-  agents.scope.set(CHIEF_OF_STAFF_AGENT, ["signal:write", "record:read", "record:write"]);
+  agents.scope.set(CHIEF_OF_STAFF_AGENT, ["signal:write", "record:read", "record:write", "module_installation:write"]);
   agents.skills.set(CHIEF_OF_STAFF_AGENT, [...CHIEF_OF_STAFF_ALLOWED_SKILLS]);
   roles.roleGrants.set("role-chief-of-staff", [
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "record", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "record", resourceId: null, action: "write", effect: "allow" },
+    // Drafting a Module install (see CHIEF_OF_STAFF_ALLOWED_SKILLS). Mirrors
+    // the durable grant in `ensureChiefOfStaffGovernance` so the two
+    // durability backends cannot drift.
+    { resourceType: "module_installation", resourceId: null, action: "write", effect: "allow" },
   ]);
 
   // Capability Builder (AGS3, TASK-007) — drafts only; every output still
@@ -4511,6 +4554,7 @@ export interface ModePorts {
   helpdeskStore: DrizzleHelpdeskStore;
   resourcesStore: DrizzleResourcesStore;
   academicsStore: DrizzleAcademicsStore;
+  authoredModules: DrizzleAuthoredModuleStore;
   eventsStore: DrizzleEventsStore;
   capabilityStore: CapabilityStore;
   /** VAR-1 tunable space (ADR-169) — Drizzle-backed in BOTH modes. Its consumer
@@ -4656,6 +4700,7 @@ export function buildPersistentPorts(env: {
     helpdeskStore: new DrizzleHelpdeskStore(db, PILOT_ORGANIZATION),
     resourcesStore: new DrizzleResourcesStore(db),
     academicsStore: new DrizzleAcademicsStore(db),
+    authoredModules: new DrizzleAuthoredModuleStore(db),
     eventsStore: new DrizzleEventsStore(db),
     capabilityStore: new DrizzleCapabilityStore(db, PILOT_ORGANIZATION),
     evalStore: new DrizzleEvalStore(db, PILOT_ORGANIZATION),
@@ -4908,6 +4953,7 @@ export async function buildInMemoryPorts(env: {
     helpdeskStore: new DrizzleHelpdeskStore(localDb, PILOT_ORGANIZATION),
     resourcesStore: new DrizzleResourcesStore(localDb),
     academicsStore: new DrizzleAcademicsStore(localDb),
+    authoredModules: new DrizzleAuthoredModuleStore(localDb),
     eventsStore: new DrizzleEventsStore(localDb),
     capabilityStore: new DrizzleCapabilityStore(localDb, PILOT_ORGANIZATION),
     evalStore: new DrizzleEvalStore(localDb, PILOT_ORGANIZATION),
@@ -5457,6 +5503,32 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   // reasoning as planningModelRouter above, declared here so it is in scope
   // for both the assignment further down and the Skills registered below.
   let devpilotReviewModelRouter: ModelRouter | undefined;
+  // ADR-256 — the Skill Chief of Staff runs to draft a Module. It performs no
+  // mutation of its own: the installation row is already registered
+  // (pending_review) by the time the pipeline runs this, and the actual
+  // install happens on the HUMAN's decision. What it returns is the summary a
+  // person reviews before approving, which is why the Databases and their
+  // column counts are named here rather than left as an opaque id.
+  skillRegistry.register({
+    name: MODULE_AUTHORING_SKILL_ID,
+    // `pure_data` would be wrong: the draft it summarizes originated in a
+    // model reading the person's request, so it carries their input forward.
+    executionClass: "authority_bearing" as const,
+    async run(inputs) {
+      const values = inputs as Record<string, unknown>;
+      const proposedOutput = {
+        kind: "module_install",
+        installationId: values.installationId,
+        moduleName: values.moduleName,
+        displayName: values.displayName ?? values.moduleName,
+        summary: values.summary ?? null,
+        databases: values.databases ?? [],
+        effectiveRisk: values.effectiveRisk ?? "operational",
+        status: "proposed",
+      };
+      return { proposedOutput, diff: { to: proposedOutput } };
+    },
+  });
   for (const manifest of TASK_MANAGER_SKILL_MANIFESTS) {
     skillRegistry.register({
       name: manifest.skillId,
@@ -5748,6 +5820,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     helpdeskStore,
     resourcesStore,
     academicsStore,
+    authoredModules,
     eventsStore,
     capabilityStore,
     organizationDefinitionStore,
@@ -7012,6 +7085,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     helpdeskStore,
     resourcesStore,
     academicsStore,
+    authoredModules,
     eventsStore,
     capabilityStore,
     organizationDefinitionStore,

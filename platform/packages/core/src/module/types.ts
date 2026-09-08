@@ -200,6 +200,29 @@ export interface ModuleManifest {
    * `capabilities[]` is empty and this field carries the real payload. Signed
    * as part of the manifest (PKG-2) — canonicalizeManifest includes it. */
   blueprint?: OrganizationBlueprint;
+  /** Declared column shape for a Module the owner AUTHORED (module/authoring.ts).
+   * Present only on authored Modules; every built-in and Commons Module omits it.
+   *
+   * It lives on the manifest rather than beside it because the manifest IS the
+   * artifact a person reviews and approves. Columns kept anywhere else would be
+   * columns the approval never covered — and they are what the Module's storage
+   * is built from, so they must travel with what was signed off.
+   *
+   * Shaped as `{ id, label, columns }` per Database, keyed by the manifest
+   * `module.pages[].id` it belongs to. Typed structurally here to keep this
+   * module free of an import cycle with `authoring.ts` (which imports these
+   * types); `parseAuthoredModuleSpec` is the validator. */
+  authoredDatabases?: {
+    id: string;
+    label: string;
+    columns: {
+      id: string;
+      label: string;
+      kind: string;
+      options?: string[];
+      required?: boolean;
+    }[];
+  }[];
   /** Per-Module governance policy (ADR-248): what this Module is ALLOWED to do,
    * as declared data the engine reads — never as prose in a prompt.
    *

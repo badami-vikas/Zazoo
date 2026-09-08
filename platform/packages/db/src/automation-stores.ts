@@ -37,13 +37,31 @@ import { withOrganizationOnly } from "./organization-context.js";
  */
 const actionSchema = z.enum(["read", "write", "execute", "share", "archive", "approve"]);
 
+/**
+ * Mirror of `@bridge/core`'s `ResourceType`. It is a hand-maintained copy (zod
+ * needs a runtime value; the kernel type is compile-time only), and it had
+ * DRIFTED: `relation`, `module_installation`, `organization_definition`,
+ * `capability` and `claim` all existed as ResourceTypes with no way to name
+ * them in an Automation step, so declaring an Automation over any of them
+ * failed with "Invalid Automation skill_pipeline jsonb" — a validation error
+ * that reads like a corrupt row rather than a missing enum member.
+ *
+ * Found by ADR-256's module-authoring Automation (`module_installation`); the
+ * other four are restored in the same pass because the drift is the defect,
+ * not the one member that happened to surface it.
+ */
 const resourceTypeSchema = z.enum([
   "person",
   "community",
+  "relation",
   "record",
   "event",
   "automation",
   "module",
+  "module_installation",
+  "organization_definition",
+  "capability",
+  "claim",
   "file",
   "signal",
   "policy",

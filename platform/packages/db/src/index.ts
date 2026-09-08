@@ -171,6 +171,14 @@ export {
   type CreateLectureSessionInput,
   type CreateAssignmentInput,
 } from "./academics-store.js";
+export {
+  DrizzleAuthoredModuleStore,
+  type AuthoredModuleStore,
+  type AuthoredDatabaseRow,
+  type AuthoredRecordRow,
+  type AuthoredDatabaseInput,
+  type AuthoredRecordPage,
+} from "./authored-module-store.js";
 export { DrizzleEventsStore, type ConferenceEventRow, type CreateConferenceEventInput } from "./events-store.js";
 export {
   DrizzleCapabilityStore,

@@ -5777,3 +5777,115 @@ found already conformant and the ratchet is updated to say so.
 - **Rejected — porting `electron-builder`/Squirrel.Mac itself.** Would mean Bridge's desktop shell either grows a second packaging pipeline alongside Tauri's or is rewritten onto Electron; ADR-246 already rejected the second for Avilo's own merge, for the same reason (breaks the shipping shell for a gain that isn't on the critical path). **Rejected — a custom update server.** GitHub Releases already serves versioned, content-addressed static assets over HTTPS at zero marginal infra cost; standing up a server to do the same job the release page already does would be the over-engineering ponytail exists to catch. **Rejected — a "Check for Updates" menu item / manual trigger.** Explicitly asked for AUTO update, and a silent background check-and-relaunch is the closer read of "similar to Avilo's" (Squirrel.Mac itself is silent/automatic by default).
 - **Consequence — universal-binary and Windows/Linux auto-update are explicit non-scope, not silently dropped.** GitHub's `macos-latest` runner builds Apple Silicon only; an Intel Mac install cannot verify/consume this update channel yet (it would need a `universal-apple-darwin` target added to the CI matrix). Linux's `deb`/`AppImage` legs still upload as plain CI artifacts, unpublished — TASK-077's scope was literally "an installer for mac." Both are real follow-up items if asked for, not implied by this ADR.
 - **Verified**: `cargo check`/`cargo test` on `bridge-desktop` green (183/183, the plugin additions produce zero new warnings — confirmed against the unmodified tree via `git stash`); `tauri info` resolves both new plugins and parses the updater config without a schema error; `platform/apps/desktop`'s `test:bundle` suite (8/8) unaffected; `.github/workflows/ci.yml` YAML parses. **Not verified**: a real end-to-end update (old build → new release → auto-download → relaunch on the new version) — that needs two actually-published, differently-versioned, real-signed releases, which this session cannot produce without the user's Apple Developer + `TAURI_SIGNING_PRIVATE_KEY` secrets landing in the repo first. Recorded as an honest gap, matching TASK-071/010's precedent for a live path this environment cannot exercise, not claimed as done.
+
+## ADR-256 — A Module Chief of Staff builds is DATA, and it may not author anything that needs code behind it (2026-09-08; attach: TASK-033; AP-166)
+
+**Context.** Asking the Chat surface to build a Module produced prose, never a
+Module. Three independent reasons, all in `apps/api/src/router.ts`: the only
+capability ever disclosed to the chat model was `task-manager.create-task`; the
+response envelope was a `.strict()` union of `answer | clarification |
+create_task`, so a Module could not be named in a well-formed reply at all; and
+the module-install path (`modules.register` → `modules.install`) required a
+human to hand a parsed manifest in first. The builder primitives that would
+have been the "obvious" route (`packages/core/src/capability/builder-primitives.ts`)
+are pure classification logic wired to nothing, and their `shell:execute` is
+`sandboxMandatory` against a container/microVM provider this repo does not run.
+
+**Decision.** An authored Module is a **manifest**, not generated code. It
+declares Databases and the Pages over them; its Records live in two new generic
+tables (`authored_databases`, `authored_records`, migration
+`0044_authored_modules`). Nothing is generated, compiled, or executed.
+
+**Why this is the only shape that fits.** `blueprint.ts` already fixes the rule
+— *"Generation = configurations of REGISTERED components only, never new
+components"* — and `apps/web/src/app/dataviews/registry.ts` enforces it at
+render time with a plain `Record` and no dynamic component resolution. A Module
+made of data satisfies that by construction and needs no sandbox, so the whole
+`shell:execute` problem is not solved here, it is **not incurred**.
+
+**What an authored Module may NOT contain, and why each refusal exists.**
+- **Skills, Agents, Automations.** `modules/manifests/src/index.ts` documents at
+  length (TM3/TM4, ADR-198/201/203/207) what "declared, not built" costs: an
+  Automation with no runtime id and nothing behind it. A capability that can
+  manufacture more of those is a capability to manufacture that debt.
+  `authoredModuleToManifest` emits `agents: []`, `automations: []`, and only
+  `capability_type: "database"` rows.
+- **`relation`, `formula`, `skill` columns** (`AUTHORABLE_COLUMN_KINDS` is
+  `BLUEPRINT_FIELD_KINDS` minus these three). Each needs something the manifest
+  cannot carry — a resolvable target Database, an expression evaluator, a
+  governed Skill id. Admitting them renders a column that silently never
+  computes. The refusal names the reason rather than saying "unknown kind".
+- **Any widening of its own authority.** Permissions are fixed at `record`
+  read/write, `private`, `egress: false`.
+
+**Attribution and the agent floor.** The proposal's actor is Chief of Staff,
+not the person typing — ADR-203's finding was that a proposal actored to
+"whoever triggered it" has no Agent Run behind it and no Skill to point at.
+CoS gains exactly one Skill (`chief-of-staff.author-module`) and one grant
+(`module_installation:write`). It does **not** get `capability:write`, which is
+agent-floor-protected: the capabilities an authored Module declares are
+registered by the **human's** decision, never by the Agent. `requireHumanReview:
+true` is passed unconditionally, so an agent-drafted Module can never
+auto-resolve at a low risk band the way a human-driven install may.
+
+**Reuse over a parallel path.** Staging raises the *same* proposal shape
+`modules.install` raises — same `stableModuleInstallProposalId`, same resource
+id, same `operation: "module_install"` inputs — so `moduleInstallIdFromProposal`
+recognizes it and the existing decide path activates it. Chat gets no second
+install route that could drift from the reviewed one.
+
+**Consequences.** jsonb cannot type-check a cell, so `validateAuthoredRecord` at
+the API seam is the *only* enforcement of a Database's declared shape — that
+seam is load-bearing in a way a per-Module table never was. Column shape is
+stored **on** the manifest (`ModuleManifest.authoredDatabases`) because the
+manifest is what a person reviews; columns kept beside it would be columns the
+approval never covered. `activateApprovedModuleInstallation` now promotes an
+authored Module to `available` (activation alone reaches only `promoted`, which
+`getAvailable` — and therefore the nav — cannot see).
+
+**Rejected alternatives.** (1) *Author an `organization_definition` blueprint.*
+`BLUEPRINT_NODE_TYPE_REGISTRY` is `resourceTypeEnum.options + "edge"`, so an
+entity must be an existing kernel resource type — a blueprint cannot create a
+new Database, only re-view existing ones. It also holds one active row per
+Organization, making "add a Module" a whole-workspace replacement. (2) *Reuse
+the K3 claim substrate as generic row storage.* `claims` is a bi-temporal
+provenance store: every row needs a `decision_ref`, a `claim_class` and a
+sensitivity, and it is single-value-per-field. It is a Memory substrate, not a
+user-facing table. (3) *Wire the builder primitives and generate a Module as
+code.* Needs a real container/microVM SandboxProvider (roadmap P3) and would put
+model-authored code on the local plane — enormous cost to reach a worse place
+than data.
+
+## ADR-257 — Companion visibility keys on the chosen home, never on whether the notch geometry resolved (2026-09-08; attach: TASK-027; AP-167)
+
+**Context.** User report, verbatim: *"The zazoo is visible even when not
+explicitly invoked. It should stay hidden in notch and when not hovered over
+notch or when shortcut isnt pressed, it should disappear into notch (unless
+explicitly dragged outside the notch)"*.
+
+**Root cause.** `OverlayApp.tsx` derived one flag,
+`inNotchHome = home === "notch" && notchGeometry !== null`, and used it for two
+unrelated questions: *whose contract decides visibility* and *what surface to
+draw*. The geometry probe retries with backoff and then gives up; when it did,
+that flag went false, the **free** home's effect took over, and it called
+`overlay_present` on every session-ready render — in the notch home, with
+nothing left able to conceal the window. The companion was then parked on the
+desktop permanently.
+
+**Decision.** Split the flag. `notchHome` (the stored home alone) owns
+visibility; `notchSurface` (home **and** geometry) owns rendering and placement.
+The visibility rule moves out of the component into
+`companionWindowVisible()` in `notch-home.ts` — the module that exists so this
+logic can be tested without a Tauri host — and is pinned by tests, including one
+that asserts losing geometry cannot reveal an un-summoned companion.
+
+**Why this does not reopen the 2026-08-12 bug** (*"the avatar is missing as
+Desktop overlay"*), which the conflated flag was introduced to fix: without
+geometry there is no Rust hover signal, but ⌘⇧Space still sets `panel: "ask"`,
+which reveals him. He is reachable; he is no longer permanently on screen.
+
+**Consequences.** Dragging him out (`home: "free"`) remains the only opt-out and
+still persists across restarts. On a display whose geometry never resolves, the
+summon path narrows to the keyboard shortcut — accepted deliberately: a
+companion that is hard to summon is a smaller failure than one that cannot be
+dismissed.

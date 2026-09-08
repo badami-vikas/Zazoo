@@ -205,6 +205,27 @@ export type {
 // above; never redefines its trust-model types.
 export * from "./module/types.js";
 export { parseModuleManifest, ModuleManifestValidationError } from "./module/manifest.js";
+// Authored Modules — Chief of Staff builds a Module as DATA (Databases + the
+// Pages over them), never as generated code. See module/authoring.ts's header.
+export {
+  AUTHORABLE_COLUMN_KINDS,
+  AUTHORED_MODULE_LIMITS,
+  AuthoredModuleValidationError,
+  authoredDatabaseCapabilityId,
+  authoredModuleRoute,
+  authoredModuleToManifest,
+  parseAuthoredColumns,
+  parseAuthoredModuleSpec,
+  validateAuthoredRecord,
+  AuthoredRecordValidationError,
+} from "./module/authoring.js";
+export type {
+  AuthoredColumnKind,
+  AuthoredColumnSpec,
+  AuthoredDatabaseSpec,
+  AuthoredModuleSpec,
+  AuthoredRecordProperties,
+} from "./module/authoring.js";
 export { findOrganizationDataPaths } from "./module/privacy.js";
 export {
   governanceVerdict,
