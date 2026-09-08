@@ -37,7 +37,7 @@ test("undated opportunities stay reachable instead of being silently dropped", (
 test("every row carries a source and a sponsorship tier", () => {
   for (const t of MBA_FULL_TIME_TARGETS) {
     assert.ok(t.source.length > 0, `${t.company} needs a provenance string`);
-    assert.ok(["reliable", "selective", "mba_only", "none"].includes(t.sponsorship));
+    assert.ok(["reliable", "selective", "mba_only", "none", "unknown"].includes(t.sponsorship));
   }
 });
 
