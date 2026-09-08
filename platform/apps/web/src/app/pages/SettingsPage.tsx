@@ -1858,7 +1858,7 @@ function AvatarSection() {
 
   return (
     <div className="flex flex-col gap-6">
-      <SectionHeader title="Avatar" desc="Appearance and attention settings for the Bridge companion." />
+      <SectionHeader title="Avatar" desc="Hold ⌘⇧Space to summon the companion — it stays off screen until you do. Appearance and attention settings below." />
       <Card>
         <div className="p-6 space-y-4">
           <div className="font-semibold text-sm text-[var(--color-navy)]">Annotation colour</div>
