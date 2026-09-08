@@ -31,6 +31,8 @@ import {
   fallProgress,
   glideCenterX,
   notchBox,
+  restingNotchBox,
+  restingAvatarY,
   landedWindowRect,
   landingOffsetY,
   landingSquash,
@@ -163,15 +165,26 @@ export function NotchHome({
   }, [visible, reducedMotion]);
 
   const cutoutHeight = geometry.hasNotch ? geometry.height : 0;
+  // Asleep behind the notch (user directive 2026-09-08): the window shrinks to
+  // the cutout plus a peek and stays on screen, so the top of his head shows
+  // under the notch and the window's own edge clips the rest of him. Waking is
+  // the window growing back to the bed box, which is the entrance already
+  // written below.
+  const resting = !visible && !dropping;
   const box = dropping
     ? dropColumnBox(geometry)
-    : notchBox(pose === "chat" ? NOTCH_BOX_CHAT : NOTCH_BOX_BED, geometry);
+    : resting
+      ? restingNotchBox(geometry)
+      : notchBox(pose === "chat" ? NOTCH_BOX_CHAT : NOTCH_BOX_BED, geometry);
   // Docked he stands beside the cutout; falling, he starts on the notch's own
   // centre line (the drop column is the whole screen, so window-local x and
-  // screen x are the same thing there).
+  // screen x are the same thing there). Resting, the window IS the cutout, so
+  // the peek sits on its centre line.
   const avatarCenterX = dropping
     ? glideCenterX(0, geometry)
-    : avatarPeekCenterX(box.width, AVATAR_SIZE, geometry);
+    : resting
+      ? box.width / 2
+      : avatarPeekCenterX(box.width, AVATAR_SIZE, geometry);
 
   // The box the OS window is sized to. During the drop the drop effect below
   // owns the sizing (it must know when the resize has actually landed before
@@ -316,6 +329,18 @@ export function NotchHome({
     // his bounding box ~35px lower than it sits standing, so the lying pose
     // carries a matching upward offset — without it his legs are clipped off
     // the bottom of a panel sized for a standing avatar.
+    // Asleep behind the notch: standing upright on the cutout's centre line
+    // with his head starting exactly at its lower edge, so the window (only
+    // NOTCH_REST_PEEK taller than the cutout) shows the top of his head and
+    // clips everything below it.
+    if (resting) {
+      return {
+        left: avatarCenterX,
+        transform: `translate(0px, ${restingAvatarY(cutoutHeight, AVATAR_SIZE)}px)`,
+        transformOrigin: "50% 100%",
+        transition: standTransition,
+      } as const;
+    }
     const y = AVATAR_TOP_GAP;
     const x = avatarOut ? 0 : avatarTuckedX;
     return {
@@ -332,6 +357,8 @@ export function NotchHome({
     avatarTuckedX,
     lying,
     avatarCenterX,
+    resting,
+    cutoutHeight,
     slideTransition,
     standTransition,
   ]);
@@ -402,7 +429,7 @@ export function NotchHome({
       {/* The bed: a rounded slab that slides LEFT out of the cutout carrying
        * Zazoo, then withdraws back into it once he is on his feet. Rendered
        * BEFORE the avatar so he always sits on top of it. */}
-      {!dropping && (
+      {!dropping && !resting && (
         <div
           aria-hidden="true"
           style={{
@@ -490,7 +517,7 @@ export function NotchHome({
        * The input itself is the SHARED CompanionComposer, the same one the
        * free-floating hover bar renders: one composer, one behaviour, one
        * chat thread behind it, in whichever home Zazoo happens to live. */}
-      {!dropping && (
+      {!dropping && !resting && (
         <div
           style={{
             position: "absolute",

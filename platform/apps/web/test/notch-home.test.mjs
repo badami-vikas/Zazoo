@@ -195,3 +195,73 @@ test("FREE_BOX matches the collapsed free-mode window size — a correctness pin
   // collapsed size ever changes, this constant must change with it.
   assert.deepEqual(FREE_BOX, { width: 96, height: 96 });
 });
+
+test("he stays behind the notch at rest and comes out on hover or shortcut", async () => {
+  const { companionPresence, companionSummoned, restingNotchBox, NOTCH_REST_PEEK } =
+    await loadNotchHome();
+
+  // User directive 2026-09-08: always present behind the notch; out of it only
+  // on a notch hover or the shortcut.
+  const rest = {
+    pttActive: false,
+    panelOpen: false,
+    chatPose: false,
+    inNotchHome: true,
+    notchHovered: false,
+  };
+  assert.equal(companionSummoned(rest), false);
+  assert.equal(companionSummoned({ ...rest, notchHovered: true }), true);
+  assert.equal(companionSummoned({ ...rest, pttActive: true }), true);
+  // The free-floating home has no notch to hover, so a cursor at the top of
+  // the screen must not drag it on screen.
+  assert.equal(
+    companionSummoned({ ...rest, inNotchHome: false, notchHovered: true }),
+    false,
+  );
+
+  // Resting in the notch is SHOWN but click-through — the strip it occupies is
+  // the menu bar, so a window taking the mouse there would cost the user their
+  // own menus. Resting anywhere else is off screen.
+  assert.equal(
+    companionPresence({ sessionReady: true, inNotchHome: true, summoned: false }),
+    "resting",
+  );
+  assert.equal(
+    companionPresence({ sessionReady: true, inNotchHome: true, summoned: true }),
+    "interactive",
+  );
+  assert.equal(
+    companionPresence({ sessionReady: true, inNotchHome: false, summoned: false }),
+    "concealed",
+  );
+  assert.equal(
+    companionPresence({ sessionReady: false, inNotchHome: true, summoned: false }),
+    "concealed",
+  );
+
+  // The resting window is the cutout plus the peek, so the top of his head
+  // shows below the notch and the window itself clips the rest of him.
+  const box = restingNotchBox(GEOMETRY);
+  assert.equal(box.width, GEOMETRY.width, "parked exactly over the cutout");
+  assert.equal(box.height, GEOMETRY.height + NOTCH_REST_PEEK);
+  assert.ok(NOTCH_REST_PEEK > 0 && NOTCH_REST_PEEK < 40, "a peek, not a panel");
+});
+
+test("the resting peek shows his head, not the empty margin above it", async () => {
+  const { restingAvatarY, NOTCH_REST_PEEK, avatarDrawnHeight } = await loadNotchHome();
+  // The rig draws nothing in the top ~25% of its box, so parking the BOX top
+  // at the cutout edge showed a plain black strip (seen in overlay.html?lab=1).
+  // His crown, not his bounding box, belongs at the cutout's lower edge.
+  const width = 72;
+  const y = restingAvatarY(GEOMETRY.height, width);
+  assert.ok(y < GEOMETRY.height, "the box starts ABOVE the cutout edge");
+  const crown = y + avatarDrawnHeight(width) * (76.16 / 310);
+  assert.ok(
+    Math.abs(crown - GEOMETRY.height) <= 1,
+    `the crown should land on the cutout's lower edge, got ${crown}`,
+  );
+  assert.ok(
+    crown + NOTCH_REST_PEEK <= GEOMETRY.height + NOTCH_REST_PEEK,
+    "the whole peek strip is filled with head",
+  );
+});

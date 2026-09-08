@@ -1308,13 +1308,18 @@ fn conceal_overlay(window: &WebviewWindow) -> Result<(), String> {
     window.hide().map_err(|error| error.to_string())
 }
 
-fn present_overlay(window: &WebviewWindow) -> Result<(), String> {
+/// `interactive` false is the notch home's resting state: on screen, but
+/// click-through. The docked window covers a strip of the MENU BAR, so one
+/// that swallowed clicks while merely sitting there would cost the user their
+/// own menus — the price of the companion being permanently present
+/// (user directive 2026-09-08).
+fn present_overlay(window: &WebviewWindow, interactive: bool) -> Result<(), String> {
     window
-        .set_ignore_cursor_events(false)
+        .set_ignore_cursor_events(!interactive)
         .map_err(|error| error.to_string())?;
     window.show().map_err(|error| error.to_string())?;
     println!(
-        "[bridge-desktop] avatar overlay visible label={}",
+        "[bridge-desktop] avatar overlay visible label={} interactive={interactive}",
         window.label()
     );
     Ok(())
@@ -1374,12 +1379,13 @@ pub fn overlay_get_session_ready(state: State<'_, OverlaySessionState>) -> bool 
 pub fn overlay_present(
     window: WebviewWindow,
     state: State<'_, OverlaySessionState>,
+    interactive: Option<bool>,
 ) -> Result<bool, String> {
     if !state.ready.load(Ordering::SeqCst) {
         conceal_overlay(&window)?;
         return Ok(false);
     }
-    present_overlay(&window)?;
+    present_overlay(&window, interactive.unwrap_or(true))?;
     Ok(true)
 }
 

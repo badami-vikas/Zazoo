@@ -59,7 +59,11 @@ function emotionPerformance(emotion: string | undefined) {
 }
 import { tauriInvoke, tauriListen } from "./tauri-internals";
 import { NotchHome, type NotchPose } from "./NotchHome";
-import type { NotchGeometry } from "./notch-home";
+import {
+  companionPresence,
+  companionSummoned,
+  type NotchGeometry,
+} from "./notch-home";
 import {
   CAPTURE_EVENT,
   STATUS_LABEL,
@@ -398,21 +402,18 @@ export function OverlayApp() {
   // Desktop overlay"). One derived flag now drives presentation and rendering
   // alike, so the two can no longer disagree about which surface is live.
   const inNotchHome = home === "notch" && notchGeometry !== null;
-  // The companion appears only when summoned (user directive 2026-09-04: "the
-  // avatar should activate only when triggered by shortcut"): the global
-  // push-to-talk shortcut, or a panel it opened. Passing the cursor over the
-  // notch no longer wakes it — that hover contract is what read as the avatar
-  // "activating on its own". `notchHover`/`notchDomHover` still feed the
-  // pose while it is up, so it does not drop mid-interaction.
-  const summoned = pttActive || panel !== "none" || notchPose === "chat";
+  // He lives behind the notch and comes out of it on a hover or the shortcut
+  // (user directive 2026-09-08). The 2026-09-04 complaint that he "activates
+  // on his own" was about the FREE-FLOATING home, which has no notch to
+  // hover — so hover summons only where the notch is actually his home.
+  const summoned = companionSummoned({
+    pttActive,
+    panelOpen: panel !== "none",
+    chatPose: notchPose === "chat",
+    inNotchHome,
+    notchHovered: notchHover || notchDomHover,
+  });
   const notchVisible = inNotchHome && summoned;
-  useEffect(() => {
-    if (!inNotchHome || !sessionReady) return;
-    void tauriInvoke(notchVisible ? "overlay_present" : "overlay_conceal");
-    // Once concealed, the window's own hover has nothing to report — clear it
-    // so a stale `true` doesn't pin the window open forever the next wake.
-    if (!notchVisible) setNotchDomHover(false);
-  }, [inNotchHome, sessionReady, notchVisible]);
 
   const expanded = panel !== "none";
 
@@ -476,20 +477,21 @@ export function OverlayApp() {
     };
   }, []);
 
-  // The OS-level window follows the same single gate as the render above:
-  // session readiness only, never onboarding completion (user directive
-  // 2026-08-05). Without this the companion window would stay concealed even
-  // though the component was willing to render.
+  // ONE effect owns the OS window, for both homes. Two of them racing for the
+  // same window is how the companion previously ended up rendered-but-hidden.
+  // The gate is session readiness only, never onboarding completion (user
+  // directive 2026-08-05).
+  const presence = companionPresence({ sessionReady, inNotchHome, summoned });
   useEffect(() => {
-    // In the notch home, visibility is the hover contract's to decide (the
-    // window is concealed at rest so the desktop is untouched). Presenting
-    // here too would race that effect for control of one window.
-    if (inNotchHome) return;
-    // Same rule as the notch home (directive 2026-09-04): concealed at rest,
-    // present only while summoned. Before this the free-floating companion
-    // presented itself the moment the session was ready.
-    void tauriInvoke(sessionReady && summoned ? "overlay_present" : "overlay_conceal");
-  }, [sessionReady, inNotchHome, summoned]);
+    if (presence === "concealed") {
+      void tauriInvoke("overlay_conceal");
+      // The window's own hover has nothing to report once it is off screen —
+      // clear it so a stale `true` doesn't pin it open on the next wake.
+      setNotchDomHover(false);
+      return;
+    }
+    void tauriInvoke("overlay_present", { interactive: presence === "interactive" });
+  }, [presence]);
 
   // Derived companion state (the machine's read model).
   const working =

@@ -248,3 +248,86 @@ export function landingSquash(t: number): { scaleX: number; scaleY: number } {
 export function squashSettled(t: number): boolean {
   return t >= 1 && Math.exp(-6 * (t - 1)) < 0.02;
 }
+
+/**
+ * How much of Zazoo shows below the cutout while he is asleep behind it
+ * (user directive 2026-09-08: "I want the avatar always present behind my
+ * notch"). The window is only this much taller than the cutout, so the rest
+ * of him is clipped by the window itself — what the eye gets is the top of a
+ * head poking out from under the notch, on a black strip that continues the
+ * cutout's own shape.
+ */
+export const NOTCH_REST_PEEK = 16;
+
+/**
+ * The window box while he rests: the cutout's own width (so `overlay_dock_notch`'s
+ * flush-right rule parks it exactly over the notch) and the peek below it.
+ * On a flat panel there is no cutout to hide behind, so the strip is a fixed
+ * width centred at the top of the screen — the same fallback the dock command
+ * already uses.
+ */
+export function restingNotchBox(geometry: NotchGeometry): NotchBox {
+  return {
+    width: geometry.hasNotch ? geometry.width : 120,
+    height: (geometry.hasNotch ? geometry.height : 0) + NOTCH_REST_PEEK,
+  };
+}
+
+/**
+ * What the companion window should be doing right now.
+ *
+ * Three states, not two. `interactive` is summoned — shown AND taking the
+ * mouse. `resting` is the notch home's steady state: shown, but click-through,
+ * because the strip beside and below the cutout is the menu bar, and a window
+ * that swallowed clicks there would cost the user their own menus.
+ * `concealed` is off screen entirely, which is what the free-floating home
+ * does at rest and what any home does before the session is ready.
+ */
+export type CompanionPresence = "interactive" | "resting" | "concealed";
+
+export function companionPresence(input: {
+  sessionReady: boolean;
+  inNotchHome: boolean;
+  summoned: boolean;
+}): CompanionPresence {
+  if (!input.sessionReady) return "concealed";
+  if (input.summoned) return "interactive";
+  return input.inNotchHome ? "resting" : "concealed";
+}
+
+/**
+ * Summoning rules. Hovering the notch wakes him only when the notch IS his
+ * home — the free-floating avatar lives elsewhere on screen and has no
+ * business reacting to a cursor at the top of the display. The shortcut and
+ * an open panel summon him from either home.
+ */
+export function companionSummoned(input: {
+  pttActive: boolean;
+  panelOpen: boolean;
+  chatPose: boolean;
+  inNotchHome: boolean;
+  notchHovered: boolean;
+}): boolean {
+  return (
+    input.pttActive ||
+    input.panelOpen ||
+    input.chatPose ||
+    (input.inNotchHome && input.notchHovered)
+  );
+}
+
+/**
+ * Where the drawn ink starts inside the rig's box, as a fraction of its
+ * height: `BODY_PATH`'s topmost point is y=76.16 on the 310-unit viewBox, so
+ * the top quarter of the box is empty space above his crown. Placing the box
+ * top at the cutout's edge therefore shows nothing at all — the first attempt
+ * at the peek was a plain black strip (verified in `overlay.html?lab=1`).
+ */
+export const AVATAR_INK_TOP = 76.16 / 310;
+
+/** Vertical offset that puts his CROWN at the cutout's lower edge, so the
+ * peek strip below it is filled with head rather than with the empty margin
+ * the rig draws above him. */
+export function restingAvatarY(cutoutHeight: number, avatarWidth: number): number {
+  return cutoutHeight - Math.round(avatarDrawnHeight(avatarWidth) * AVATAR_INK_TOP);
+}

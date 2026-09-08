@@ -7165,3 +7165,13 @@ stable Developer ID certificate stops that and this repository has none.
 **Rejected alternatives.** A `deleted` module state (a Module the user deleted is not a Module in a state; rollback would still find it). Deleting data by writing empty documents (leaves the rows and lies about what happened). Widening the owner-only delete policy on `view_configs` so one member's delete could clear another's saved Views (tidiness is not a reason to loosen a security policy). Deleting the Module's folder under `~/Documents/Bridge/` (those are the user's own files on their own disk and deserve their own question).
 
 **Consequences.** The rail can now cause irreversible loss, which it could not before, so the confirmation is the control that matters and it is covered by its own test. Another member's saved View on a deleted Database is left behind and opens nothing; a share grant pointing at it resolves to nothing. Both are stated on TASK-113 rather than papered over.
+
+## 2026-09-08 — A resting companion is visible but click-through
+
+**Decision.** The Avatar window has three presentation states, not two: shown-and-interactive, shown-and-click-through, and concealed. The notch home rests in the middle one.
+
+**Why.** The user asked for the companion to be permanently present behind the notch. The docked window sits at the top of the screen overlapping the menu bar, and a window that takes the mouse there steals clicks from the user's own menus for the whole time it is merely sitting still. Presence and input are therefore separated: `overlay_present { interactive }` decides whether `ignore_cursor_events` is set, and the wake signal stays the Rust cursor poll, which does not need the window to receive events.
+
+**Rejected.** (a) Presenting it interactive at rest — costs the menu bar. (b) Keeping it concealed and adding a menu-bar icon — answers a different question; the user asked to see the companion, not to find a control for it. (c) Shrinking the window to nothing at rest — a zero-size window cannot show the peek that makes "he lives behind the notch" legible.
+
+**Consequence.** At rest the companion cannot be clicked; hovering the notch is what makes him interactive, and the shortcut still works from either home. Anything that wants a click target at rest must first ask for the interactive state.
