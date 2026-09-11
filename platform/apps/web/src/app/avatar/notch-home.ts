@@ -292,7 +292,20 @@ export function companionPresence(input: {
 }): CompanionPresence {
   if (!input.sessionReady) return "concealed";
   if (input.summoned) return "interactive";
-  return input.inNotchHome ? "resting" : "concealed";
+  // A DRAGGED-OUT companion rests INTERACTIVE, not concealed and not
+  // click-through (user report 2026-09-09: "The avatar vanished when I pulled
+  // it out of notch, it was meant to slide to bottom right of screen"). The
+  // slide was running fine; `onLanded` flips the home to "free", and a free
+  // home at rest used to resolve to `concealed`, so the window hid itself on
+  // the last frame of its own landing.
+  //
+  // Interactive rather than resting, because click-through is a concession the
+  // NOTCH needs — that window overlaps the menu bar and must not eat clicks
+  // meant for the user's own menus. The landed avatar sits on the desktop in
+  // the bottom-right corner, is dragged by a Tauri drag region and opened by a
+  // pointer gesture, so a click-through free home would be visible and dead:
+  // impossible to move, impossible to click, reachable only by ⌘⇧Space.
+  return input.inNotchHome ? "resting" : "interactive";
 }
 
 /**

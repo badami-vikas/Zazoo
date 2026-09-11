@@ -295,6 +295,36 @@ fn is_on_screen(
     false
 }
 
+/// Is this saved top edge ABOVE every display's top edge?
+///
+/// A free-home rest is always clamped inside the visible frame by
+/// `enforce_free_bounds`, so it never can be. A notch-docked box's corner
+/// always is: `collapsed_top_left` subtracts the 96pt collapsed size from a
+/// rect whose top is y=0, which lands the stored value at roughly -43.
+/// Positions like that were written before the docked gates in
+/// `persist_collapsed_window_position` / `flush_overlay_positions` existed,
+/// and restoring one parks the companion behind the menu bar where the user
+/// cannot see it. Heal it instead — the caller re-anchors bottom-right.
+///
+/// ponytail: catches the RESTING notch box, which is where the companion
+/// sleeps and therefore what a quit almost always captures. A store poisoned
+/// mid-hover (the taller bed/chat boxes land at y=16/32 — under the menu bar
+/// but not above the display) is left to the `docked` gates to prevent going
+/// forward; widen this to the notch hot zone if that ever shows up.
+fn top_is_above_all_displays(y: f64, display_tops: &[f64]) -> bool {
+    // No monitor info: accept the saved position rather than mis-anchoring,
+    // matching `is_on_screen`.
+    !display_tops.is_empty() && display_tops.iter().all(|&top| y < top)
+}
+
+fn saved_top_is_above_all_displays(pos: &PersistedPosition, monitors: &[Monitor]) -> bool {
+    let tops: Vec<f64> = match pos.space {
+        PositionSpace::Physical => monitors.iter().map(|m| m.position().y as f64).collect(),
+        PositionSpace::Logical => monitors.iter().map(|m| logical_monitor_bounds(m).y).collect(),
+    };
+    top_is_above_all_displays(pos.y as f64, &tops)
+}
+
 /// Attempt to restore a previously-saved position for `label`. Returns the
 /// saved `PersistedPosition` when it passes the on-screen check, or `None`
 /// when the saved position is absent / off-screen (caller falls back to
@@ -309,6 +339,9 @@ pub fn reconcile_saved_position(
 ) -> Option<PersistedPosition> {
     let map = load_positions(app);
     let pos = map.get(label)?;
+    if saved_top_is_above_all_displays(pos, monitors) {
+        return None;
+    }
     #[cfg(target_os = "macos")]
     if pos.space == PositionSpace::Physical && has_mixed_scale_factors(monitors) {
         // Legacy physical coordinates are ambiguous when each display has a
@@ -888,6 +921,18 @@ fn persist_collapsed_window_position(
     app: &AppHandle,
     window: &WebviewWindow,
 ) -> Result<(), String> {
+    // A DOCKED window's rect belongs to the notch, not to the user. Docking
+    // moves the window (`overlay_dock_notch` sets it to y=0 at the cutout's
+    // width), every move schedules a save, and nothing here used to check —
+    // so living in the notch quietly overwrote the free home's saved position
+    // with the cutout's own corner. On the next launch that restored a 96x96
+    // window at the top of the screen, behind the menu bar, and the free home
+    // never re-anchors: the companion was on screen and invisible (user
+    // report 2026-09-10: "I'm unable to see avatar again. Everytime I relaunch
+    // bridge avatar should relaunch").
+    if is_docked(app) {
+        return Ok(());
+    }
     let position = collapsed_window_position(window)?;
     let mut positions = load_positions(app);
     let label = window.label().to_string();
@@ -899,6 +944,12 @@ fn persist_collapsed_window_position(
 }
 
 pub fn flush_overlay_positions(app: &AppHandle) -> Result<(), String> {
+    // Quitting while docked must not write the notch's rect either — same
+    // reasoning as `persist_collapsed_window_position`, and the likelier path
+    // in practice, since the companion sleeps behind the notch by default.
+    if is_docked(app) {
+        return Ok(());
+    }
     let mut positions = load_positions(app);
     let mut changed = false;
     let mut first_error = None;
@@ -1510,6 +1561,26 @@ mod tests {
 
     // The geometric check is extracted here so it can be tested without
     // a real Monitor handle (tauri::Monitor fields are private).
+    #[test]
+    fn a_notch_docked_corner_is_never_restored_as_a_free_rest() {
+        // `collapsed_top_left` subtracts the 96pt collapsed size from the
+        // docked rect, whose top is y=0 — so the resting notch box persists as
+        // roughly -43. Restoring that parks the companion behind the menu bar,
+        // which is the "avatar vanished after relaunch" report.
+        assert!(top_is_above_all_displays(-43.0, &[0.0]));
+        // A bottom-right rest, and the top-left corner of the display itself,
+        // are both legitimate free positions and must survive a relaunch.
+        assert!(!top_is_above_all_displays(884.0, &[0.0]));
+        assert!(!top_is_above_all_displays(0.0, &[0.0]));
+        // A display stacked ABOVE the primary makes negative y legitimate: the
+        // rule is per-display tops, not the sign of the number.
+        assert!(!top_is_above_all_displays(-500.0, &[0.0, -1080.0]));
+        // Above every display is still above every display.
+        assert!(top_is_above_all_displays(-1200.0, &[0.0, -1080.0]));
+        // No monitor info: keep whatever was saved rather than mis-anchoring.
+        assert!(!top_is_above_all_displays(-43.0, &[]));
+    }
+
     fn is_on_screen_raw(
         px: i32,
         py: i32,

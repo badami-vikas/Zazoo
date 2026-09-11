@@ -474,7 +474,7 @@ mod tests {
     #[test]
     fn limits_match_the_typescript_copy() {
         const POLICY_TS: &str =
-            include_str!("../../../../modules/whatsapp/src/policy.ts");
+            include_str!("../../../../commons/whatsapp/src/policy.ts");
 
         // Read the shipped `SEND_POLICY_LIMITS` object literal, not the whole
         // file: `SendPolicyLimits`'s doc comments mention numbers too.

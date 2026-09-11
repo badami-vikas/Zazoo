@@ -99,27 +99,23 @@ const GAZE_SATURATION_PX = 520;
  * ponytail: swap for a spoken-finished event if visemes ever matter. */
 const SPEECH_WORDS_PER_SECOND = 175 / 60;
 
-/** Which home Zazoo currently lives in. Persisted, because dragging him out of
- * the notch is a deliberate choice that must survive a restart — waking to find
- * him back in the notch would silently undo the gesture. */
+/**
+ * Which home Zazoo currently lives in — SESSION state, deliberately not persisted.
+ *
+ * It used to be persisted, on the reasoning that "dragging him out of the notch
+ * is a deliberate choice that must survive a restart". The user directed the
+ * opposite (2026-09-11: "But why is he not going into the notch or sitting
+ * inside it at launch?"), and their model is the coherent one: the notch is
+ * where he LIVES, and pulling him onto the desktop is a within-session move,
+ * like taking a book off a shelf. Every launch he is back on the shelf — which
+ * is also what "I want the avatar always present behind my notch" (2026-09-08)
+ * asked for.
+ *
+ * Not persisting IS the implementation: there is no launch-time reset to get
+ * wrong, and a stale `bridge.avatar.home.v1` from an older build is simply
+ * never read again.
+ */
 type AvatarHome = "notch" | "free";
-const HOME_STORAGE_KEY = "bridge.avatar.home.v1";
-
-function loadHome(): AvatarHome {
-  try {
-    return window.localStorage.getItem(HOME_STORAGE_KEY) === "free" ? "free" : "notch";
-  } catch {
-    return "notch";
-  }
-}
-
-function saveHome(home: AvatarHome) {
-  try {
-    window.localStorage.setItem(HOME_STORAGE_KEY, home);
-  } catch {
-    // A companion that cannot persist its home still works; it just forgets.
-  }
-}
 
 /** Full Invoko-spec vocabulary; v1 drives the first four (+ error). */
 export type CompanionState =
@@ -286,9 +282,7 @@ export function OverlayApp() {
   const [pinned, setPinned] = useState(false);
 
   // --- Notch home (roadmap Z1) -------------------------------------------
-  const [home, setHome] = useState<AvatarHome>(() =>
-    typeof window === "undefined" ? "notch" : loadHome(),
-  );
+  const [home, setHome] = useState<AvatarHome>("notch");
   const [notchGeometry, setNotchGeometry] = useState<NotchGeometry | null>(null);
   const [notchHover, setNotchHover] = useState(false);
   // The Rust cursor poll only tests a small fixed rect around the cutout — it
@@ -379,7 +373,6 @@ export function OverlayApp() {
       unlisten = await tauriListen("bridge:notch-return", () => {
         setNotchPose("bed");
         setHome("notch");
-        saveHome("notch");
       });
     })().catch((error: unknown) => {
       console.error("[companion] notch-return listener failed", error);
@@ -579,7 +572,6 @@ export function OverlayApp() {
         // Rust may have force-undocked the window to glide to the target
         // (same reasoning as chase-started above).
         setHome("free");
-        saveHome("free");
         director.perform({ emotion: "curious", attention: "away" });
       });
       unlistenDone = await tauriListen("bridge:point-done", () => {
@@ -966,7 +958,6 @@ export function OverlayApp() {
         onSubmit={openChatWith}
         onLanded={() => {
           setHome("free");
-          saveHome("free");
           setNotchPose("bed");
           // Landing is an arrival, not a state: the settle performance is over,
           // so hand back to the resting meditation the free home defaults to.
