@@ -268,6 +268,10 @@ const BUILT_IN_SOURCE_REFS: Readonly<Record<string, string>> = {
   // Academics ships no code: the manifest's declared Databases ARE the Module.
   academics: "platform/packages/module-manifests/src/index.ts",
   events: "platform/apps/web/src/app/pages/EventsPage.tsx",
+  // Added when the Commons exclusions were lifted (ADR 2026-09-11). Verified
+  // to exist at INSPECTED_COMMIT — provenance names where the code was
+  // inspected, so a path that only exists today would be a false record.
+  helpdesk: "platform/apps/web/src/app/pages/RelationshipHelpdeskPage.tsx",
   "task-manager": "platform/packages/core/src/task-manager.ts",
   whatsapp: "platform/modules/whatsapp/src/index.ts",
   devpilot: "platform/modules/devpilot/src/index.ts",
@@ -1974,30 +1978,30 @@ const citedRoleModelPractice: BuiltInModule = {
 };
 
 export const COMMONS_BUILT_IN_MODULES: readonly CommonsBuiltInModule[] = [
-  // Relationship's current full capability union forms the lethal trifecta.
-  // It remains a local built-in Module but cannot enter Commons until split
-  // into independently safe generalized Results.
+  // EVERY built-in is published. The five that used to be withheld —
+  // relationship, whatsapp, helpdesk, events, devpilot — are back, per the ADR
+  // "2026-09-11 — A manifest is a definition, not a dossier".
   //
-  // WhatsApp is excluded for the same class of reason: reading the owner's
-  // private contact graph out of a third-party session it also renders is not
-  // a generalized capability anyone else could safely install.
-  ...BUILT_IN_MODULES.filter(
-    (pkg) =>
-      pkg.manifest.name !== "relationship" &&
-      pkg.manifest.name !== "whatsapp" &&
-      // Helpdesk is excluded for the same reason its parent is: its Records and
-      // Events are the owner's private relationship data, not a generalized
-      // capability another Organization could install. Commons never carries
-      // personal data.
-      pkg.manifest.name !== "helpdesk" &&
-      // Events resolves speakers into the owner's own private People, same as
-      // Helpdesk's reasoning above (TASK-070, ADR-236).
-      pkg.manifest.name !== "events" &&
-      // DevPilot is excluded for the same class of reason as WhatsApp: reading
-      // the owner's own tracked GitHub repos through a personal token is not a
-      // generalized capability another Organization could safely install.
-      pkg.manifest.name !== "devpilot",
-  ).map((pkg) => ({
+  // The old exclusions read "reading the owner's private contact graph out of a
+  // third-party session is not a generalized capability anyone else could
+  // safely install". That conflated two different things. A manifest carries
+  // Databases, Pages, capability declarations and context-provider
+  // requirements — no rows, no seed data, nothing personal. Publishing
+  // `devpilot` publishes the SHAPE "sync the repos you track, with a token you
+  // supply"; it publishes nobody's repos. And that shape is as generalized as a
+  // capability gets: every installer has their own repos, exactly as every
+  // installer has their own inbox, and the Google integration was always in
+  // Commons on that reasoning.
+  //
+  // What the exclusions were really reaching for is installer RISK, which has
+  // its own machinery — `RiskBand`, `CapabilityOrigin`, `requireHumanReview` at
+  // install — and belongs there, not in a publish-time allowlist. `relationship`
+  // is the sharpest case (its capability union is the lethal trifecta:
+  // private-read + untrusted-content ingest + egress) and is published on the
+  // same basis, by user directive 2026-09-11: install-time review is the gate,
+  // and splitting that union into independently safe Results remains the
+  // standing follow-up rather than a precondition for discovery.
+  ...BUILT_IN_MODULES.map((pkg) => ({
     ...pkg,
     commons: {
       provenance: provenance(builtInSourceRef(pkg.manifest.name)),

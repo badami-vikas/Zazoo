@@ -7175,3 +7175,67 @@ stable Developer ID certificate stops that and this repository has none.
 **Rejected.** (a) Presenting it interactive at rest — costs the menu bar. (b) Keeping it concealed and adding a menu-bar icon — answers a different question; the user asked to see the companion, not to find a control for it. (c) Shrinking the window to nothing at rest — a zero-size window cannot show the peek that makes "he lives behind the notch" legible.
 
 **Consequence.** At rest the companion cannot be clicked; hovering the notch is what makes him interactive, and the shortcut still works from either home. Anything that wants a click target at rest must first ask for the interactive state.
+
+## 2026-09-08 — Commons was fully built and reachable from nothing: the registry nobody started
+
+**Context.** User report: *"The very idea of commons was to make installing and uninstalling modules easier, why is it not working. Also why are not all common's module selectable when new option below modules is clicked?"* — after asking Chief of Staff to "install dealpilot" and being offered a hand-designed Deal Manager instead.
+
+Nothing was missing from the install machinery. `commons.list` / `get` / `installPropose` and `modules.install` / `uninstall` all existed and worked; `installPropose` already supported a standalone root Module. Four separate wires were absent, and each alone was enough to make Commons look broken:
+
+1. `commonsRegistry` is an `HttpCommonsClient` pointed at `http://localhost:4780`, and nothing — not the dev scripts, not the desktop sidecar — ever started `services/commons`. Every `commons.*` call met a refused connection.
+2. The service could not be started casually anyway: it threw at boot without `COMMONS_PUBLISH_TOKEN`, a secret nothing generated.
+3. Started, it was still empty. `publish-builtins` populates it and nothing ran it.
+4. `NewModuleDialog` lists `modules.list` filtered to `state === "available" && status === "installed"` — it means "start something in a Module you have". There was no Commons half anywhere in the app, so an uninstalled Module had nowhere to appear.
+
+And in the Builder lane, `commonsPriorArt` already told the agent what Commons held, and the briefing already instructed it to *"offer installing a matching Module before building a new one"* — with no mechanism behind the offer. The agent complied exactly as told and then could only write a manifest for a Module already sitting signed in the registry.
+
+**Decision.** (a) The API hosts the registry in-process (`commons-embedded.ts`) and seeds the curated built-ins into an EMPTY registry on boot. (b) The publish token is generated and persisted 0600 on first boot, the way the signing key already was. (c) `NewModuleDialog` grows an "Add from Commons" section. (d) Chat is told which Modules are installed and which are addable, and the Builder lane installs from Commons when the person names a catalog Module with an install verb.
+
+**Why in-process rather than a second sidecar.** The trust boundary is the Ed25519 publish signature verified at install, not the process boundary; the API talks to this registry over the same HTTP contract it would use for Bridge Cloud. Hosting it costs a `listen` call and removes a whole class of "the registry silently isn't up". It is skipped under public-cloud residency or any non-loopback `COMMONS_URL` — hosting a second registry over a configured one would shadow it.
+
+**Rejected.** (a) A fixed default publish token — publication is this service's one privileged operation and a guessable token is not a secret. (b) Replacing `HttpCommonsClient` with an in-process registry object — dissolves the signature seam that makes an installed Module trustworthy. (c) Re-publishing built-ins on every boot — published versions are immutable, so it is an error rather than a no-op, and a registry with content has a history a boot has no business reconciling. (d) A model-judged install intent — a false positive installs software nobody asked for, so the trigger is a pure function needing both an install verb and the catalog entry's own name.
+
+**Consequence.** A machine that already runs `services/commons` keeps it (the port-in-use path defers). Seeding only ever fills an empty registry, so a curated manifest that changes later still needs `publish-builtins`. The install verb reaches only the agentic Builder lane; the ordinary chat lane now knows what exists and what is addable, and points at + New.
+
+## 2026-09-11 — A manifest is a definition, not a dossier: the five withheld Modules enter Commons
+
+**Context.** `COMMONS_BUILT_IN_MODULES` withheld five built-ins — `relationship`, `whatsapp`, `helpdesk`, `events`, `devpilot`. The stated grounds, repeated across ADR-236/TASK-070 and the DevPilot decision (2026-09-11 reading of `decisions-log.md:5494`, `:3208`), were of the form *"reading the owner's own tracked repos through a personal token is not a generalized capability another Organization could safely install"* and *"publishing would leak the shape of 'read my own private repos' as a generalized capability."*
+
+The user challenged the premise directly: *"For relationship, whatsapp, helpdesk, events, devpilot, data might be private but the module can be in commons right and load or create the private data upon installation?"*
+
+**Finding.** Correct, and the old reasoning conflated two separate things. A `ModuleManifest` carries Databases, Pages, capability declarations, context-provider requirements and governance policy. It carries no rows. Inspected 2026-09-11: no manifest in `packages/module-manifests/src/index.ts` has a `records`, `rows`, `seed` or `fixtures` key, and the Module's data is created at install time on the installer's own Local Plane. Publishing `devpilot` publishes the *shape* "sync the repos you track, with a token you supply" — it publishes nobody's repos.
+
+Nor is that shape ungeneralized. Every installer has their own repos, exactly as every installer has their own inbox — and the Google integration has always been in Commons on precisely that reasoning. The property the old exclusions were actually reaching for is **installer risk**, not registry leakage, and installer risk already has its own machinery: `RiskBand`, `CapabilityOrigin` and `requireHumanReview` evaluated at install, against a signed manifest.
+
+**Decision.** (1) All five are published. `COMMONS_BUILT_IN_MODULES` is now `BUILT_IN_MODULES` unfiltered: 13 Modules plus 2 standalone Skills. (2) `relationship` is included too, by explicit user directive, despite its capability union being the lethal trifecta (private-read + untrusted-content ingest + egress) — install-time review is the gate. Splitting that union into independently safe Results remains a standing follow-up, no longer a precondition for discovery. (3) `helpdesk` gained the `BUILT_IN_SOURCE_REFS` entry it never had, pointing at `platform/apps/web/src/app/pages/RelationshipHelpdeskPage.tsx` — verified present at `INSPECTED_COMMIT` 689fca0, because provenance names where code was inspected and a path that exists only today would be a false record. (4) The invariant that replaces the allowlist is asserted structurally: every Commons entry must carry declared provenance and must serialize without rows.
+
+**Alternatives rejected.** Keeping the allowlist and documenting it better (the allowlist is unfalsifiable — an intended exclusion and an accidental omission look identical, which is the same defect recorded for `resourceTypeEnum` on 2026-09-08). Publishing the four but holding `relationship` back pending the trifecta split (offered; the user chose to include it, and install-time review is the mechanism that is supposed to carry exactly this case). Stripping capabilities from published manifests to make them "safe" (a manifest that misdeclares what it does is worse than one that is honestly risky — the install gate can only judge what is declared).
+
+**Consequences.** The "New" dialog's Commons section grows from 5 installable Modules to 12 in the Egg profile. Two tests reversed polarity in `packages/module-manifests/test/catalog.test.ts` — "WhatsApp is withheld from Commons" and "DevPilot is withheld from Commons" — and both were seen failing against the old source before being rewritten; the replacements were then seen failing under a re-added `devpilot` filter (2/26 red), 26/26 restored. Install-time risk assessment is now load-bearing for five Modules that previously could not reach it at all.
+
+## 2026-09-11 — The Egg goes on a diet: local models unbundled, two packages cost more than the feature we cut
+
+**Context.** User challenge, verbatim: *"Also why do you need 8gb, this was meant to be light"*, then *"why are we shipping llama, drop local models for now"*.
+
+**Finding — the 8 GB was never the product.** That figure is build scratch: the Rust release `target/` plus a workspace `node_modules`. The shipped Egg was 728 MB (201 MB DMG). Measured 2026-09-11, where it actually went:
+
+```yaml
+Bridge.app: 728M
+  Contents/Resources/api: 546M
+    node_modules/@anthropic-ai: 211M   # 193M of it ONE file: the bundled `claude` CLI
+    node_modules/googleapis: 114M      # 113M of generated clients for every Google API
+    node_modules/pdfjs-dist: 35M
+    node_modules/typescript: 23M       # a PEER dep of @trpc/server, auto-installed
+  Contents/MacOS: 123M
+  Contents/Resources/llama: 49M
+```
+
+llama.cpp was **49 MB — 6.7%** of the bundle, and no model weights were ever shipped (`qwen3-4b` is a separate user-triggered download). `googleapis` alone cost more than twice that, to give us three calls: `google.auth.OAuth2`, `google.gmail({v1})`, `google.calendar({v3})`.
+
+**Decision.** (1) The local model runtime is no longer bundled, by user directive, behind `BRIDGE_BUNDLE_LOCAL_MODELS=1` rather than deleted — re-enabling is an env var, not a revert. The honest cost is recorded on the flag: `wiring.ts` binds the capture/sensor plane to local models with **no cloud fallback** by design, so without the runtime that lane reports itself unavailable rather than quietly sending raw capture to a cloud provider. That is the "raw capture stays Local" principle behaving correctly, not a regression. (2) `googleapis` is replaced by `@googleapis/gmail` + `@googleapis/calendar` + `google-auth-library` used directly; `google-auth-library` bumped 9 → 10 so one `OAuth2Client` type exists in the tree rather than two incompatible ones. (3) `typescript` is deleted from the deployed tree after `pnpm deploy --prod`: it arrives as a `@trpc/server` PEER dependency that pnpm auto-installs, and a grep of the whole deployed tree for a runtime `require("typescript")`/`from "typescript"` across .js/.mjs/.cjs returned nothing.
+
+**Result: 728 MB → 558 MB app, 201 MB → 179 MB DMG.** `Resources/api` 546 MB → 426 MB.
+
+**Alternatives rejected.** Dropping llama and stopping there (the user's literal request — raised as a concern first, since it was the smallest of the three targets and the only one that costs a capability; the user chose to do both). Deleting the llama code rather than flagging it off (local inference is a residency feature, not dead weight — the next decision about it should be a decision, not an archaeology exercise). Pinning `@googleapis/*` versions that still use `google-auth-library` 9 to avoid the major bump (pins the tree to whatever ages out first). Dropping the bundled `claude` CLI, still the single largest item at 193 MB (it is the Claude Code chat backend the user actively uses; removing it removes a working feature, unlike every cut above).
+
+**Consequences.** Six test files in `packages/integrations-google` mocked the `googleapis` module specifier and now mock the two per-API packages; `restore()` fans out so call sites are unchanged. The swap was proved non-vacuous by pointing one mock at a wrong specifier (1 red) before restoring (39/39). Still open: `@anthropic-ai` 211 MB, `pdfjs-dist` 35 MB, `mathjs` 16 MB — the first is load-bearing, the other two are Accounting's PDF/formula path.

@@ -43,11 +43,12 @@ test("Helpdesk is a NetworkManager sub-module, and stays out of Commons", () => 
     helpdesk.module?.pages.map((page) => page.capabilityId),
     ["relationship.submodule.helpdesk"],
   );
-  // Commons never carries personal data, and Help items are the owner's own.
-  assert.equal(
-    COMMONS_BUILT_IN_MODULES.some((pkg) => pkg.manifest.name === "helpdesk"),
-    false,
-  );
+  // Commons carries the DEFINITION; Help items are the owner's own and stay on
+  // their Local Plane. Publishing the Module publishes its Databases and
+  // capability declarations, never a row (ADR 2026-09-11).
+  const helpdeskEntry = COMMONS_BUILT_IN_MODULES.find((pkg) => pkg.manifest.name === "helpdesk");
+  assert.ok(helpdeskEntry, "Helpdesk is discoverable in Commons");
+  assert.ok(helpdeskEntry.commons.provenance, "a Commons entry must declare where it came from");
 });
 
 test("Task Manager is a signed installable Module with one Task Database and Agent-owned Skills", () => {
@@ -156,10 +157,26 @@ test("WhatsApp v1 declares no egress and no Automation", () => {
   assert.deepEqual(whatsapp.module?.automations, []);
 });
 
-test("WhatsApp is withheld from Commons", () => {
-  const published = COMMONS_BUILT_IN_MODULES.map(({ manifest }) => manifest.name);
-  assert.ok(!published.includes("whatsapp"));
-  assert.ok(!published.includes("relationship"));
+test("every built-in Module is discoverable in Commons, carrying no rows", () => {
+  // The inverse of what this test used to assert. Five Modules — relationship,
+  // whatsapp, helpdesk, events, devpilot — were withheld on the grounds that
+  // their DATA is private. Their data is; their manifests are not (ADR
+  // 2026-09-11 "A manifest is a definition, not a dossier"). Installer risk is
+  // the install-time gate's job, not a publish-time allowlist's.
+  const published = new Set(COMMONS_BUILT_IN_MODULES.map(({ manifest }) => manifest.name));
+  for (const { manifest } of BUILT_IN_MODULES) {
+    assert.ok(published.has(manifest.name), `${manifest.name} must be discoverable in Commons`);
+  }
+  // The actual invariant: what ships is a definition. No entry carries rows.
+  for (const entry of COMMONS_BUILT_IN_MODULES) {
+    const serialized = JSON.stringify(entry.manifest);
+    const asRecord = entry.manifest as unknown as Record<string, unknown>;
+    assert.equal(asRecord.records, undefined, `${entry.manifest.name} carries records`);
+    assert.equal(asRecord.rows, undefined, `${entry.manifest.name} carries rows`);
+    assert.equal(asRecord.seed, undefined, `${entry.manifest.name} carries seed data`);
+    assert.ok(!/"rows"\s*:/.test(serialized), `${entry.manifest.name} carries rows`);
+    assert.ok(entry.commons.provenance, `${entry.manifest.name} must declare provenance`);
+  }
 });
 
 test("DevPilot is an installable Module with Pull Requests, Issues, and Repos Pages", () => {
@@ -213,9 +230,14 @@ test("DevPilot D2's engineering-assist Automations are manual (no schedule) but 
   }
 });
 
-test("DevPilot is withheld from Commons", () => {
-  const published = COMMONS_BUILT_IN_MODULES.map(({ manifest }) => manifest.name);
-  assert.ok(!published.includes("devpilot"));
+test("DevPilot is published to Commons as a shape, not as anyone's repos", () => {
+  const entry = COMMONS_BUILT_IN_MODULES.find(({ manifest }) => manifest.name === "devpilot");
+  assert.ok(entry, "DevPilot is discoverable in Commons");
+  // "Sync the repos you track, with a token you supply" is exactly as
+  // generalized as "read your inbox" — which has always been in Commons. What
+  // must never appear is a repo name, an owner, or a token.
+  const serialized = JSON.stringify(entry.manifest);
+  assert.ok(!/ghp_|github_pat_/.test(serialized), "no token material in a published manifest");
 });
 
 // ---------------------------------------------------------------------
