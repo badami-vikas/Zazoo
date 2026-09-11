@@ -9,7 +9,7 @@ import type {
   AutomationStepDef,
   RunCtx,
 } from "@bridge/core";
-import { canonicalizeJson, cadenceLabel, parseAutomationTrigger } from "@bridge/core";
+import { canonicalizeJson, cadenceLabel, parseAutomationTrigger, RESOURCE_TYPES } from "@bridge/core";
 import {
   labelFromLegacyTrustOrigin,
   storedTaintLabelOrUnknown,
@@ -37,28 +37,12 @@ import { withOrganizationOnly } from "./organization-context.js";
  */
 const actionSchema = z.enum(["read", "write", "execute", "share", "archive", "approve"]);
 
-const resourceTypeSchema = z.enum([
-  "person",
-  "community",
-  "record",
-  "event",
-  "automation",
-  "module",
-  "file",
-  "signal",
-  "policy",
-  "policy_param",
-  "skill",
-  "agent",
-  "role",
-  "permission",
-  "ledger",
-  "delegation",
-  "integration",
-  "network_graph:full",
-  "external:send",
-  "external:fetch",
-]);
+// Built FROM the kernel's own list, never retyped beside it. The hand-written
+// copy that used to live here drifted five members behind `ResourceType`
+// (2026-09-08), and an Automation step over a Relation, Module installation,
+// Organization definition, Capability or Claim failed as `invalid_enum_value` —
+// a message that reads like a corrupt jsonb row rather than a stale enum.
+const resourceTypeSchema = z.enum(RESOURCE_TYPES);
 
 const dataScopeSchema = z.enum(["all", "public", "private"]);
 
