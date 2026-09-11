@@ -24,6 +24,22 @@ const apiTarget = join(generatedRoot, "api");
 const licensesTarget = join(generatedRoot, "licenses");
 const nativeTarget = join(generatedRoot, "native");
 const llamaTarget = join(generatedRoot, "llama");
+
+/**
+ * Ship the local model runtime? OFF by default (user directive 2026-09-11:
+ * "why are we shipping llama, drop local models for now").
+ *
+ * The llama.cpp runtime is 49MB of the bundle. No model WEIGHTS were ever
+ * bundled — `qwen3-4b` is a separate, user-triggered download — so this is the
+ * whole local-inference cost at install time. What it buys is the capture and
+ * sensor lane, which `wiring.ts` binds to local models with no cloud fallback
+ * by design; without the runtime that lane reports itself unavailable rather
+ * than quietly sending raw capture to a cloud provider.
+ *
+ * A flag rather than a deletion: turning local inference back on is
+ * `BRIDGE_BUNDLE_LOCAL_MODELS=1`, not a revert of this commit.
+ */
+const BUNDLE_LOCAL_MODELS = process.env.BRIDGE_BUNDLE_LOCAL_MODELS === "1";
 const binariesTarget = join(tauriRoot, "binaries");
 const modelRuntimeManifestPath = join(desktopRoot, "model-runtime-manifest.json");
 const apiEntry = join(apiTarget, "dist", "src", "server.js");
@@ -435,11 +451,15 @@ async function verifyInputs() {
     join(apiTarget, "migrations-accounting", "meta", "_journal.json"),
     expected.nodeTarget,
     expected.licensePath,
-    expected.llamaRuntimeManifest,
-    expected.llamaServer,
-    expected.llamaLicense,
     modelRuntimeManifestPath,
   ];
+  if (BUNDLE_LOCAL_MODELS) {
+    requiredPaths.push(
+      expected.llamaRuntimeManifest,
+      expected.llamaServer,
+      expected.llamaLicense,
+    );
+  }
   if (expected.nativeKeyringTarget) requiredPaths.push(expected.nativeKeyringTarget);
   if (expected.nativeKeyringLoader) requiredPaths.push(expected.nativeKeyringLoader);
   if (expected.nativeSqliteTarget) requiredPaths.push(expected.nativeSqliteTarget);
@@ -463,6 +483,7 @@ async function verifyInputs() {
   if (process.platform === "darwin") {
     await assertNoMacNativeAddonsInResources(apiTarget);
   }
+  if (!BUNDLE_LOCAL_MODELS) return;
   const llamaManifest = JSON.parse(
     await readFile(expected.llamaRuntimeManifest, "utf8"),
   );
@@ -610,6 +631,16 @@ async function prepare() {
     recursive: true,
     force: true,
   });
+  // `@trpc/server` declares `typescript` as a PEER dependency, and pnpm
+  // installs peers automatically — so `--prod` still dragged the 23MB
+  // TypeScript compiler into a bundle that only ever runs compiled JS. It is
+  // a types-only peer: a grep of the whole deployed tree for a runtime
+  // `require("typescript")` / `from "typescript"` across .js/.mjs/.cjs
+  // returned nothing (2026-09-11), which is why this is safe to drop.
+  await rm(join(apiTarget, "node_modules", "typescript"), {
+    recursive: true,
+    force: true,
+  });
   if ((await lstat(join(apiTarget, "node_modules", "fastify"))).isSymbolicLink()) {
     throw new Error("the portable API dependency tree must not use symlinks");
   }
@@ -617,7 +648,7 @@ async function prepare() {
   await extractMacNativeSqlite();
   await pruneMacOptionalCanvas();
   await assertNoSensitiveRuntimeFiles(apiTarget);
-  await prepareLlamaRuntime(expected.target);
+  if (BUNDLE_LOCAL_MODELS) await prepareLlamaRuntime(expected.target);
 
   await copyFile(process.execPath, expected.nodeTarget);
   if (process.platform !== "win32") await chmod(expected.nodeTarget, 0o755);

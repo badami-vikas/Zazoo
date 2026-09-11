@@ -5,14 +5,8 @@ import type { CreateEventEnvelope, SendEmailEnvelope } from "../src/contracts.js
 let test_fixture_currentGmail: unknown;
 let test_fixture_currentCalendar: unknown;
 
-mock.module("googleapis", {
-  namedExports: {
-    google: {
-      gmail: () => test_fixture_currentGmail,
-      calendar: () => test_fixture_currentCalendar,
-    },
-  },
-});
+mock.module("@googleapis/gmail", { namedExports: { gmail: () => test_fixture_currentGmail } });
+mock.module("@googleapis/calendar", { namedExports: { calendar: () => test_fixture_currentCalendar } });
 
 const { GoogleApiGateway } = await import("../src/gateway-google.js");
 

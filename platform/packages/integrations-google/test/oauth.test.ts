@@ -35,8 +35,13 @@ class test_fixture_FakeOAuth2 {
   }
 }
 
-mock.module("googleapis", {
-  namedExports: { google: { auth: { OAuth2: test_fixture_FakeOAuth2 } } },
+// `google-auth-library` directly now: `oauth.ts` builds an `OAuth2Client` from
+// it rather than reaching through the `googleapis` umbrella.
+mock.module("google-auth-library", {
+  namedExports: {
+    OAuth2Client: test_fixture_FakeOAuth2,
+    CodeChallengeMethod: { S256: "S256" },
+  },
 });
 
 const oauth = await import("../src/oauth.js");
