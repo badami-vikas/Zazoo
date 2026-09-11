@@ -5889,3 +5889,88 @@ still persists across restarts. On a display whose geometry never resolves, the
 summon path narrows to the keyboard shortcut — accepted deliberately: a
 companion that is hard to summon is a smaller failure than one that cannot be
 dismissed.
+
+## ADR-258 — The API composes from per-domain routers; Modules own their manifests and storage; governance state that must survive a restart lives in the state port (2026-09-11; attach: TASK-031, TASK-074; AP-168)
+
+**Context.** An end-to-end review on 2026-09-11 (six read-only passes over
+`platform/`, published as the "Bridge Platform Review" page) ranked seven
+structural strains. The user directed: split the router (1), drop the
+draft-then-approve claim rather than route Module CRUD through the pipeline
+(2), make governance state durable (3), give Accounting/D2C one storage shape
+owned by the Modules (4), stop being single-instance by construction (5), put
+the vocabulary gate inside the build graph (6), invert the catalog dependency
+and remove `requireBuiltInModule` (7).
+
+**Decisions.**
+- `apps/api/src/router.ts` (22,243 lines) is now a 50-line composition of
+  `routers/<name>.ts` (35 files) over `router-shared.ts` (schemas, middleware,
+  helpers, the tRPC instance). The split was produced by a deterministic
+  script, not by hand; the only manual moves were five zod schemas whose
+  branded `databaseUuidSchema` type cannot be named across a module boundary
+  (TS2527), which moved into the one router each serves.
+- One middleware, `withOrganizationInput`, replaces 286 pasted
+  `assertPilotOrganization(input.organizationId)` lines and 163 pasted
+  membership checks: when a request's raw input carries a string
+  `organizationId`, the pilot-organization and membership checks run before
+  the handler. `authenticatedProcedure` was an exact duplicate of `procedure`
+  and is gone. Handlers that previously asserted pilot-org but not membership
+  are now tightened to both; three tests that asserted the looser behaviour
+  were updated (a non-member fixture id, and a non-pilot organization now
+  fails FORBIDDEN before BAD_REQUEST).
+- The WhatsApp and DevPilot catalog copy no longer claims draft-then-approve
+  for writes the code performs directly. WhatsApp: extraction stages People
+  and Communities directly on the Local Plane; only sends are gated. DevPilot:
+  tracking writes are direct; drafts are proposals. The wiki pages say the
+  same.
+- Auto-activation budgets, the kill switch, and phone-OTP proofs are backed
+  by the existing atomic state port (`LocalStateStore`, PGlite on disk) when a
+  durable Local Plane directory exists; the in-memory adapters remain the
+  no-directory test default. On the hosted public-cloud deployment the Local
+  Plane directory is `/tmp` (render.yaml), so "durable" there means across
+  process restarts, not deploys — recorded, not hidden.
+- Accounting and D2C open their sqlite files through one helper,
+  `openModuleSqlite`. D2C's Drizzle schema and SQL-string migrations moved
+  into `modules/d2c` with a compile-time drift guard against the domain
+  interfaces; Accounting's drizzle-kit migrations folder moved into
+  `modules/accounting`. The D2C string-ledger migrator stays: switching an
+  already-migrated database to drizzle's migrator would re-run CREATE TABLE.
+- Migration `0045_job_leases_rate_limits` adds `job_leases` and an UNLOGGED
+  `rate_limit_buckets` (infra tables, RLS disabled like the 0026 canonical
+  tables). The three scheduled jobs in `server.ts` run under a lease row
+  (`withLease`) and `@fastify/rate-limit` uses a Postgres-backed store when
+  `DATABASE_URL` is set. The pooler runs in transaction mode with
+  `prepare:false`, so session advisory locks were not an option. The Drizzle
+  snapshot for 0045 was regenerated after `drizzle-kit generate` reproduced
+  both hand-written migrations 0044 and 0045 exactly; the metadata test now
+  pins head 0045.
+- `check:vocabulary` and `check:agent-context` are turbo root tasks
+  (`//#check:*`); `verify` is one `turbo run` line. The baseline was seeded
+  (10 grandfathered occurrences in three files) with a `--seed` flag that only
+  works while the baseline is empty; build output (`dist`, `dist-*`) is
+  excluded from the scan.
+- `BuiltInModule` and the capability builders moved to
+  `@bridge/core/module/catalog`. Each packaged Module (DealPilot, JobPilot,
+  WhatsApp, DevPilot, Accounting, D2C) owns its catalog entry in
+  `src/module.ts`, exported at a browser-safe `./module` subpath; the catalog
+  imports them and exports every entry by name. `requireBuiltInModule` is
+  deleted everywhere; the web's routes import named entries. The 28 runtime
+  UUIDs keep their exact values (they are persisted identity in `agents` and
+  `automations`) but are now a data table, `MODULE_RUNTIME_IDS`, pinned by a
+  test that snapshots every (module, key) → id pair.
+
+**Rejected.** Routing Module CRUD through the pipeline (user chose honest
+copy). A Redis rate-limit store (no Redis in the stack). Advisory locks (pooler).
+Converting D2C's migration ledger to drizzle-kit (breaks existing installs).
+Changing runtime UUIDs to `deterministicUuid` (orphans persisted rows).
+A `PackagedBuiltInModule` brand type (no consumer needs it yet).
+
+**Consequences.** Merge conflicts in the API now land in one domain file.
+Every procedure with an `organizationId` input is membership-checked; a
+future cross-organization procedure must opt out explicitly. A second API
+instance no longer double-runs the three jobs or halves the rate limit; the
+Automation scheduler tick (`automation-scheduler.ts`) is not yet leased. The
+app-focus capture ledger stays in-memory: no durable `CaptureLedger`
+implementation exists to wire. 35 stale OPEN rows in `docs/BUGS.md` were
+closed with dated evidence; 16 remained open before this work, of which the
+timezone test, the nested test, the vocabulary gate, and the in-memory
+budgets/kill switch are now resolved.

@@ -314,7 +314,9 @@ test("suppressed bursts signal the reason and never the text", () => {
       disposition: "suppressed",
       suppressionReason: "secure_field",
       redactionCount: 0,
-      typedAt: "2026-08-16T22:00:00.000Z",
+      // Local 22:00 — the bucket is a local-time question, so build the
+      // instant locally or the expected bucket drifts with the host TZ.
+      typedAt: new Date(2026, 7, 16, 22, 0, 0).toISOString(),
     },
     { organizationId: "org", userId: "user" },
     "sig-2",

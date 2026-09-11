@@ -1,12 +1,11 @@
 /**
  * SQLite persistence for the D2C Module's domain shape (imported from CV
- * Naturals, ADR-246). Column-for-column with
- * platform/modules/d2c/src/schema.ts — this file owns storage concerns only
- * (ids, timestamps-as-text, JSON columns for the invoice snapshot); the
- * domain package owns meaning. Copied rather than subtree-merged (it lived
- * inside CVN's apps/api, not a standalone package) — documented, not hidden.
+ * Naturals, ADR-246). Column-for-column with `./schema.ts` — this file owns
+ * storage concerns only (ids, timestamps-as-text, JSON columns for the
+ * invoice snapshot); `schema.ts` owns meaning. The drift guard at the bottom
+ * fails the build when the two disagree.
  */
-import { sql } from "drizzle-orm";
+import { sql, type InferSelectModel, type Table } from "drizzle-orm";
 import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const products = sqliteTable("products", {
@@ -349,3 +348,34 @@ export const waMessages = sqliteTable("wa_messages", {
     .notNull()
     .default("pending"),
 });
+
+// ── Drift guard ───────────────────────────────────────────────────────────
+// Compile-time only. A row's nullable columns are the domain's optional
+// fields, so normalise `X | null` to `?: X` before comparing.
+import type * as D from "./schema.js";
+
+type Row<T extends Table> = InferSelectModel<T>;
+type Domain<T> = { [K in keyof T as null extends T[K] ? never : K]: T[K] } & {
+  [K in keyof T as null extends T[K] ? K : never]?: Exclude<T[K], null>;
+};
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+type Assert<T extends true> = T;
+type AssertExtends<A extends B, B> = true;
+
+// Exact matches.
+type _Product = Assert<Same<Domain<Row<typeof products>>, D.Product>>;
+type _RawMaterial = Assert<Same<Domain<Row<typeof rawMaterials>>, D.RawMaterial>>;
+type _Supplier = Assert<Same<Domain<Row<typeof suppliers>>, D.Supplier>>;
+type _SupplierMaterial = Assert<Same<Domain<Row<typeof supplierMaterials>>, D.SupplierMaterial>>;
+type _Customer = Assert<Same<Domain<Row<typeof customers>>, D.Customer>>;
+type _StockBatch = Assert<Same<Domain<Row<typeof stockBatches>>, D.StockBatch>>;
+// Row is a superset of the domain shape (storage adds `id`, audit columns,
+// or ledger-only reasons/columns; `Order` keeps discounts optional).
+type _Order = AssertExtends<Domain<Row<typeof orders>>, D.Order>;
+type _OrderItem = AssertExtends<Domain<Row<typeof orderItems>>, D.OrderItem>;
+type _FormulaLine = AssertExtends<Domain<Row<typeof formulaLines>>, D.FormulaLine>;
+type _ProductMapping = AssertExtends<Domain<Row<typeof productMappings>>, D.ProductMapping>;
+type _StockMove = AssertExtends<D.StockMove, Domain<Row<typeof stockMoves>>>;
+// Not guarded: `Payment.orderId` is required in the domain but nullable in
+// storage (a payment settles a balance, not an order); `Invoice` stores
+// `snapshot` as JSON text and `orderIds` in `invoiceOrders`.

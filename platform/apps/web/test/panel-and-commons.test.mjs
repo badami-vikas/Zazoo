@@ -191,7 +191,7 @@ test("Commons provenance uses canonical capability vocabulary", () => {
 
 test("Relationship routes stay Module-scoped while deprecated standalone routes remain removed", () => {
   const source = readFileSync(new URL("../src/app/routes.tsx", import.meta.url), "utf8");
-  assert.match(source, /requireBuiltInModule\("relationship"\)/);
+  assert.match(source, /builtIns\.relationshipModule\.manifest\.module/); // named catalog export, not a string lookup (ADR-258)
   assert.ok(source.includes("${childPath(relationshipSignalsRoute)}/:signalId"));
   assert.ok(source.includes("${childPath(relationshipModule.route)}/people/:recordId"));
   assert.ok(source.includes("${childPath(relationshipModule.route)}/communities/:recordId"));

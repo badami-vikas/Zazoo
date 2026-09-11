@@ -300,6 +300,9 @@ importers:
 
   modules/accounting:
     dependencies:
+      '@bridge/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@electric-sql/pglite@0.2.17)(@types/better-sqlite3@7.6.13)(better-sqlite3@13.0.3)(gel@2.2.0)(postgres@3.4.9)
@@ -327,6 +330,13 @@ importers:
         version: 3.2.7(@types/node@22.19.19)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.1)
 
   modules/d2c:
+    dependencies:
+      '@bridge/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@electric-sql/pglite@0.2.17)(@types/better-sqlite3@7.6.13)(better-sqlite3@13.0.3)(gel@2.2.0)(postgres@3.4.9)
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -346,6 +356,9 @@ importers:
       '@bridge/company-sourcing':
         specifier: workspace:*
         version: link:../../tools/company-sourcing
+      '@bridge/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@bridge/dedupe':
         specifier: workspace:*
         version: link:../../packages/dedupe
@@ -355,9 +368,6 @@ importers:
       '@bridge/integrations-google':
         specifier: workspace:*
         version: link:../../packages/integrations-google
-      '@bridge/module-manifests':
-        specifier: workspace:*
-        version: link:../manifests
       '@bridge/people-sourcing':
         specifier: workspace:*
         version: link:../../tools/people-sourcing
@@ -405,6 +415,9 @@ importers:
       '@bridge/company-sourcing':
         specifier: workspace:*
         version: link:../../tools/company-sourcing
+      '@bridge/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@bridge/dedupe':
         specifier: workspace:*
         version: link:../../packages/dedupe
@@ -414,9 +427,6 @@ importers:
       '@bridge/jobpilot-skills':
         specifier: workspace:*
         version: link:../../tools/jobpilot
-      '@bridge/module-manifests':
-        specifier: workspace:*
-        version: link:../manifests
       '@bridge/people-sourcing':
         specifier: workspace:*
         version: link:../../tools/people-sourcing
@@ -439,9 +449,27 @@ importers:
 
   modules/manifests:
     dependencies:
+      '@bridge/accounting':
+        specifier: workspace:*
+        version: link:../accounting
       '@bridge/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@bridge/d2c':
+        specifier: workspace:*
+        version: link:../d2c
+      '@bridge/dealpilot':
+        specifier: workspace:*
+        version: link:../dealpilot
+      '@bridge/devpilot':
+        specifier: workspace:*
+        version: link:../devpilot
+      '@bridge/jobpilot':
+        specifier: workspace:*
+        version: link:../jobpilot
+      '@bridge/whatsapp':
+        specifier: workspace:*
+        version: link:../whatsapp
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -455,9 +483,6 @@ importers:
       '@bridge/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@bridge/module-manifests':
-        specifier: workspace:*
-        version: link:../manifests
     devDependencies:
       '@types/node':
         specifier: ^22.10.0

@@ -89,6 +89,20 @@ test("fingerprints reject one-for-one replacements and expose removals for basel
   assert.equal(relocated.removed.length, 1);
 });
 
+test("a family count growing above its baseline is reported as a regression", () => {
+  const baseline = inventoryForSource("packages/core/src/probe.ts", `const workflowState = "ready";`);
+  const grown = inventoryForSource(
+    "packages/core/src/probe.ts",
+    `const workflowState = "ready"; const workflowQueue = "workflow";`,
+  );
+  assert.ok(compareInventories(grown, baseline).introduced.length > 0);
+  assert.equal(compareInventories(grown, baseline).removed.length, 0);
+  assert.deepEqual(
+    compareInventoryTotals(grown, baseline).increases.map((i) => [i.family, i.kind, i.baselineCount, i.currentCount]),
+    [["workflow", "identifier", 1, 2], ["workflow", "string", 0, 1]],
+  );
+});
+
 test("reviewed fingerprint moves remain downward-only by family and syntax kind", () => {
   const baseline = inventoryForSource(
     "packages/core/src/old-path.ts",
@@ -113,6 +127,9 @@ test("only explicit migration and signed-content boundaries are excluded", () =>
   assert.equal(shouldIgnore("packages/db/test/migration-0024.test.ts"), true);
   assert.equal(shouldIgnore("packages/core/src/module/signed-legacy-entry.ts"), true);
   assert.equal(shouldIgnore("services/commons/src/legacy-registry-migration.ts"), true);
+  assert.equal(shouldIgnore("apps/web/dist-oldplatform/assets/zazoo-CiVa0QeL.js"), true);
+  assert.equal(shouldIgnore("apps/web/dist/assets/index.js"), true);
+  assert.equal(shouldIgnore("apps/web/src/distance.ts"), false);
   assert.equal(shouldIgnore("apps/api/src/unreviewed-compat.ts"), false);
   assert.equal(shouldIgnore("packages/core/src/compat/escape.ts"), false);
   assert.equal(shouldIgnore("apps/api/test/router.test.ts"), false);

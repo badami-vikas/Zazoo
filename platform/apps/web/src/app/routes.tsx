@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate, useParams } from "react-router";
-import { moduleNavTarget, requireBuiltInModule } from "@bridge/module-manifests";
+import * as builtIns from "@bridge/module-manifests";
+import { moduleNavTarget } from "@bridge/module-manifests";
 import Layout from "./Layout";
 import { DealPilotPage } from "./pages/DealPilotPage";
 import { AuthoredModulePage } from "./pages/AuthoredModulePage";
@@ -91,15 +92,17 @@ function ModuleRootRedirect() {
   return <Navigate to={target ?? "/home"} replace />;
 }
 
-const dealPilotModule = requireBuiltInModule("deal-pilot").manifest.module!;
-const jobPilotModule = requireBuiltInModule("job-pilot").manifest.module!;
-const relationshipModule = requireBuiltInModule("relationship").manifest.module!;
-const academicsModule = requireBuiltInModule("academics").manifest.module!;
-const eventsModule = requireBuiltInModule("events").manifest.module!;
-const accountingModule = requireBuiltInModule("accounting").manifest.module!;
-const d2cModule = requireBuiltInModule("d2c").manifest.module!;
-const d2cResearchModule = requireBuiltInModule("d2c-research").manifest.module!;
-const d2cNotesModule = requireBuiltInModule("d2c-notes").manifest.module!;
+// Each Module's surface comes off its own named catalog entry — typed so
+// `module` is present, no string lookup and no non-null assertion.
+const dealPilotModule = builtIns.dealPilotModule.manifest.module;
+const jobPilotModule = builtIns.jobPilotModule.manifest.module;
+const relationshipModule = builtIns.relationshipModule.manifest.module;
+const academicsModule = builtIns.academicsModule.manifest.module;
+const eventsModule = builtIns.eventsModule.manifest.module;
+const accountingModule = builtIns.accountingModule.manifest.module;
+const d2cModule = builtIns.d2cModule.manifest.module;
+const d2cResearchModule = builtIns.d2cResearchModule.manifest.module;
+const d2cNotesModule = builtIns.d2cNotesModule.manifest.module;
 const dealPilotRoot = parentRoute(dealPilotModule.route);
 const relationshipSignalsRoute = relationshipModule.pages.find((page) => page.id === "signals")!.route;
 

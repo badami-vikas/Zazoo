@@ -1,4 +1,4 @@
-<!-- Updated: 2026-07-18 | Files scanned: platform/packages/db/src/{schema,graph-store,ledger-store,relation-materialization-store}.ts, migrations/, docs/raw/SCHEMA.sql | Token estimate: ~650 -->
+<!-- Updated: 2026-09-11 | Files scanned: platform/packages/db/src/{schema,graph-store,ledger-store,relation-materialization-store}.ts, migrations/, docs/raw/SCHEMA.sql | Token estimate: ~650 -->
 
 # Data Codemap
 
@@ -9,7 +9,7 @@ recon/social columns — see known-issues).
 ## Migration state
 
 ```
-migrations/meta/_journal.json   linear Drizzle high-water through 0015
+migrations/meta/_journal.json   linear Drizzle high-water through 0045 (snapshot chain has gaps; 0045_snapshot regenerated 2026-09-11)
 migrations/0008_rls_as_code.sql FORCE-RLS + workspace/user policies
 migrations/0011_same_cyclops.sql signed package/install persistence
 migrations/0013_uneven_dragon_lord.sql singular Automation Agent ownership + Skill-name migration
@@ -37,15 +37,16 @@ Operational      touchpoints (parent_touchpoint_id/sort_order/depth — Taskade-
 Registries       node_types (Plane + owning Module), edges (polymorphic src/dst plus bounded
                  evidence, confidence, validity, owner, source Module, decision provenance),
                  relation_materialization_effects, rituals, tools, skills, ritual_runs
-Knowledge        embeddings (vector(768), pinned single-model — NO hnsw index, only a btree
-                 lookup index; every similarity query is a full seq-scan), embedding_models
+Knowledge        embeddings (vector(768), hnsw cosine index from migration 0004), embedding_models
                  (registry with zero real consumer)
+Infra            job_leases, rate_limit_buckets (UNLOGGED) — 0045, RLS disabled like canonical tables
 Events           events (workspace_id+created_at indexed), signals (read-only, +saved col)
 ```
 
 ## Known integrity gaps (see ../BUGS.md for verified detail)
 
-- `dedup_key` nullable-unique on both canonical tables — NULL rows never dedupe.
+- `dedup_key`: partial unique indexes since 0004 (NULL rows excluded by design).
+- Accounting and D2C are NOT here: each is its own better-sqlite3 file under `~/Documents/Bridge/<Module>/.data/`, opened through `apps/api/src/module-sqlite.ts`; D2C's Drizzle schema + SQL-string migrations live in `modules/d2c`, Accounting's drizzle-kit folder in `modules/accounting`.
 - Heterogeneous type+id pairs cannot use ordinary FKs. Relation writes fail closed through the
   node-type registry and access checks; touchpoint assignees and file refs retain the broader gap.
 - Enum-as-text remains common; security-sensitive orchestration states now have DB checks.

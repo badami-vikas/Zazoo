@@ -277,7 +277,7 @@ test("GOV-1: governanceAutoApprove refuses a moderate-band capability (ai_genera
 test("GOV-1: orgHealth renders a rollup over a organization's real capabilities", async () => {
   const wiring = await buildWiring();
   try {
-    const caller = await makeCaller(wiring);
+    const caller = await makeApprovingCaller(wiring); // organizationId inputs now require membership
     // An active capability failing its bar => autonomy pressure.
     const struggling = await seedManifest(wiring, { state: "active", successRate: 0.5 });
     // A validated capability => a pending approval (risk-typed by computedRisk).

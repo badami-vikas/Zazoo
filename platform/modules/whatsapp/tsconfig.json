@@ -7,8 +7,7 @@
     "tsBuildInfoFile": "./dist/.tsbuildinfo"
   },
   "references": [
-    { "path": "../../packages/core" },
-    { "path": "../manifests" }
+    { "path": "../../packages/core" }
   ],
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

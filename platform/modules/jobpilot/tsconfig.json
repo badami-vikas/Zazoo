@@ -14,8 +14,8 @@
     { "path": "../../packages/dedupe" },
     { "path": "../../packages/facts" },
     { "path": "../../packages/sourcing" },
-    { "path": "../../packages/tables" }
-    ,{ "path": "../manifests" }
+    { "path": "../../packages/tables" },
+    { "path": "../../packages/core" }
   ],
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

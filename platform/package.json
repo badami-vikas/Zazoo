@@ -13,7 +13,7 @@
     "test:coverage": "turbo run test:coverage",
     "test:affected": "turbo run test --affected",
     "verify:affected": "turbo run typecheck test build --affected",
-    "verify": "pnpm check:agent-context && pnpm check:vocabulary && turbo run typecheck test:coverage build",
+    "verify": "turbo run check:agent-context check:vocabulary typecheck test:coverage build",
     "dev": "turbo run dev",
     "lint": "eslint .",
     "check:vocabulary": "node --test scripts/check-retired-vocabulary.test.mjs && node scripts/check-retired-vocabulary.mjs",

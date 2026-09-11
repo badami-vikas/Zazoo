@@ -2375,3 +2375,22 @@ export const authoredRecords = pgTable(
     index("authored_records_database_idx").on(t.organizationId, t.databaseRowId),
   ],
 );
+
+/**
+ * Cross-instance job lease — one row per scheduled job name. Infra table, no
+ * tenant column, RLS off (migration 0045). Acquired with a single conditional
+ * upsert because the Supabase pooler is transaction-mode (`prepare:false`),
+ * which rules out session advisory locks.
+ */
+export const jobLeases = pgTable("job_leases", {
+  name: text("name").primaryKey(),
+  holder: text("holder").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
+/** Shared fixed-window rate-limit counter (UNLOGGED in 0045; infra, RLS off). */
+export const rateLimitBuckets = pgTable("rate_limit_buckets", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull(),
+  resetAt: timestamp("reset_at", { withTimezone: true }).notNull(),
+});

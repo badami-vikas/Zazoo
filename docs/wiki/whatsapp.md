@@ -6,6 +6,7 @@
 
 - **Chats Page** — real `web.whatsapp.com` in contained Tauri webview, pinned to Page rect. Reads as embedded.
 - **Tools Page** — Tool registry. v1 = **Contact Extractor**.
+- Extraction stages People/Communities **directly** on Local Plane — no draft-then-approve. Only sends gated (`decideSend`).
 - Desktop only. Browser/mobile = honest unavailable state. Browser cannot host session: WhatsApp refuses framing, no cross-origin injection.
 
 ## Engine

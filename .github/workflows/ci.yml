@@ -31,7 +31,9 @@ jobs:
       # `turbo run ...` — so a root-script gate was invisible to `turbo`, and main
       # sat red for six consecutive runs while every local check was green
       # (BUGS.md OPEN 2026-08-03). Adding a gate to `verify` now necessarily adds it
-      # to CI, and there is no second list to forget.
+      # to CI, and there is no second list to forget. Since 2026-09-11 the two
+      # check:* gates are turbo root tasks (`//#check:*` in turbo.json), so `verify`
+      # is a single `turbo run` and --affected/caching see every gate.
       #
       # --force is CI-only: never trust turbo's remote/local cache here — a green run
       # must mean THIS checkout was tested, not a replayed log from an unrelated

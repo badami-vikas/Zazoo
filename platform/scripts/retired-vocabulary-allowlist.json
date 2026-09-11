@@ -78,8 +78,14 @@
     },
     {
       "family": "tool",
-      "pathPrefix": "apps/api/src/router.ts",
-      "reason": "The research-run API boundary validates the model's step shape with z.enum(RESEARCH_STEP_TOOLS). It is the same LLM tool-calling contract AP-096 exempted, expressed as request validation; the enum must match the model vocabulary exactly or valid steps would be rejected.",
+      "pathPrefix": "apps/api/src/routers/agentOrchestration.ts",
+      "reason": "The research-run API boundary validates the model's step shape with z.enum(RESEARCH_STEP_TOOLS). It is the same LLM tool-calling contract AP-096 exempted, expressed as request validation; the enum must match the model vocabulary exactly or valid steps would be rejected. Re-pathed 2026-09-11 when router.ts was split into router-shared.ts + routers/*.ts and packaged Modules took ownership of their catalog entries (modules/<x>/src/module.ts); the occurrences are byte-identical to the ones reviewed.",
+      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
+    },
+    {
+      "family": "tool",
+      "pathPrefix": "apps/api/src/router-shared.ts",
+      "reason": "The research-run API boundary validates the model's step shape with z.enum(RESEARCH_STEP_TOOLS). It is the same LLM tool-calling contract AP-096 exempted, expressed as request validation; the enum must match the model vocabulary exactly or valid steps would be rejected. Re-pathed 2026-09-11 when router.ts was split into router-shared.ts + routers/*.ts and packaged Modules took ownership of their catalog entries (modules/<x>/src/module.ts); the occurrences are byte-identical to the ones reviewed.",
       "reviewed": "AP-106 · 2026-08-05 · TASK-036"
     },
     {
@@ -162,6 +168,12 @@
     },
     {
       "family": "tool",
+      "pathPrefix": "modules/whatsapp/src/module.ts",
+      "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). WhatsApp Module manifest capability IDs (whatsapp.tool.* and whatsapp.page.tools) and the 'Tools' page display name. Same scope as modules/whatsapp/src/tools.ts — module-contained, not the retired global Tools surface. Renaming governed capability IDs during active branch work would require rebasing three WhatsApp branches simultaneously. Re-pathed 2026-09-11 when router.ts was split into router-shared.ts + routers/*.ts and packaged Modules took ownership of their catalog entries (modules/<x>/src/module.ts); the occurrences are byte-identical to the ones reviewed.",
+      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
+    },
+    {
+      "family": "tool",
       "pathPrefix": "modules/whatsapp/test/",
       "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). Test fixtures for the WhatsApp Tools registry — they assert capability IDs and manifest entries already exempted at modules/manifests/src/index.ts and modules/whatsapp/src/tools.ts.",
       "reviewed": "AP-135 · 2026-08-09 · TASK-036"
@@ -210,8 +222,8 @@
     },
     {
       "family": "project",
-      "pathPrefix": "apps/api/src/router.ts",
-      "reason": "Academic domain Record label, not the retired Bridge product noun. The two occurrences are the assignment-type enum literal in the Academics procedures' zod schemas — z.enum([\"problem_set\", \"essay\", \"project\", \"exam\", \"lab\"]) — where 'project' names a kind of school assignment alongside essays and labs. Domain Record labels never become kernel primitives (CLAUDE.md), and renaming the academic concept would misname the domain to dodge a product-vocabulary rule about a different noun. Found as a pre-existing main breakage by TASK-042's verify (the Academics merge landed without the gate re-running); absorbed per the TASK-036 blocker convention.",
+      "pathPrefix": "apps/api/src/routers/academics.ts",
+      "reason": "Academic domain Record label, not the retired Bridge product noun. The two occurrences are the assignment-type enum literal in the Academics procedures' zod schemas — z.enum([\"problem_set\", \"essay\", \"project\", \"exam\", \"lab\"]) — where 'project' names a kind of school assignment alongside essays and labs. Domain Record labels never become kernel primitives (CLAUDE.md), and renaming the academic concept would misname the domain to dodge a product-vocabulary rule about a different noun. Found as a pre-existing main breakage by TASK-042's verify (the Academics merge landed without the gate re-running); absorbed per the TASK-036 blocker convention. Re-pathed 2026-09-11 when router.ts was split into router-shared.ts + routers/*.ts and packaged Modules took ownership of their catalog entries (modules/<x>/src/module.ts); the occurrences are byte-identical to the ones reviewed.",
       "reviewed": "AP-155 · 2026-08-14 · TASK-036"
     },
     {

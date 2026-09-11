@@ -1,4 +1,49 @@
 {
   "version": 3,
-  "families": {}
+  "families": {
+    "avatar_lifecycle": {
+      "apps/web/src/app/avatar/zazoo/ZazooAvatar.tsx": {
+        "identifier": 7,
+        "string": 1,
+        "fingerprints": {
+          "identifier": {
+            "fc7adc558e7f6c9b68310338a482fdb3": 1,
+            "64b7f386b0cd1334c30b685c37ac0d54": 1,
+            "d2510f6447aed26bb22d6a6d652fb5fc": 1,
+            "7a797d0b93e9e179dd55502cd29c9e7a": 1,
+            "87dea37e2154c5f71b6a17945656f65b": 1,
+            "a9cb96dbe540210f7eea4da73af22ea9": 1,
+            "7afa7191097bc43bbe8ac5367ff333c5": 1
+          },
+          "string": {
+            "d22695b854a95ad17faffbd707e7f133": 1
+          }
+        }
+      }
+    },
+    "package": {
+      "apps/web/src/app/components/shared/ModuleGovernanceSection.tsx": {
+        "identifier": 0,
+        "string": 1,
+        "fingerprints": {
+          "identifier": {},
+          "string": {
+            "b57ed3390097ecfb77e06eb54733dc00": 1
+          }
+        }
+      }
+    },
+    "project": {
+      "packages/core/test/module-authoring.test.ts": {
+        "identifier": 0,
+        "string": 1,
+        "fingerprints": {
+          "identifier": {},
+          "string": {
+            "3dd173d636e4f8ab3a763bf858b575c4": 1
+          }
+        }
+      }
+    }
+  }
 }

@@ -59,7 +59,7 @@ const FAMILIES = {
 export function shouldIgnore(relativePath) {
   const normalized = relativePath.replaceAll(path.sep, "/");
   return (
-    normalized.includes("/dist/") ||
+    /\/dist(?:-[^/]*)?\//.test(normalized) ||
     normalized.includes("/node_modules/") ||
     normalized.includes("/coverage/") ||
     normalized.includes("/target/") ||
@@ -78,7 +78,8 @@ async function collectFiles(directory) {
   for (const entry of entries) {
     const absolute = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      if (["dist", "node_modules", "coverage", "target", ".turbo"].includes(entry.name)) continue;
+      if (entry.name === "dist" || entry.name.startsWith("dist-")) continue;
+      if (["node_modules", "coverage", "target", ".turbo"].includes(entry.name)) continue;
       files.push(...(await collectFiles(absolute)));
     } else if (isSourceFileName(entry.name)) {
       const relative = path.relative(PLATFORM_ROOT, absolute);
@@ -923,7 +924,13 @@ async function main() {
   const inventory = await buildInventory();
   const baseline = JSON.parse(await readFile(BASELINE_PATH, "utf8"));
   if (process.argv.includes("--write-baseline")) {
-    if (isCurrentBaseline(baseline)) {
+    // `--seed` is only honoured while the baseline holds no families at all: an
+    // empty baseline cannot be "grown", it is uninitialised, and every occurrence
+    // in the tree would otherwise read as a regression from zero forever.
+    const seeding = process.argv.includes("--seed") && Object.keys(baseline.families ?? {}).length === 0;
+    if (seeding) {
+      // fall through to the write below
+    } else if (isCurrentBaseline(baseline)) {
       const { introduced } = compareInventories(inventory, baseline.families);
       const reviewedMoves = process.argv.includes("--accept-reviewed-fingerprint-moves");
       const { increases } = compareInventoryTotals(inventory, baseline.families);

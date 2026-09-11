@@ -319,7 +319,8 @@ test("graph.listPeople: paginates people under the pilot organization", async ()
     for (const organizationId of ["test_fixture_other_organization", ""]) {
       await assert.rejects(
         () => caller.relationship.listPeople({ organizationId, limit: 10, offset: 0 }),
-        (error) => error instanceof TRPCError && error.code === "BAD_REQUEST",
+        // the organization guard middleware rejects a non-pilot organizationId before input parsing
+        (error) => error instanceof TRPCError && error.code === "FORBIDDEN",
       );
     }
 

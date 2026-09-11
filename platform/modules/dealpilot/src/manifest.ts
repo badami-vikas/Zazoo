@@ -2,11 +2,9 @@ import {
   parseExecutableManifest,
   type ModuleExecutableManifest,
 } from "@bridge/capability-kit";
-import { requireBuiltInModule } from "@bridge/module-manifests";
+import { dealPilotModule as dealPilotDefinition } from "./module.js";
 
-const dealPilotDefinition = requireBuiltInModule("deal-pilot");
 const dealPilotModule = dealPilotDefinition.manifest.module;
-if (!dealPilotModule) throw new Error("DealPilot built-in manifest must declare its Module surface");
 
 export const dealPilotManifest: ModuleExecutableManifest = parseExecutableManifest({
   id: "dealpilot",

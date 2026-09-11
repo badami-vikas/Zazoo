@@ -17,7 +17,13 @@
     "test:coverage": "node --test dist/test/*.test.js"
   },
   "dependencies": {
-    "@bridge/core": "workspace:*"
+    "@bridge/accounting": "workspace:*",
+    "@bridge/core": "workspace:*",
+    "@bridge/d2c": "workspace:*",
+    "@bridge/dealpilot": "workspace:*",
+    "@bridge/devpilot": "workspace:*",
+    "@bridge/jobpilot": "workspace:*",
+    "@bridge/whatsapp": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

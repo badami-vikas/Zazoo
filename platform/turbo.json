@@ -2,22 +2,34 @@
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
+      "dependsOn": [
+        "^build"
+      ],
       "env": [
         "VITE_API_URL",
         "VITE_SUPABASE_PUBLISHABLE_KEY",
         "VITE_SUPABASE_URL"
       ],
-      "outputs": ["dist/**"]
+      "outputs": [
+        "dist/**"
+      ]
     },
     "typecheck": {
-      "dependsOn": ["^build"]
+      "dependsOn": [
+        "^build"
+      ]
     },
     "test": {
-      "dependsOn": ["build", "^build"]
+      "dependsOn": [
+        "build",
+        "^build"
+      ]
     },
     "test:coverage": {
-      "dependsOn": ["build", "^build"]
+      "dependsOn": [
+        "build",
+        "^build"
+      ]
     },
     "dev": {
       "cache": false,
@@ -25,6 +37,24 @@
     },
     "lint": {
       "dependsOn": []
+    },
+    "//#check:vocabulary": {
+      "inputs": [
+        "scripts/check-retired-vocabulary*.mjs",
+        "scripts/retired-vocabulary-*.json",
+        "apps/**",
+        "modules/**",
+        "packages/**",
+        "services/**",
+        "tools/**",
+        "!**/dist/**",
+        "!**/dist-*/**",
+        "!**/node_modules/**"
+      ],
+      "outputs": []
+    },
+    "//#check:agent-context": {
+      "cache": false
     }
   }
 }

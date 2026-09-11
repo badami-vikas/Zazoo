@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-17T18:50:43.084Z",
+  "generatedAt": "2026-09-11T15:55:30.140Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1124,7 +1124,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 525,
+      "sourceLine": 526,
       "rank": 32
     },
     {
@@ -1150,7 +1150,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 547,
+      "sourceLine": 548,
       "rank": 33
     },
     {
@@ -1181,7 +1181,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 575,
+      "sourceLine": 576,
       "rank": 34
     },
     {
@@ -1211,7 +1211,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 588,
+      "sourceLine": 589,
       "rank": 35
     },
     {
@@ -1238,7 +1238,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 601,
+      "sourceLine": 602,
       "rank": 36
     },
     {
@@ -1265,7 +1265,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 618,
+      "sourceLine": 619,
       "rank": 37
     },
     {
@@ -1290,7 +1290,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 561,
+      "sourceLine": 562,
       "rank": 38
     },
     {
@@ -1320,7 +1320,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1057,
+      "sourceLine": 1058,
       "rank": 39
     },
     {
@@ -1356,7 +1356,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1097,
+      "sourceLine": 1098,
       "rank": 40
     },
     {
@@ -1394,7 +1394,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1110,
+      "sourceLine": 1111,
       "rank": 41
     },
     {
@@ -1419,7 +1419,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1071,
+      "sourceLine": 1072,
       "rank": 42
     },
     {
@@ -1446,7 +1446,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1084,
+      "sourceLine": 1085,
       "rank": 43
     },
     {
@@ -1475,7 +1475,7 @@
       "canonicalStatus": "done (2026-08-16, live-verified)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1152,
+      "sourceLine": 1154,
       "rank": 44
     },
     {
@@ -1502,7 +1502,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1122,
+      "sourceLine": 1123,
       "rank": 45
     },
     {
@@ -1534,7 +1534,7 @@
       "canonicalStatus": "done (2026-08-16, live-verified)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1135,
+      "sourceLine": 1136,
       "rank": 46
     },
     {
@@ -1568,7 +1568,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 639,
+      "sourceLine": 640,
       "rank": 47
     },
     {
@@ -1602,7 +1602,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 654,
+      "sourceLine": 655,
       "rank": 48
     },
     {
@@ -1629,7 +1629,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 668,
+      "sourceLine": 669,
       "rank": 49
     },
     {
@@ -1666,7 +1666,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 713,
+      "sourceLine": 714,
       "rank": 50
     },
     {
@@ -1698,7 +1698,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 727,
+      "sourceLine": 728,
       "rank": 51
     },
     {
@@ -1733,7 +1733,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 747,
+      "sourceLine": 748,
       "rank": 52
     },
     {
@@ -1767,7 +1767,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 762,
+      "sourceLine": 763,
       "rank": 53
     },
     {
@@ -1802,7 +1802,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 777,
+      "sourceLine": 778,
       "rank": 54
     },
     {
@@ -1837,7 +1837,7 @@
       "canonicalStatus": "done (2026-08-09, minimal cut per AP-136/ADR-216; deferred loops are named follow-ups below)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 791,
+      "sourceLine": 792,
       "rank": 55
     },
     {
@@ -1872,7 +1872,7 @@
       "canonicalStatus": "done (2026-08-10, ADR-220/AP-140)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 805,
+      "sourceLine": 806,
       "rank": 56
     },
     {
@@ -1909,7 +1909,7 @@
       "canonicalStatus": "done (2026-08-10)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 818,
+      "sourceLine": 819,
       "rank": 57
     },
     {
@@ -1951,7 +1951,7 @@
       "canonicalStatus": "done (2026-08-10)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 831,
+      "sourceLine": 832,
       "rank": 58
     },
     {
@@ -1986,7 +1986,7 @@
       "canonicalStatus": "done (2026-08-13, ADR-230, AP-148)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 844,
+      "sourceLine": 845,
       "rank": 59
     },
     {
@@ -2022,7 +2022,7 @@
       "canonicalStatus": "done (2026-08-11, ADR-227, AP-146)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 857,
+      "sourceLine": 858,
       "rank": 60
     },
     {
@@ -2055,7 +2055,7 @@
       "canonicalStatus": "ready (rung 3 DONE 2026-08-13, ADR-231/AP-151; rung 4 UNBLOCKED 2026-08-14 — TASK-042 done, ADR-238/AP-156: the per-class input packs now exist as validated canon in `docs/raw/capability-input-packs-2026-08.md`; rung 4 starts on its own explicit pull-forward per the K-ladder rhythm, not automatically)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 871,
+      "sourceLine": 872,
       "rank": 61
     },
     {
@@ -2088,7 +2088,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 884,
+      "sourceLine": 885,
       "rank": 62
     },
     {
@@ -2122,7 +2122,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 914,
+      "sourceLine": 915,
       "rank": 63
     },
     {
@@ -2152,7 +2152,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 927,
+      "sourceLine": 928,
       "rank": 64
     },
     {
@@ -2181,7 +2181,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 940,
+      "sourceLine": 941,
       "rank": 65
     },
     {
@@ -2210,7 +2210,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 953,
+      "sourceLine": 954,
       "rank": 66
     },
     {
@@ -2238,7 +2238,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 966,
+      "sourceLine": 967,
       "rank": 67
     },
     {
@@ -2265,7 +2265,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 979,
+      "sourceLine": 980,
       "rank": 68
     },
     {
@@ -2296,7 +2296,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 992,
+      "sourceLine": 993,
       "rank": 69
     },
     {
@@ -2322,7 +2322,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1005,
+      "sourceLine": 1006,
       "rank": 70
     },
     {
@@ -2348,7 +2348,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1018,
+      "sourceLine": 1019,
       "rank": 71
     },
     {
@@ -2376,7 +2376,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1031,
+      "sourceLine": 1032,
       "rank": 72
     },
     {
@@ -2402,7 +2402,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1044,
+      "sourceLine": 1045,
       "rank": 73
     },
     {
@@ -2443,7 +2443,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1168,
+      "sourceLine": 1170,
       "rank": 74
     },
     {
@@ -2474,7 +2474,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1181,
+      "sourceLine": 1183,
       "rank": 75
     },
     {
@@ -2503,7 +2503,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1193,
+      "sourceLine": 1195,
       "rank": 76
     },
     {
@@ -2544,7 +2544,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1207,
+      "sourceLine": 1209,
       "rank": 77
     }
   ]

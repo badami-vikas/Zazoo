@@ -199,7 +199,8 @@ test("SECURITY: organization.blueprint.activate throws FORBIDDEN for a caller wi
     const unauthorizedCaller = await appRouter.createCaller({
       wiring,
       run: makeRun(),
-      identity: { type: "user", id: "test_fixture_blueprint_unauthorized_user" },
+      // a UUID: the organization guard middleware runs the membership check before the handler
+      identity: { type: "user", id: "d0000000-0000-4000-a000-00000000bad1" },
       authenticated: true,
       verifying: false,
     });
@@ -211,7 +212,7 @@ test("SECURITY: organization.blueprint.activate throws FORBIDDEN for a caller wi
           definitionId: draft.id,
         }),
       (err: unknown) => {
-        assert.match(String((err as { message?: string })?.message ?? err), /FORBIDDEN|authority|not authorized/i);
+        assert.match(String((err as { message?: string })?.message ?? err), /FORBIDDEN|authority|not authorized|not a member/i);
         return true;
       },
     );

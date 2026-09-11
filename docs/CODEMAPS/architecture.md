@@ -1,4 +1,4 @@
-<!-- Updated: 2026-07-21 | Files scanned: platform/apps/{api,web,desktop}, platform/modules, platform/packages/{core,db,local}, platform/tools | Token estimate: ~800 -->
+<!-- Updated: 2026-09-11 | Files scanned: platform/apps/{api,web,desktop}, platform/modules, platform/packages/{core,db,local}, platform/tools | Token estimate: ~800 -->
 
 # Architecture Codemap
 
@@ -38,8 +38,7 @@ decision is never rolled back or repeated because materialization failed.
 
 Agent-floor DENY: a hard-coded non-removable deny list (`AGENT_FLOOR_MUTATIONS` in
 `packages/core/src/authority.ts`) blocks agents from ever writing policy/ledger/agent/role or
-calling `approve`/`external:send` — humans only. **Enforced in 3 separate places** (authority.ts,
-agent-scope.ts, integration-store.ts) — see known-issues for the triplication risk.
+calling `approve`/`external:send` — humans only. Single source `packages/core/src/agent-floor.ts`, imported by authority.ts, agent-scope.ts and integration-store.ts (triplication closed).
 
 ## Composition root
 
@@ -51,8 +50,7 @@ see `docs/BUGS.md` for stores that remain process-local.
 
 ## Module and Engine boundaries
 
-`platform/modules/manifests/src/index.ts` is the one built-in Module catalog. API installation,
-Commons publication, executable DealPilot/JobPilot manifests, and web routes derive from it.
+`platform/modules/manifests/src/index.ts` is the aggregate Module catalog. Since ADR-258 each packaged Module (DealPilot, JobPilot, WhatsApp, DevPilot, Accounting, D2C) owns its entry in `modules/<x>/src/module.ts` (browser-safe `./module` subpath); the catalog imports them and exports every entry by name — there is no string lookup (`requireBuiltInModule` is gone). Kernel Modules with no package stay inline. API installation, Commons publication, and web routes derive from the named exports. Runtime ids live in the `MODULE_RUNTIME_IDS` table (values pinned by test; they are persisted identity).
 DealPilot and JobPilot implementation packages live in `platform/modules/{dealpilot,jobpilot}`.
 People/company sourcing and recording remain internal Engine packages under the existing
 `platform/tools/` workspace path; no standalone legacy application is a production entrypoint.

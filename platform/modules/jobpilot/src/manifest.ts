@@ -2,11 +2,9 @@ import {
   parseExecutableManifest,
   type ModuleExecutableManifest,
 } from "@bridge/capability-kit";
-import { requireBuiltInModule } from "@bridge/module-manifests";
+import { jobPilotModule as jobPilotDefinition } from "./module.js";
 
-const jobPilotDefinition = requireBuiltInModule("job-pilot");
 const jobPilotModule = jobPilotDefinition.manifest.module;
-if (!jobPilotModule) throw new Error("JobPilot built-in manifest must declare its Module surface");
 
 export const jobPilotManifest: ModuleExecutableManifest = parseExecutableManifest({
   id: "jobpilot",

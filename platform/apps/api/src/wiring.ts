@@ -43,6 +43,8 @@ import {
   InMemoryCapabilityStore,
   InMemoryAutoActivationBudgetStore,
   InMemoryKillSwitch,
+  StateBackedAutoActivationBudgetStore,
+  StateBackedKillSwitch,
   InMemoryCredentialBroker,
   InMemoryOrganizationDefinitionStore,
   InMemoryModuleStore,
@@ -171,6 +173,7 @@ import { fileURLToPath } from "node:url";
 import { HttpCommonsClient, commonsUrlFromEnv, trustedCommonsPublicKeysFromEnv } from "./commons-client.js";
 import { localGeocodingProviderFromEnv } from "./geocoding-provider.js";
 import { GoogleOAuthStateStore } from "./google-oauth-state.js";
+import { OtpProofStore } from "./otp-proof-store.js";
 import {
   MODEL_PROVIDER_KEY_SLOTS,
   ModelProviderKeyStore,
@@ -553,11 +556,11 @@ export interface Wiring {
    * mode (ADR-023); InMemoryModuleStore in in-memory mode — same split every
    * other Drizzle-backed store in this file already follows. */
   moduleStore: ModuleStore;
-  /** Daily auto-activation budget counters (informational/advisory bands). In-memory in both
-   * modes for now — no persistent implementation exists yet (mirrors the ledger-residency-gap
-   * pattern: a real budget counter is future work, not silently faked as durable). */
+  /** Daily auto-activation budget counters (informational/advisory bands). Persisted through
+   * the Local Plane state port when a durable BRIDGE_LOCAL_DIR exists; in-memory otherwise. */
   capabilityBudgets: AutoActivationBudgetStore;
-  /** Organization-level kill switch forcing every capability activation to explicit approval. */
+  /** Organization-level kill switch forcing every capability activation to explicit approval.
+   * Same residency as capabilityBudgets — a restart never silently disengages it. */
   capabilityKillSwitch: KillSwitchPort;
   /** Capabilities never receive raw secrets — they request scoped, time-boxed grant references. */
   credentialBroker: CredentialBroker;
@@ -584,6 +587,8 @@ export interface Wiring {
    * verification method, connected sources. In-memory in both modes for now (see
    * onboarding-profile.ts's header comment for scope vs. the general Memory/Knowledge gap). */
   onboardingProfileStore: OnboardingProfileStore;
+  /** Server-side phone-OTP proof (verifyPhoneOtp issues, saveProfile consumes). */
+  otpProofs: OtpProofStore;
   /** AGS1 (TASK-007) — Goal/Task catalog Skills resolve against. In-memory
    * default in both modes for dev/test (mirrors every other in-memory port's
    * dependency-free default); `buildPersistentPorts` binds the real,
@@ -6042,11 +6047,23 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   );
 
   // Capability Trust Model support ports (docs/wiki/vision.md): budgets + kill
-  // switch stay in-memory in BOTH modes for now — no persistent implementation
-  // exists yet anywhere in the codebase. Keep that explicit rather than silently
-  // faking durability that doesn't exist.
-  const capabilityBudgets = new InMemoryAutoActivationBudgetStore();
-  const capabilityKillSwitch = new InMemoryKillSwitch();
+  // switch persist through the same Local Plane state port the model-provider
+  // keys use whenever the local dir is durable (`effectiveLocalDir` set), so a
+  // restart never silently resets a kill switch. Honest caveat: on the hosted
+  // public-cloud deployment the Local Plane dir is /tmp (render.yaml), so
+  // "durable" there means across process restarts only, not across deploys.
+  // Persistent mode exposes no Supabase-backed atomic state / organization
+  // settings port from wiring, so the kill switch is NOT cross-instance there.
+  // Ephemeral (no local dir) keeps the in-memory ports — nothing to persist to.
+  const capabilityBudgets = effectiveLocalDir
+    ? new StateBackedAutoActivationBudgetStore(localPlane.state)
+    : new InMemoryAutoActivationBudgetStore();
+  const capabilityKillSwitch = effectiveLocalDir
+    ? new StateBackedKillSwitch(localPlane.state)
+    : new InMemoryKillSwitch();
+  // OTP proofs ride the same port unconditionally: an ephemeral local plane is
+  // still a real (in-memory pglite) state store, so no separate fallback needed.
+  const otpProofs = new OtpProofStore(localPlane.state);
   const credentialBroker = new InMemoryCredentialBroker();
   // Onboarding preferences are private Local Plane Memory when a durable local
   // root exists. Public-cloud and isolated ephemeral modes retain no private
@@ -7095,6 +7112,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     credentialBroker,
     commonsRegistry,
     onboardingProfileStore,
+    otpProofs,
     goalTasks,
     taskManager,
     skillManifests,

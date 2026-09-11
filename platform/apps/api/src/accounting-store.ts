@@ -15,38 +15,17 @@
  * expression only ever reached a FRESH install, and every beta machine kept
  * the broken one. This is the upgrade path.
  */
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { existsSync, mkdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 
 import { schema, CANONICAL_ACCOUNTS, SEED_FORMULAS, BUILTIN_LABEL_MAPPINGS } from "@bridge/accounting";
+import { accountingMigrationsDir } from "@bridge/accounting/migrations-dir";
+
+import { openModuleSqlite } from "./module-sqlite.js";
 
 export type AccountingDb = BetterSQLite3Database<typeof schema>;
-
-const here = dirname(fileURLToPath(import.meta.url));
-
-/** Resolve apps/api/migrations-accounting whether running from src/ (ts-node)
- * or dist/src/ (built) — same two-candidate pattern as @bridge/db's
- * `defaultMigrationsFolder` (packages/db/src/client-local.ts). */
-function migrationsDir(): string {
-  for (const rel of ["../migrations-accounting", "../../migrations-accounting"]) {
-    const candidate = resolve(here, rel);
-    if (existsSync(resolve(candidate, "meta/_journal.json"))) return candidate;
-  }
-  return resolve(here, "../migrations-accounting");
-}
-
-function dbPath(): string {
-  return (
-    process.env.BRIDGE_ACCOUNTING_DB_PATH ??
-    join(homedir(), "Documents", "Bridge", "Accounting", ".data", "accounting.sqlite")
-  );
-}
 
 /**
  * Seed *reference* data only: the canonical chart of accounts, the formula registry, and
@@ -181,33 +160,26 @@ function seedReferenceData(db: AccountingDb): void {
   });
 }
 
-let cached: { db: AccountingDb; raw: Database.Database } | null = null;
+const store = openModuleSqlite({
+  name: "Accounting",
+  envVar: "BRIDGE_ACCOUNTING_DB_PATH",
+  migrate(raw) {
+    const db = drizzle(raw, { schema });
+    migrate(db, { migrationsFolder: accountingMigrationsDir() });
+    seedReferenceData(db);
+  },
+});
 
 export function getAccountingDb(): AccountingDb {
   return getAccountingConnection().db;
 }
 
 export function getAccountingConnection(): { db: AccountingDb; raw: Database.Database } {
-  if (cached) return cached;
-
-  const file = dbPath();
-  mkdirSync(dirname(file), { recursive: true });
-  const raw = new Database(file);
-  raw.pragma("journal_mode = WAL");
-  raw.pragma("foreign_keys = ON");
-
-  const db = drizzle(raw, { schema });
-  migrate(db, { migrationsFolder: migrationsDir() });
-  seedReferenceData(db);
-
-  cached = { db, raw };
-  return cached;
+  const raw = store.open();
+  return { db: drizzle(raw, { schema }), raw };
 }
 
 /** Mirrors Avilo's own close: WAL leaves a `-wal` journal behind on an unclean exit. */
 export function closeAccountingConnection(): void {
-  if (cached) {
-    cached.raw.close();
-    cached = null;
-  }
+  store.close();
 }

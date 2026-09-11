@@ -119,6 +119,9 @@ export {
   trustGrantsForOrigin,
   InMemoryAutoActivationBudgetStore,
   InMemoryKillSwitch,
+  StateBackedAutoActivationBudgetStore,
+  StateBackedKillSwitch,
+  type AtomicStatePort,
   type ApprovalRequirement,
   type TrustGrantView,
   type BudgetedRiskBand,
@@ -205,6 +208,23 @@ export type {
 // above; never redefines its trust-model types.
 export * from "./module/types.js";
 export { parseModuleManifest, ModuleManifestValidationError } from "./module/manifest.js";
+export {
+  builtInSourceRef,
+  capability,
+  provenance,
+  readAll,
+  readPrivate,
+  readPublic,
+  writeAll,
+  writePrivate,
+  BUILT_IN_SOURCE_REFS,
+  INSPECTED_COMMIT,
+  SOURCE_REPOSITORY,
+  type BuiltInModule,
+  type BuiltInModuleWithSurface,
+  type CommonsBuiltInModule,
+  type ModuleRuntimeIds,
+} from "./module/catalog.js";
 // Authored Modules — Chief of Staff builds a Module as DATA (Databases + the
 // Pages over them), never as generated code. See module/authoring.ts's header.
 export {

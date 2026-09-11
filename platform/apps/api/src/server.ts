@@ -13,6 +13,9 @@ import { appRouter, type AppRouter } from "./router.js";
 import { makeContextFactory } from "./context.js";
 import { isVerifierConfigured } from "./identity.js";
 import { buildWiring, PILOT_ORGANIZATION } from "./wiring.js";
+import { createDb, DrizzleJobLeaseStore, DrizzleRateLimitStore } from "@bridge/db";
+import { withLease } from "./job-lease.js";
+import { pgRateLimitStore } from "./rate-limit-store.js";
 import { indexMemoryEmbeddings } from "./retrieval-fusion.js";
 import { runUsageRetrievalEval } from "./retrieval-eval.js";
 import { SystemClock } from "@bridge/core";
@@ -402,6 +405,14 @@ export async function buildServer() {
   assertProductionEnv();
   const wiring = await buildWiring();
   const createContext = makeContextFactory(wiring);
+  // Infra tables (job leases, shared rate-limit counter) exist only where a
+  // second instance can — hosted Postgres. The sidecar/in-memory paths have no
+  // DATABASE_URL and are single-instance by construction.
+  // ponytail: second small pool; switch to a wiring-owned `db` once ModePorts exposes one.
+  const infraDb = process.env.DATABASE_URL
+    ? createDb({ url: process.env.DATABASE_URL, max: 2 })
+    : null;
+  const jobLeases = infraDb ? new DrizzleJobLeaseStore(infraDb.db) : null;
 
   const app = Fastify({
     logger: loggerOptions,
@@ -462,13 +473,15 @@ export async function buildServer() {
   // SEC-2: bound request rates per client IP. A global cap plus a much tighter,
   // independently-counted cap on sensitive procedures (cost/quota-spending mutations,
   // the brute-forceable OTP stub, outbound-network levers) so an unauthenticated flood
-  // can't cost-amplify or brute-force even before the auth gate turns it away. The
-  // default in-memory store is per-process — a shared store (Redis) is the follow-up for
-  // a multi-instance deploy; see known-issues.md. The hook runs on `onRequest`, ahead of
-  // tRPC context creation, so limiting happens before any real work.
+  // can't cost-amplify or brute-force even before the auth gate turns it away. With
+  // hosted Postgres the counter lives in `rate_limit_buckets` so every instance shares
+  // one budget; otherwise the default in-process store (single instance). The hook
+  // runs on `onRequest`, ahead of tRPC context creation, so limiting happens before
+  // any real work.
   const rl = rateLimitConfig();
   await app.register(rateLimit, {
     global: true,
+    ...(infraDb ? { store: pgRateLimitStore(new DrizzleRateLimitStore(infraDb.db)) } : {}),
     max: (req) => (rateLimitBucket(req.url) === "sensitive" ? rl.sensitiveMax : rl.globalMax),
     timeWindow: rl.windowMs,
     keyGenerator: (req) => `${req.ip}:${rateLimitBucket(req.url)}`,
@@ -538,6 +551,14 @@ export async function buildServer() {
     } satisfies FastifyTRPCPluginOptions<AppRouter>["trpcOptions"],
   });
 
+  // Every scheduled job below runs under a cross-instance lease (ttl = its
+  // interval) so a zero-downtime deploy's overlapping old+new processes do not
+  // run it twice. Acquire failures log; the runners already catch their own.
+  const leased = (name: string, ttlMs: number, run: () => Promise<void>) => () =>
+    withLease(jobLeases, name, ttlMs, run, app.log).catch((err: unknown) => {
+      app.log.error({ err, job: name }, "job lease failed");
+    });
+
   let relationReconciliationRunning = false;
   let relationOwnerCursor: string | undefined;
   const reconcileRelationships = async () => {
@@ -577,11 +598,9 @@ export async function buildServer() {
   };
   let relationReconciliationTimer: NodeJS.Timeout | undefined;
   if (!wiring.publicCloudOnly) {
-    await reconcileRelationships();
-    relationReconciliationTimer = setInterval(
-      () => void reconcileRelationships(),
-      60_000,
-    );
+    const reconcile = leased("relation-reconciliation", 60_000, reconcileRelationships);
+    await reconcile();
+    relationReconciliationTimer = setInterval(reconcile, 60_000);
     relationReconciliationTimer.unref();
   }
   // ADR-179 — the generic Automation scheduler. This used to be a hardcoded
@@ -645,9 +664,10 @@ export async function buildServer() {
   let memoryIndexTimer: NodeJS.Timeout | undefined;
   let memoryIndexBootTimer: NodeJS.Timeout | undefined;
   if (wiring.retrievalFusionEnabled && !wiring.publicCloudOnly) {
-    memoryIndexBootTimer = setTimeout(() => void runMemoryEmbeddingIndex(), 30_000);
+    const index = leased("memory-embedding-index", 15 * 60_000, runMemoryEmbeddingIndex);
+    memoryIndexBootTimer = setTimeout(index, 30_000);
     memoryIndexBootTimer.unref();
-    memoryIndexTimer = setInterval(() => void runMemoryEmbeddingIndex(), 15 * 60_000);
+    memoryIndexTimer = setInterval(index, 15 * 60_000);
     memoryIndexTimer.unref();
   }
 
@@ -696,9 +716,10 @@ export async function buildServer() {
   let retrievalEvalTimer: NodeJS.Timeout | undefined;
   let retrievalEvalBootTimer: NodeJS.Timeout | undefined;
   if (wiring.retrievalFusionEnabled && !wiring.publicCloudOnly) {
-    retrievalEvalBootTimer = setTimeout(() => void runRetrievalEval(), 120_000);
+    const evaluate = leased("retrieval-usage-eval", 6 * 60 * 60_000, runRetrievalEval);
+    retrievalEvalBootTimer = setTimeout(evaluate, 120_000);
     retrievalEvalBootTimer.unref();
-    retrievalEvalTimer = setInterval(() => void runRetrievalEval(), 6 * 60 * 60_000);
+    retrievalEvalTimer = setInterval(evaluate, 6 * 60 * 60_000);
     retrievalEvalTimer.unref();
   }
 
@@ -719,6 +740,7 @@ export async function buildServer() {
     if (retrievalEvalTimer) {
       clearInterval(retrievalEvalTimer);
     }
+    await infraDb?.close();
   });
 
   return app;

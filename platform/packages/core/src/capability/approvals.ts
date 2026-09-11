@@ -228,3 +228,72 @@ export async function resolveActivationApproval(args: {
 
   return { requirement: "auto", budgeted: true, reason: "within daily auto-activation budget" };
 }
+
+/** Minimal atomic key/value state port — structurally identical to
+ * `LocalStateStore` in @bridge/local (pglite-backed) and the private copies in
+ * apps/api; declared here so core stays free of a @bridge/local dependency. */
+export interface AtomicStatePort {
+  read(organizationId: string, namespace: string): Promise<unknown | null>;
+  update<T>(
+    organizationId: string,
+    namespace: string,
+    initialState: unknown,
+    reduce: (current: unknown) => { state: unknown; result: T },
+  ): Promise<T>;
+}
+
+const BUDGET_NAMESPACE = "capability:auto-activation-budget";
+interface BudgetState {
+  version: 1;
+  /** keyed "band:day" — only today's keys are kept (pruned on write). */
+  counts: Record<string, number>;
+}
+function budgetState(value: unknown): BudgetState {
+  if (value && typeof value === "object" && (value as BudgetState).version === 1) return value as BudgetState;
+  return { version: 1, counts: {} };
+}
+
+/** Budget counters persisted through an atomic state port — survive process restart. */
+export class StateBackedAutoActivationBudgetStore implements AutoActivationBudgetStore {
+  constructor(private readonly state: AtomicStatePort) {}
+
+  async countToday(organizationId: string, band: BudgetedRiskBand, todayKey: string): Promise<number> {
+    return budgetState(await this.state.read(organizationId, BUDGET_NAMESPACE)).counts[`${band}:${todayKey}`] ?? 0;
+  }
+
+  async recordAutoActivation(organizationId: string, band: BudgetedRiskBand, todayKey: string): Promise<void> {
+    await this.state.update(organizationId, BUDGET_NAMESPACE, { version: 1, counts: {} }, (current) => {
+      const key = `${band}:${todayKey}`;
+      const counts: Record<string, number> = {};
+      for (const [k, v] of Object.entries(budgetState(current).counts)) {
+        if (k.endsWith(`:${todayKey}`)) counts[k] = v;
+      }
+      counts[key] = (counts[key] ?? 0) + 1;
+      return { state: { version: 1, counts } satisfies BudgetState, result: undefined };
+    });
+  }
+}
+
+const KILL_SWITCH_NAMESPACE = "capability:kill-switch";
+
+/** Kill switch persisted through an atomic state port — a restart never silently disengages it. */
+export class StateBackedKillSwitch implements KillSwitchPort {
+  constructor(private readonly state: AtomicStatePort) {}
+
+  async isEngaged(organizationId: string): Promise<boolean> {
+    const value = await this.state.read(organizationId, KILL_SWITCH_NAMESPACE);
+    return Boolean(value && typeof value === "object" && (value as { engaged?: unknown }).engaged === true);
+  }
+  async engage(organizationId: string): Promise<void> {
+    await this.#set(organizationId, true);
+  }
+  async disengage(organizationId: string): Promise<void> {
+    await this.#set(organizationId, false);
+  }
+  async #set(organizationId: string, engaged: boolean): Promise<void> {
+    await this.state.update(organizationId, KILL_SWITCH_NAMESPACE, { version: 1, engaged: false }, () => ({
+      state: { version: 1, engaged },
+      result: undefined,
+    }));
+  }
+}

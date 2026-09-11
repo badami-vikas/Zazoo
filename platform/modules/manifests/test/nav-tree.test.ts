@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { BUILT_IN_MODULES, buildModuleNavTree, requireBuiltInModule } from "../src/index.js";
+import { BUILT_IN_MODULES, buildModuleNavTree, relationshipModule, whatsappModule } from "../src/index.js";
 
 type Nav = { moduleName: string; parentModule?: string | undefined };
 
@@ -84,10 +84,11 @@ test("every installed Module appears exactly once in the tree", () => {
 });
 
 test("WhatsApp is a sub-module of NetworkManager and the parent is a nav root", () => {
-  const whatsapp = requireBuiltInModule("whatsapp").manifest;
+  const whatsapp = whatsappModule.manifest;
   assert.equal(whatsapp.module?.parentModule, "relationship");
   // One level: the declared parent must not itself be a sub-module.
-  const parent = requireBuiltInModule(whatsapp.module!.parentModule!).manifest;
+  const parent = relationshipModule.manifest;
+  assert.equal(parent.name, whatsapp.module!.parentModule);
   assert.equal(parent.module?.parentModule, undefined);
   assert.equal(parent.module?.displayName, "NetworkManager");
 });

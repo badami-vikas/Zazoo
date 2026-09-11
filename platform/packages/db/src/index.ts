@@ -241,3 +241,5 @@ export function createDrizzlePorts(
   };
 }
 export { DrizzleClaimStore } from "./claim-store.js";
+export { DrizzleJobLeaseStore } from "./job-lease-store.js";
+export { DrizzleRateLimitStore } from "./rate-limit-store.js";

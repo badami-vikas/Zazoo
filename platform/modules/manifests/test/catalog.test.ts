@@ -4,7 +4,15 @@ import {
   BUILT_IN_MODULES,
   COMMONS_BUILT_IN_MODULES,
   moduleNavTarget,
-  requireBuiltInModule,
+  MODULE_RUNTIME_IDS,
+  devpilotModule,
+  helpdeskModule,
+  relationshipModule,
+  resolveModuleAgentRuntimeId,
+  resolveModuleAutomationRuntimeId,
+  isModuleRuntimeAutomationId,
+  taskManagerModule,
+  whatsappModule,
 } from "../src/index.js";
 import { canonicalizeManifest, parseModuleManifest, TASK_PLAYBOOKS } from "@bridge/core";
 
@@ -31,7 +39,7 @@ test("built-in Module catalog has one manifest per Module name", () => {
 });
 
 test("Helpdesk is a NetworkManager sub-module, and stays out of Commons", () => {
-  const helpdesk = requireBuiltInModule("helpdesk").manifest;
+  const helpdesk = helpdeskModule.manifest;
   // The nav parent is what makes it appear indented under NetworkManager. Its
   // absence is exactly why the Page was reachable by URL but invisible.
   assert.equal(helpdesk.module?.parentModule, "relationship");
@@ -50,7 +58,7 @@ test("Helpdesk is a NetworkManager sub-module, and stays out of Commons", () => 
 });
 
 test("Task Manager is a signed installable Module with one Task Database and Agent-owned Skills", () => {
-  const taskManager = requireBuiltInModule("task-manager").manifest;
+  const taskManager = taskManagerModule.manifest;
   assert.equal(taskManager.module?.route, "/task-manager");
   assert.deepEqual(taskManager.module?.pages.map((page) => page.databaseId), ["task-manager.tasks"]);
   assert.equal(taskManager.module?.agents.length, 5);
@@ -65,7 +73,7 @@ test("Task Manager is a signed installable Module with one Task Database and Age
 });
 
 test("Relationship exposes governed web research only through the Learning Agent", () => {
-  const relationship = requireBuiltInModule("relationship").manifest;
+  const relationship = relationshipModule.manifest;
   const webResearch = relationship.capabilities.find(
     (capability) => capability.id === "web-research",
   );
@@ -122,12 +130,11 @@ test("every built-in Module route is declared by its manifest", () => {
     for (const page of manifest.module.pages) {
       assert.ok(page.route.startsWith(`${manifest.module.route.split("/").slice(0, -1).join("/")}/`));
     }
-    assert.equal(requireBuiltInModule(manifest.name).manifest, manifest);
   }
 });
 
 test("WhatsApp is an installable Module with Chats and Tools Pages", () => {
-  const whatsapp = requireBuiltInModule("whatsapp").manifest;
+  const whatsapp = whatsappModule.manifest;
   assert.equal(whatsapp.module?.displayName, "WhatsApp");
   assert.deepEqual(whatsapp.module?.pages.map((page) => page.id), ["chats", "tools"]);
   assert.deepEqual(moduleNavTarget("whatsapp"), {
@@ -142,7 +149,7 @@ test("WhatsApp is an installable Module with Chats and Tools Pages", () => {
 });
 
 test("WhatsApp v1 declares no egress and no Automation", () => {
-  const whatsapp = requireBuiltInModule("whatsapp").manifest;
+  const whatsapp = whatsappModule.manifest;
   // v1 is read-only over the owner's own session. An egress permission here
   // would mean the manifest had drifted from the desktop op allowlist.
   for (const capability of whatsapp.capabilities) {
@@ -162,7 +169,7 @@ test("WhatsApp is withheld from Commons", () => {
 });
 
 test("DevPilot is an installable Module with Pull Requests, Issues, and Repos Pages", () => {
-  const devpilot = requireBuiltInModule("devpilot").manifest;
+  const devpilot = devpilotModule.manifest;
   assert.equal(devpilot.module?.displayName, "DevPilot");
   assert.deepEqual(devpilot.module?.pages.map((page) => page.id), ["pulls", "issues", "repos"]);
   assert.deepEqual(moduleNavTarget("devpilot"), {
@@ -177,7 +184,7 @@ test("DevPilot is an installable Module with Pull Requests, Issues, and Repos Pa
 });
 
 test("DevPilot declares no external:send capability — draft-only through D2, posting is a future capability", () => {
-  const devpilot = requireBuiltInModule("devpilot").manifest;
+  const devpilot = devpilotModule.manifest;
   for (const capability of devpilot.capabilities) {
     for (const permission of capability.permissions) {
       assert.notEqual(
@@ -190,7 +197,7 @@ test("DevPilot declares no external:send capability — draft-only through D2, p
 });
 
 test("DevPilot's Agents each have a Plane and the poll Automation has a machine-readable schedule", () => {
-  const devpilot = requireBuiltInModule("devpilot").manifest;
+  const devpilot = devpilotModule.manifest;
   assert.equal(devpilot.module?.agents.length, 2);
   for (const agent of devpilot.module?.agents ?? []) {
     assert.equal(agent.plane, "cloud");
@@ -202,7 +209,7 @@ test("DevPilot's Agents each have a Plane and the poll Automation has a machine-
 });
 
 test("DevPilot D2's engineering-assist Automations are manual (no schedule) but opt into the executable runtime", () => {
-  const devpilot = requireBuiltInModule("devpilot").manifest;
+  const devpilot = devpilotModule.manifest;
   const manual = (devpilot.module?.automations ?? []).filter((automation) => automation.id !== "github-poll");
   assert.equal(manual.length, 3);
   for (const automation of manual) {
@@ -281,4 +288,65 @@ test("the Task Manager Commons entry is discoverable and carries no personal dat
     !/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(serialized),
     "a UUID in a Commons entry is a runtime row that escaped into a published Module",
   );
+});
+
+// Snapshot taken from the built catalog on 2026-09-11, BEFORE the if-chains
+// became the MODULE_RUNTIME_IDS table. These UUIDs are persisted identity in
+// the agents/automations tables; a changed value orphans rows.
+const RUNTIME_ID_SNAPSHOT: ReadonlyArray<readonly ["automation" | "agent", string, string, string]> = [
+  ["automation", "deal-pilot", "deal-pilot.source-intake", "b0000000-0000-4000-a000-0000000000f1"],
+  ["agent", "deal-pilot", "sourcing-agent", "b0000000-0000-4000-a000-0000000000e1"],
+  ["agent", "relationship", "learning-agent", "b0000000-0000-4000-a000-0000000000d2"],
+  ["automation", "task-manager", "task-manager.task-created-impact-analysis", "b0000000-0000-4000-a000-000000000104"],
+  ["automation", "task-manager", "task-manager.agent-task-routing-on-assign", "b0000000-0000-4000-a000-000000000108"],
+  ["automation", "task-manager", "task-manager.reschedule-approval-gate", "b0000000-0000-4000-a000-000000000101"],
+  ["automation", "task-manager", "task-manager.routing-approval-gate", "b0000000-0000-4000-a000-000000000102"],
+  ["automation", "task-manager", "task-manager.task-tree-restructure-proposal", "b0000000-0000-4000-a000-000000000105"],
+  ["automation", "task-manager", "task-manager.target-change-reopen-prompt", "b0000000-0000-4000-a000-000000000106"],
+  ["automation", "task-manager", "task-manager.proactive-scan-cadence", "b0000000-0000-4000-a000-0000000000fa"],
+  ["automation", "task-manager", "task-manager.completed-bay-sweep", "b0000000-0000-4000-a000-0000000000f8"],
+  ["automation", "task-manager", "task-manager.wip-breach-detector", "b0000000-0000-4000-a000-0000000000ff"],
+  ["automation", "task-manager", "task-manager.unverified-done-challenger", "b0000000-0000-4000-a000-000000000100"],
+  ["automation", "task-manager", "task-manager.dependency-unblock-notifier", "b0000000-0000-4000-a000-000000000107"],
+  ["automation", "task-manager", "task-manager.ledger-drift-detector", "b0000000-0000-4000-a000-0000000000f7"],
+  ["automation", "task-manager", "task-manager.stale-task-review", "b0000000-0000-4000-a000-0000000000fe"],
+  ["automation", "task-manager", "task-manager.goal-review-cadence", "b0000000-0000-4000-a000-000000000103"],
+  ["automation", "task-manager", "task-manager.standup-brief", "b0000000-0000-4000-a000-0000000000fd"],
+  ["automation", "task-manager", "task-manager.planning-playbook", "b0000000-0000-4000-a000-0000000000fc"],
+  ["agent", "task-manager", "chief-of-staff", "b0000000-0000-4000-a000-0000000000d6"],
+  ["agent", "task-manager", "internal-strategist", "b0000000-0000-4000-a000-0000000000d3"],
+  ["agent", "task-manager", "governance-agent", "b0000000-0000-4000-a000-0000000000d4"],
+  ["automation", "devpilot", "devpilot.github-poll", "b0000000-0000-4000-a000-00000000010a"],
+  ["automation", "devpilot", "devpilot.review-pr", "b0000000-0000-4000-a000-00000000010c"],
+  ["automation", "devpilot", "devpilot.suggest-practice", "b0000000-0000-4000-a000-00000000010d"],
+  ["automation", "devpilot", "devpilot.analyze-issue", "b0000000-0000-4000-a000-00000000010e"],
+  ["agent", "devpilot", "tracker-agent", "b0000000-0000-4000-a000-000000000109"],
+  ["agent", "devpilot", "reviewer-agent", "b0000000-0000-4000-a000-00000000010b"],
+];
+
+test("MODULE_RUNTIME_IDS yields exactly the pre-refactor runtime ids for every (module, key) pair", () => {
+  for (const [kind, moduleName, key, id] of RUNTIME_ID_SNAPSHOT) {
+    const resolved = kind === "automation"
+      ? resolveModuleAutomationRuntimeId(moduleName, key)
+      : resolveModuleAgentRuntimeId(moduleName, key);
+    assert.equal(resolved, id, `${kind} ${moduleName}/${key}`);
+    if (kind === "automation") assert.ok(isModuleRuntimeAutomationId(id), `${id} not recognised as a runtime Automation id`);
+  }
+  // No pair appeared or vanished: the table is exactly the snapshot.
+  const fromTable = Object.entries(MODULE_RUNTIME_IDS).flatMap(([moduleName, ids]) => [
+    ...Object.entries(ids.automations).map(([key, id]) => ["automation", moduleName, key, id]),
+    ...Object.entries(ids.agents).map(([key, id]) => ["agent", moduleName, key, id]),
+  ]);
+  assert.equal(fromTable.length, RUNTIME_ID_SNAPSHOT.length);
+  const ids = new Set(fromTable.map(([, , , id]) => id));
+  assert.equal(ids.size, fromTable.length, "runtime ids must be unique across Modules");
+  // Every declared runtime id belongs to an Agent/Automation the manifest actually declares.
+  for (const [moduleName, runtimeIds] of Object.entries(MODULE_RUNTIME_IDS)) {
+    const pkg = BUILT_IN_MODULES.find((candidate) => candidate.manifest.name === moduleName);
+    assert.ok(pkg, `${moduleName} has runtime ids but no catalog entry`);
+    const agentIds = new Set(pkg.manifest.module?.agents.map((agent) => agent.id));
+    const automationKeys = new Set(pkg.manifest.module?.automations.map((automation) => automation.automationId));
+    for (const key of Object.keys(runtimeIds.agents)) assert.ok(agentIds.has(key), `${moduleName} declares no Agent ${key}`);
+    for (const key of Object.keys(runtimeIds.automations)) assert.ok(automationKeys.has(key), `${moduleName} declares no Automation ${key}`);
+  }
 });
