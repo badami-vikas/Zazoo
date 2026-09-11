@@ -38,8 +38,8 @@ import {
 
 export const DEFAULT_COMMONS_URL = "http://localhost:4780";
 
-export function commonsUrlFromEnv(): string {
-  return process.env.COMMONS_URL ?? DEFAULT_COMMONS_URL;
+export function commonsUrlFromEnv(env: NodeJS.ProcessEnv = process.env): string {
+  return env.COMMONS_URL ?? DEFAULT_COMMONS_URL;
 }
 
 export function trustedCommonsPublicKeysFromEnv(env: NodeJS.ProcessEnv = process.env): readonly string[] {

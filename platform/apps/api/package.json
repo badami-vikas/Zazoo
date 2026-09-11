@@ -27,6 +27,7 @@
     "@anthropic-ai/claude-agent-sdk": "^0.3.258",
     "@bridge/accounting": "workspace:*",
     "@bridge/capability-kit": "workspace:*",
+    "@bridge/commons": "workspace:*",
     "@bridge/core": "workspace:*",
     "@bridge/d2c": "workspace:*",
     "@bridge/db": "workspace:*",

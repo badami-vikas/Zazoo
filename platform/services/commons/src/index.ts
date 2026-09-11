@@ -9,6 +9,7 @@ export { findOrganizationDataPaths } from "./privacy-gate.js";
 export { scanCommonsModule } from "./security-scan.js";
 export {
   resolveCommonsSigningKeyPair,
+  resolveCommonsPublishToken,
   signCommonsEntry,
   signManifest,
   ed25519ManifestVerifier,

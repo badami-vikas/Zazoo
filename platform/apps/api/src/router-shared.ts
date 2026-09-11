@@ -2594,6 +2594,21 @@ export function assertModelProviderKeyStorage(wiring: Pick<Wiring, "publicCloudO
 
 export const actionEnum = z.enum(["read", "write", "execute", "share", "archive"]);
 export const actorTypeEnum = z.enum(["user", "team", "agent"]);
+// NOT `z.enum(RESOURCE_TYPES)`, deliberately. This is the second hand-written
+// mirror of `ResourceType` and it IS behind the kernel — missing `relation`
+// and `claim` — but unlike the `automation-stores.ts` copy it is not purely a
+// drift: it decides what a CLIENT may propose (`proposeInput`) and what a
+// blueprint may declare (`BLUEPRINT_NODE_TYPE_REGISTRY`), and both currently
+// depend on the two absences.
+//
+// Completing it from RESOURCE_TYPES was tried on 2026-09-08 and reverted:
+// `graph-people-communities.test.ts` asserts `action.propose` REFUSES a
+// hand-crafted `relation` write, which is a real boundary — relations are
+// staged through the relationship surface, which validates the payload, while
+// `action.propose` takes arbitrary `inputs` — and the blueprint registry's own
+// comment says edges, not a `relation` node type, are the relationship data.
+// Whether those two should be explicit refusals over a complete enum is a
+// governance decision, not an enum cleanup. See docs/BUGS.md 2026-09-08.
 export const resourceTypeEnum = z.enum([
   "person",
   "community",
@@ -5119,6 +5134,105 @@ export async function priorTurnsTranscript(
   return `Earlier in this conversation:\n\n${transcript}`;
 }
 
+/**
+ * The Modules this Organization actually has, as one memory snippet.
+ *
+ * Chat could name every Skill it was allowed to call and not one Module the
+ * person owned, so "install DealPilot" met an offer to design DealPilot. One
+ * line of ground truth is the whole fix; it is deliberately a plain fact in
+ * the memory slot rather than a disclosed capability, because knowing a
+ * Module is installed is not permission to do anything to it.
+ *
+ * Failure is silent by design: a Module list we could not read must degrade to
+ * the old behaviour, never break the turn.
+ */
+export type ChatMemorySnippet = { source: string; text: string; trustOrigin: "user_content" };
+
+export async function chatInstalledModuleSnippets(
+  wiring: Wiring,
+  organizationId: string,
+): Promise<ChatMemorySnippet[]> {
+  const { snippets } = await chatModuleAwareness(wiring, organizationId);
+  return snippets.filter((snippet) => snippet.source === "modules:installed");
+}
+
+/**
+ * Both halves of "what Modules exist", off ONE Module-store read: the ones
+ * installed here, and the ones Commons could add. Returned together because
+ * the catalog is only meaningful minus what is already installed.
+ */
+export async function chatModuleAwareness(
+  wiring: Wiring,
+  organizationId: string,
+): Promise<{ snippets: ChatMemorySnippet[]; installed: ReadonlySet<string> }> {
+  let installedNames = new Set<string>();
+  const snippets: ChatMemorySnippet[] = [];
+  try {
+    const page = await wiring.moduleStore.list(organizationId, { limit: 10_000, offset: 0 });
+    const rows = page.items.filter(
+      (module) => module.status === "installed" && module.state === "available",
+    );
+    installedNames = new Set(rows.map((module) => module.moduleName));
+    // The name in the rail is the name the person will use for it; being told
+    // "deal-pilot" while they say "DealManager" is the same miss again.
+    const labels = [...new Set(rows.map((m) => m.manifest.module?.displayName ?? m.moduleName))].sort();
+    if (labels.length > 0) {
+      snippets.push({
+        source: "modules:installed",
+        text:
+          `Modules already installed in this workspace: ${labels.join(", ")}. ` +
+          "Do not offer to design or build one of these — it exists. " +
+          "To reach one, say where it is; to change one, capture the work as a Task.",
+        trustOrigin: "user_content" as const,
+      });
+    }
+  } catch {
+    // A Module list we could not read degrades to the old behaviour.
+    return { snippets, installed: installedNames };
+  }
+  snippets.push(...(await chatCommonsCatalogSnippets(wiring, installedNames)));
+  return { snippets, installed: installedNames };
+}
+
+/**
+ * The Modules that could be ADDED, as one snippet — the other half of knowing
+ * what exists. Without it Chief of Staff's only honest answer to "install
+ * DealPilot" is that it cannot see a catalog, which is how it ended up
+ * proposing to hand-author a Module that was sitting in the registry.
+ *
+ * Only root Modules: a Commons Skill is installed against a Module's declared
+ * need, not started from a chat sentence, and offering it here would describe
+ * a path that does not exist.
+ */
+export async function chatCommonsCatalogSnippets(
+  wiring: Wiring,
+  installedNames: ReadonlySet<string>,
+): Promise<{ source: string; text: string; trustOrigin: "user_content" }[]> {
+  try {
+    const catalog = await wiring.commonsRegistry.listAvailable({
+      kind: "organization_definition",
+      limit: 50,
+      offset: 0,
+    });
+    const addable = catalog.items
+      .filter((item) => !installedNames.has(item.name))
+      .map((item) => item.name)
+      .sort();
+    if (addable.length === 0) return [];
+    return [{
+      source: "commons:catalog",
+      text:
+        `Modules available to add from Commons: ${addable.join(", ")}. ` +
+        "These already exist and must never be redesigned from scratch — " +
+        "the person adds one from the + New button below their Modules.",
+      trustOrigin: "user_content" as const,
+    }];
+  } catch {
+    // An unreachable registry means we simply do not mention a catalog.
+    return [];
+  }
+}
+
 export async function chatCanCreateTask(
   wiring: Wiring,
   organizationId: string,
@@ -5270,7 +5384,17 @@ export async function assembleChatCompletion(
         { organizationId: thread.organizationId, userId: thread.ownerUserId },
       )).slice(0, 5);
   const preferenceSnippets = preferencesToMemorySnippets(learnedPreferences);
-  const combinedMemory = [...preferenceSnippets, ...memory];
+  // WHAT THE PERSON ALREADY HAS (user report 2026-09-08: asked to install
+  // DealPilot, and Chief of Staff offered to design one from scratch — a
+  // Module that was already installed, whose own Files folder it could see).
+  // It had no way to look: nothing in this context said which Modules exist,
+  // so every "can you add X" read as a request to invent X. Local Plane only —
+  // the installed-Module list is Organization shape and does not go to a
+  // cloud model.
+  const moduleAwareness = isCloud
+    ? { snippets: [] }
+    : await chatModuleAwareness(ctx.wiring, thread.organizationId);
+  const combinedMemory = [...moduleAwareness.snippets, ...preferenceSnippets, ...memory];
 
   const runContext = assembleRunContext(
     {

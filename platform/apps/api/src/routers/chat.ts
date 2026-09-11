@@ -9,12 +9,14 @@ import { MAX_TRANSCRIPTION_AUDIO_BYTES, transcribeAudio, VoiceTranscriptionError
 import { organizationFilesRoot } from "../module-files.js";
 import { relative, sep } from "node:path";
 import { BUILDER_AGENT_RUNTIME_ID, BUILT_IN_MODULES, CHIEF_OF_STAFF_AGENT_RUNTIME_ID, GOVERNANCE_AGENT_RUNTIME_ID, INTERNAL_STRATEGIST_AGENT_RUNTIME_ID, LEARNING_AGENT_RUNTIME_ID, resolveModuleAgentRuntimeId } from "@bridge/module-manifests";
-import { commonsPriorArt, installedModulesForBriefing, integrationsForBriefing, MANIFEST_REPAIR_ROUNDS, manifestRepairPrompt, moduleBuildBriefing, moduleOnboardingNeeds, moduleOnboardingPrompt, organizationFoldersForBriefing } from "../builder/run.js";
+import { commonsInstallRequest, commonsPriorArt, installedModulesForBriefing, integrationsForBriefing, MANIFEST_REPAIR_ROUNDS, manifestRepairPrompt, moduleBuildBriefing, moduleOnboardingNeeds, moduleOnboardingPrompt, organizationFoldersForBriefing } from "../builder/run.js";
 import { modulesRouter } from "./modules.js";
+import { commonsRouter } from "./commons.js";
 import { actionRouter } from "./action.js";
 import { readModuleManifestFile, registerModuleManifest } from "../module-register.js";
 import { ClaudeSignInRequiredError } from "../chat/claude-code-backend.js";
 import { deterministicUuid } from "../deterministic-uuid.js";
+import type { ApiContext } from "../context.js";
 import { CHAT_MODEL_TIER, addChatTurnRef, appendChatBackendChangedFiles, appendChatRoutingDecision, assembleChatCompletion, authenticatedProcedure, chatAssistantEnvelopeSchema, chatHumanTaint, chatLedgerEntryIsProposal, chatOwnerScope, chatSendInput, chatTurnAbortControllers, chatTurnProposalStaging, composerCapability, createGovernedModelProvider, idempotentUuid, loadChatThreadView, organizationGuard, parseChatAssistantEnvelope, priorTurnsTranscript, readCaptureConsentState, requireOrganizationNameForFiles, resolveChatModel, resolveChatRetryPair, stageChatTaskProposal, t, transcriptionApiKey, type PublicCloudModelEgress } from "../router-shared.js";
 
 /** The four foundational Agents' chat-routing ids joined to their runtime
@@ -26,6 +28,60 @@ const FOUNDATIONAL_RUNTIME_IDS: Readonly<Record<FoundationalAgentId, string>> = 
   governance: GOVERNANCE_AGENT_RUNTIME_ID,
   capability_builder: BUILDER_AGENT_RUNTIME_ID,
 };
+
+/**
+ * Put one registered Module installation through governance and make it
+ * visible — the three steps the Modules page runs, in the order it runs them.
+ *
+ * Extracted so the Builder's just-built Module and a Module installed straight
+ * from Commons take the SAME route. A second install path is how the two would
+ * drift, and the governed proposal is the thing that must not be bypassed:
+ * `install` raises it, and an install the pipeline holds is reported as
+ * waiting, never as done.
+ *
+ * "Installed" is not "visible" — install leaves the row `promoted`, and every
+ * surface lists only `available`, so promotion is part of the job (BUGS
+ * 2026-09-05 "the chatbot claims academics is in my side bar"). The caller is
+ * handed the row it can check, never an assumption.
+ */
+async function installThroughGovernance(
+  wiring: ApiContext["wiring"],
+  routerCtx: ApiContext,
+  organizationId: string,
+  installationId: string,
+): Promise<{ installed: boolean; visible: boolean; state: string | undefined }> {
+  const result = await modulesRouter.createCaller(routerCtx).install({
+    organizationId,
+    installationId,
+    todayKey: new Date().toISOString().slice(0, 10),
+  });
+  let installed = result.installed;
+  if (!installed && result.decision.requirement === "user_pref" && result.proposal) {
+    // A Module that writes its own private Records is banded transformational,
+    // whose base ask is the USER's preference. The user raised this from their
+    // own chat turn, so that same user answers it here as a recorded Human
+    // decision through the ordinary decide path (AP-182: only the critical
+    // four block). `governance` and `explicit_human` still wait under Tasks.
+    await actionRouter.createCaller(routerCtx).decide({
+      proposalId: result.proposal.id,
+      decision: "approve",
+      reason: "Approved in chat: the user asked for this Module by name.",
+    });
+    installed = true;
+  }
+  if (installed) {
+    const afterInstall = await wiring.moduleStore.get(installationId);
+    if (afterInstall?.state === "promoted") {
+      await modulesRouter.createCaller(routerCtx).promote({ organizationId, installationId });
+    }
+  }
+  const finalRow = await wiring.moduleStore.get(installationId);
+  return {
+    installed,
+    visible: finalRow?.status === "installed" && finalRow.state === "available",
+    state: finalRow?.state,
+  };
+}
 
 export const chatRouter = t.router({
   agents: t.router({
@@ -684,6 +740,64 @@ export const chatRouter = t.router({
             // what was already said. Without this the user would watch a
             // "continued" chat answer as if the previous turns never
             // happened, which is worse than clearing the thread outright.
+            // ASKED FOR A MODULE THAT ALREADY EXISTS (user report 2026-09-08:
+            // "install dealpilot" → an offer to design a Deal Manager). The
+            // briefing has always told the agent to "offer installing a
+            // matching Module before building a new one", and the agent did —
+            // with no mechanism behind the offer, so the only thing it could
+            // actually DO was write a fresh manifest for a Module sitting
+            // signed in the registry. This is that mechanism, and it runs
+            // before the build so the work is never done twice.
+            const catalog = await ctx.wiring.commonsRegistry
+              .listAvailable({ kind: "organization_definition", limit: 100 })
+              .then((page) => page.items, () => []);
+            const requested = commonsInstallRequest(input.message, catalog);
+            if (requested !== null) {
+              const { reauthenticatedAt, ...baseCtx } = ctx;
+              const routerCtx = reauthenticatedAt === undefined ? baseCtx : { ...baseCtx, reauthenticatedAt };
+              let note: string;
+              try {
+                const existing = await ctx.wiring.moduleStore.getAvailable(thread.organizationId, requested);
+                if (existing) {
+                  // Already theirs. Saying so is the whole answer — "already
+                  // configured is not a refusal", and re-installing would be a
+                  // worse one.
+                  const label = existing.displayNameOverride
+                    ?? existing.manifest.module?.displayName ?? requested;
+                  note = `"${label}" is already installed — it is in your sidebar.`;
+                } else {
+                  const proposed = await commonsRouter.createCaller(routerCtx).installPropose({
+                    organizationId: thread.organizationId,
+                    name: requested,
+                  });
+                  const outcome = await installThroughGovernance(
+                    ctx.wiring,
+                    routerCtx,
+                    thread.organizationId,
+                    proposed.installation.id,
+                  );
+                  const label = proposed.installation.manifest.module?.displayName ?? requested;
+                  note = outcome.visible
+                    ? `Installed "${label}" from Commons — it is in your sidebar now.`
+                    : outcome.installed
+                      ? `Installed "${label}", but it is not showing yet (state "${outcome.state ?? "unknown"}").`
+                      : `"${label}" waits for your yes under Tasks before it goes live.`;
+                }
+              } catch (error) {
+                note = `I could not install "${requested}": ${error instanceof Error ? error.message : String(error)}`;
+              }
+              const routingId = await appendChatRoutingDecision(ctx, thread, assistantTurnId, { kind: "direct_answer" });
+              await addChatTurnRef(ctx.wiring, scope, thread.id, assistantTurnId, "routing_decision", routingId);
+              await ctx.wiring.chatStore.updateTurn(scope, {
+                threadId: thread.id,
+                turnId: assistantTurnId,
+                expectedState: "processing",
+                state: "completed",
+                content: note,
+              });
+              return loadSendResponse();
+            }
+
             const carriedContext =
               thread.backendSessionId
                 ? null
@@ -799,44 +913,12 @@ export const chatRouter = t.router({
                 // `number | undefined`; ApiContext wants it present or absent.
                 const { reauthenticatedAt, ...baseCtx } = ctx;
                 const routerCtx = reauthenticatedAt === undefined ? baseCtx : { ...baseCtx, reauthenticatedAt };
-                const result = await modulesRouter.createCaller(routerCtx).install({
-                  organizationId: thread.organizationId,
-                  installationId: installation.id,
-                  todayKey: new Date().toISOString().slice(0, 10),
-                });
-                let installed = result.installed;
-                if (!installed && result.decision.requirement === "user_pref" && result.proposal) {
-                  // A Module that writes its own private Records is banded
-                  // transformational, whose base ask is the USER's preference.
-                  // The user raised this install from their own chat turn and
-                  // confirmed the plan, so that same user answers it here, as a
-                  // recorded Human decision through the ordinary decide path
-                  // (AP-182: only the critical four block). `governance` and
-                  // `explicit_human` requirements still wait under Tasks.
-                  await actionRouter.createCaller(routerCtx).decide({
-                    proposalId: result.proposal.id,
-                    decision: "approve",
-                    reason: "Approved in chat: the user asked for this Module and confirmed its plan.",
-                  });
-                  installed = true;
-                }
-                // "Installed" is not "visible": install leaves the row in the
-                // `promoted` state, and every surface (left nav, Home, the Module
-                // page) lists only `available`. The Modules page's "promote" step
-                // is the last step of the job, so it happens here too — and the
-                // sentence is checked against the row, never assumed (BUGS
-                // 2026-09-05 "the chatbot claims academics is in my side bar").
-                if (installed) {
-                  const afterInstall = await ctx.wiring.moduleStore.get(installation.id);
-                  if (afterInstall?.state === "promoted") {
-                    await modulesRouter.createCaller(routerCtx).promote({
-                      organizationId: thread.organizationId,
-                      installationId: installation.id,
-                    });
-                  }
-                }
-                const finalRow = await ctx.wiring.moduleStore.get(installation.id);
-                const visible = finalRow?.status === "installed" && finalRow.state === "available";
+                const { installed, visible, state } = await installThroughGovernance(
+                  ctx.wiring,
+                  routerCtx,
+                  thread.organizationId,
+                  installation.id,
+                );
                 // A live Module that needs outside software connected, or a
                 // first Record the user has to supply, is not finished landing:
                 // the agent runs one onboarding turn on its own session rather
@@ -872,7 +954,7 @@ export const chatRouter = t.router({
                   visible
                     ? `Built and installed "${label}" — it is in your sidebar now.${onboarding}`
                     : installed
-                      ? `Built and installed "${label}", but it is not showing yet (state "${finalRow?.state ?? "unknown"}"). Say "fix it" and I will try again.`
+                      ? `Built and installed "${label}", but it is not showing yet (state "${state ?? "unknown"}"). Say "fix it" and I will try again.`
                       : `Built "${label}". It waits for your yes under Tasks before it goes live.`,
                 );
               } catch (error) {

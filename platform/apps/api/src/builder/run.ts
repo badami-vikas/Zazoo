@@ -268,6 +268,46 @@ const STOPWORDS = new Set([
   "build", "make", "create", "module", "modules", "page", "pages", "track", "tracks",
 ]);
 
+/** Verbs that mean "put this on my machine", not "design me one". */
+const INSTALL_VERBS = ["install", "add", "enable", "set up", "setup", "get me", "download"];
+
+/**
+ * Did the person ask for a Module the registry ALREADY HAS, by name?
+ *
+ * The Builder briefing has always told the agent to "offer installing a
+ * matching Module before building a new one", and the agent did exactly that —
+ * then had no mechanism behind the offer, so the only thing it could actually
+ * do was write a fresh manifest for a Module sitting in Commons (user report
+ * 2026-09-08: "install dealpilot" answered with a proposal to design a Deal
+ * Manager from scratch). This is the mechanism's trigger.
+ *
+ * Deliberately NARROW, because the cost of a false positive is installing
+ * software nobody asked for. Both halves must hold: an explicit install verb,
+ * and the catalog entry's own name written out. Anything vaguer — "I need
+ * something for deals" — is a design conversation and still belongs to the
+ * agent. Matching stays here as a pure function rather than becoming a model
+ * judgement, so what triggers an install is readable and testable.
+ */
+export function commonsInstallRequest(
+  message: string,
+  catalog: readonly { name: string }[],
+): string | null {
+  const text = message.toLowerCase();
+  if (!INSTALL_VERBS.some((verb) => text.includes(verb))) return null;
+  // Longest name first: "d2c-research" must win over "d2c".
+  const byLength = [...catalog].sort((a, b) => b.name.length - a.name.length);
+  for (const entry of byLength) {
+    // "deal-pilot" is written "dealpilot", "deal pilot" and "deal-pilot".
+    const pattern = entry.name.split("-").map(escapeRegExp).join("[\\s-]?");
+    if (new RegExp(`(^|[^a-z0-9])${pattern}([^a-z0-9]|$)`).test(text)) return entry.name;
+  }
+  return null;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function tokens(text: string): Set<string> {
   return new Set(
     text

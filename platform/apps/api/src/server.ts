@@ -28,6 +28,7 @@ import {
   isPublicCloudScratchPath,
   renderWebOrigin,
 } from "./deployment-boundary.js";
+import { startEmbeddedCommons } from "./commons-embedded.js";
 
 /**
  * CORS origin resolution. `API_ALLOWED_ORIGINS` (comma-separated) is the explicit
@@ -829,6 +830,10 @@ if (isMain) {
       }
       const addr = await listenServer(app, port);
       console.log(`bridge-api listening at ${addr}`);
+      // After the API is up, so a slow registry boot never delays serving.
+      // Never awaited for correctness: `commons.*` reports its own failures.
+      const commons = await startEmbeddedCommons();
+      if (commons) process.once("exit", () => void commons.close());
     })
     .catch((err) => {
       console.error(err);

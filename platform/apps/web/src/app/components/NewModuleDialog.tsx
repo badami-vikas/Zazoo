@@ -8,11 +8,25 @@
  *      (never a canned recommendation).
  *   3. Confirm → navigate to the Module's surface. Override → back to the
  *      picker (the recommendation is advice, not a gate).
+ *
+ * ADD FROM COMMONS (user report 2026-09-08: "why are not all commons module
+ * selectable when new option below modules is clicked?"). This dialog only
+ * ever offered Modules already INSTALLED — it means "start something in a
+ * Module you have", and there was no surface anywhere in the app for the other
+ * half: browsing Commons and installing from it. `commons.installPropose` →
+ * `modules.install` existed and was reachable from nothing, so a Module that
+ * sat in the registry could not be added except by hand.
+ *
+ * The two halves stay in ONE dialog rather than a separate catalog page,
+ * because "I want to start something new" is the same intent whether the
+ * Module is already here or not, and asking the person to know which case they
+ * are in before they can look is the reason this was never found.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { ArrowLeft, ChevronRight, Boxes, Sparkles } from "lucide-react";
+import { ArrowLeft, ChevronRight, Boxes, Download, Sparkles } from "lucide-react";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
+import { MODULES_CHANGED_EVENT } from "../chat/useChat";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 
 interface ModuleOption {
@@ -24,6 +38,7 @@ interface ModuleOption {
 }
 
 type ConverseResult = Awaited<ReturnType<typeof trpc.chiefOfStaff.converse.mutate>>;
+type CommonsOption = Awaited<ReturnType<typeof trpc.commons.list.query>>["items"][number];
 
 export function NewModuleDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const navigate = useNavigate();
@@ -33,6 +48,53 @@ export function NewModuleDialog({ open, onOpenChange }: { open: boolean; onOpenC
   const [recommendation, setRecommendation] = useState<ConverseResult | null>(null);
   const [converseError, setConverseError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
+  const [commons, setCommons] = useState<CommonsOption[] | null>(null);
+  const [commonsError, setCommonsError] = useState<string | null>(null);
+  const [installing, setInstalling] = useState<string | null>(null);
+  const [installNote, setInstallNote] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const installed = await trpc.modules.list
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
+      .catch((e) => {
+        setLoadError(String(e));
+        return null;
+      });
+    if (!installed) return;
+    const rows = installed.items.filter(
+      (r) =>
+        r.state === "available" &&
+        r.status === "installed" &&
+        r.manifest.module !== undefined &&
+        r.moduleAttachment === undefined,
+    );
+    setModules(
+      rows.map((r) => ({
+        moduleName: r.moduleName,
+        version: r.moduleVersion,
+        to: r.manifest.module!.route,
+        label: r.manifest.module!.displayName,
+        desc: r.manifest.description,
+      })),
+    );
+    // Everything the person could ADD: root Modules in the registry that are
+    // not already theirs. A Skill in Commons is installed against a declared
+    // Module need, not started from here, so it is not on offer.
+    const have = new Set(installed.items.map((r) => r.moduleName));
+    try {
+      const catalog = await trpc.commons.list.query({
+        kind: "organization_definition",
+        limit: 100,
+        offset: 0,
+      });
+      setCommons(catalog.items.filter((item) => !have.has(item.name)));
+    } catch (e) {
+      // A registry that is unreachable is worth SAYING so, not hiding: the
+      // whole reason this section exists is that its absence was silent.
+      setCommonsError(String(e));
+      setCommons([]);
+    }
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -40,29 +102,47 @@ export function NewModuleDialog({ open, onOpenChange }: { open: boolean; onOpenC
     setPicked(null);
     setRecommendation(null);
     setConverseError(null);
-    trpc.modules.list
-      .query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
-      .then((res) => {
-        setModules(
-          res.items
-            .filter(
-              (r) =>
-                r.state === "available" &&
-                r.status === "installed" &&
-                r.manifest.module !== undefined &&
-                r.moduleAttachment === undefined,
-            )
-            .map((r) => ({
-              moduleName: r.moduleName,
-              version: r.moduleVersion,
-              to: r.manifest.module!.route,
-              label: r.manifest.module!.displayName,
-              desc: r.manifest.description,
-            })),
-        );
-      })
-      .catch((e) => setLoadError(String(e)));
-  }, [open]);
+    setInstallNote(null);
+    setCommonsError(null);
+    void load();
+  }, [open, load]);
+
+  async function install(entry: CommonsOption) {
+    setInstalling(entry.name);
+    setInstallNote(null);
+    try {
+      // The same two steps the Commons capability panel takes: propose stages
+      // the manifest, `modules.install` puts it through governance. An install
+      // the pipeline holds for review is NOT installed, and says so.
+      const proposed = await trpc.commons.installPropose.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        name: entry.name,
+        version: entry.latestVersion,
+      });
+      const result = await trpc.modules.install.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        installationId: proposed.installation.id,
+        todayKey: new Date().toISOString().slice(0, 10),
+      });
+      if (!result.installed) {
+        setInstallNote(`${entry.name} is waiting for your approval before it installs.`);
+        return;
+      }
+      await trpc.modules.promote.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        installationId: proposed.installation.id,
+      });
+      setInstallNote(`${entry.name} installed.`);
+      // The rail reads its Modules from the same list; tell it to re-read
+      // rather than leaving the new Module invisible until a reload.
+      window.dispatchEvent(new Event(MODULES_CHANGED_EVENT));
+      await load();
+    } catch (e) {
+      setInstallNote(`Could not install ${entry.name}: ${String(e)}`);
+    } finally {
+      setInstalling(null);
+    }
+  }
 
   async function pickModule(m: ModuleOption) {
     setPicked(m);
@@ -104,7 +184,7 @@ export function NewModuleDialog({ open, onOpenChange }: { open: boolean; onOpenC
             {!loadError && modules === null && <div className="text-sm text-muted-foreground">Loading Modules…</div>}
             {modules !== null && modules.length === 0 && (
               <div className="p-4 border rounded-md text-sm text-muted-foreground">
-                No Modules installed yet. Modules appear here once installed — see Settings → Intelligence.
+                No Modules installed yet. Add one from Commons below.
               </div>
             )}
             {modules !== null && modules.length > 0 && (
@@ -127,6 +207,41 @@ export function NewModuleDialog({ open, onOpenChange }: { open: boolean; onOpenC
                 ))}
               </ul>
             )}
+
+            {commons !== null && commons.length > 0 && (
+              <>
+                <div className="pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Add from Commons
+                </div>
+                <ul className="divide-y border rounded-md">
+                  {commons.map((entry) => (
+                    <li key={entry.name}>
+                      <button
+                        type="button"
+                        disabled={installing !== null}
+                        className="w-full flex items-center gap-3 p-3 text-left hover:bg-muted/50 transition-colors disabled:opacity-50"
+                        onClick={() => void install(entry)}
+                      >
+                        <Download className="w-4 h-4 shrink-0 text-muted-foreground" />
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-sm font-medium truncate">{entry.name}</span>
+                          <span className="block text-xs text-muted-foreground truncate">{entry.summary}</span>
+                        </span>
+                        <span className="text-xs text-muted-foreground shrink-0">
+                          {installing === entry.name ? "Installing…" : `v${entry.latestVersion}`}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {commonsError && (
+              <div className="text-xs text-muted-foreground break-words">
+                Commons is unreachable, so nothing can be added right now. {commonsError}
+              </div>
+            )}
+            {installNote && <div className="text-sm break-words">{installNote}</div>}
           </>
         ) : (
           <>

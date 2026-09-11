@@ -68,6 +68,9 @@
     },
     {
       "path": "../../commons/d2c"
+    },
+    {
+      "path": "../../services/commons"
     }
   ],
   "include": [
