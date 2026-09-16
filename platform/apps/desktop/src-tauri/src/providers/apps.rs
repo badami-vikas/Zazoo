@@ -78,6 +78,15 @@ pub(crate) fn frontmost_app_once() -> Option<(String, String)> {
     frontmost_app().map(|(name, bundle_id, _pid)| (name, bundle_id))
 }
 
+/// Same read plus the focused window's title (None without an Accessibility
+/// grant) — the teaching packs match browser sites on it.
+pub(crate) fn frontmost_app_with_title() -> Option<(String, String, Option<String>)> {
+    frontmost_app().map(|(name, bundle_id, pid)| {
+        let title = super::accessibility::focused_window_title(pid);
+        (name, bundle_id, title)
+    })
+}
+
 /// Reads NSWorkspace.shared.frontmostApplication, returning (localizedName,
 /// bundleIdentifier, pid). Wrapped in an autorelease pool since this runs off
 /// the main thread on a fresh Cocoa call each poll tick. The pid feeds the

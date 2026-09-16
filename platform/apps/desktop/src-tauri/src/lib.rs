@@ -43,6 +43,7 @@ mod whatsapp_send;
 mod whatsapp_message_ops;
 mod whatsapp_webview;
 mod sensor_bridge;
+mod teaching;
 
 use std::process::Command;
 use std::sync::Mutex;
@@ -752,6 +753,7 @@ pub fn run() {
             act::act_poll,
             act::act_stop,
             act::act_type_text,
+            act::act_paused,
             annotate::annotate_scribble_begin,
             annotate::annotate_scribble_cancel,
             annotate::annotate_scribble_done,

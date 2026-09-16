@@ -45,6 +45,15 @@ for one drag → red outline in the sent image + prompt note), **Dictate into my
 per-window driver (refused — invisible), Skills from the panel (Chat panel in the overlay already
 reaches them), always-on wake word (refused).
 
+**Walkthroughs go the distance + draw-with-narration (TASK-095, 2026-09-15)**: explain asks emit up to
+4 `[CELL]` tags → ring+callout per part (first refined, rest cell-coarse, no extra call); drawings clear
+when `say` EXITS (poll child, 90 s cap), not at 12 s. Guide mode has its own 20-min wall clock (150 s
+used to bound it). New closed action `wait_for_user` + 90 s click timeout → `paused`: goal + done steps
+kept in `ActState.paused` (memory only); `act_start{resume}` continues, `act_paused` re-offers after
+remount, typed "continue" routes to Do. Per-app teaching packs = DATA (`teaching/app-guides.json`, 97
+packs, bundle/app/site match; site-in-title beats browser) injected into the planner prompt; "look" step
+names the pack. Open: hand-drawn marks, user-editable/Commons packs, pause across restart.
+
 **Annotation output exists**: one display-sized `annotate.rs` window per monitor; click-through from
 creation (`set_ignore_cursor_events(true)`). Typed highlight/arrow/callout/spotlight marks only.
 Rust validates finite geometry, positive size, ≤12 marks, and ≤120-char labels before emit. Frontend

@@ -28,7 +28,7 @@
 //!   the hands are doing while they do it. Nothing runs silently.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -40,12 +40,16 @@ use crate::companion::{
     refine_cell, schedule_marks_clear, strip_think_blocks, vision_model, CellTarget,
     CompanionError, COARSE_COLS, COARSE_ROWS, GROQ_BASE_URL,
 };
-use crate::{annotate, overlay, sensor_bridge};
+use crate::{annotate, overlay, sensor_bridge, teaching};
 
 const MAX_TASK_CHARS: usize = 400;
 const MAX_TYPE_CHARS: usize = 500;
 const MAX_STEPS: usize = 15;
 const MAX_WALL: Duration = Duration::from_secs(150);
+/// A walkthrough waits for the user's own hand, so its clock is theirs.
+const MAX_WALL_GUIDE: Duration = Duration::from_secs(20 * 60);
+/// How long a walkthrough waits for the user's click before pausing.
+const GUIDE_CLICK_WAIT: Duration = Duration::from_secs(90);
 /// Let the UI settle after an action before the next look.
 const SETTLE: Duration = Duration::from_millis(700);
 
@@ -62,6 +66,27 @@ fn err(code: &'static str, message: impl Into<String>) -> CompanionError {
 pub struct ActState {
     epoch: AtomicU64,
     jobs: Arc<crate::jobs::JobTable<Result<ActOutcome, CompanionError>>>,
+    /// The run that handed the user manual work and is waiting for
+    /// "continue": goal + every completed step, kept in memory only.
+    paused: Mutex<Option<PausedRun>>,
+}
+
+#[derive(Clone)]
+struct PausedRun {
+    task: String,
+    log: Vec<String>,
+    guide: bool,
+    speak: bool,
+    allowed_apps: Vec<String>,
+    monitor_index: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PausedSummary {
+    pub task: String,
+    pub steps: usize,
+    pub guide: bool,
 }
 
 #[derive(Deserialize)]
@@ -84,6 +109,10 @@ pub struct ActRequest {
     /// default-deny (ADR-263).
     #[serde(default)]
     pub allowed_apps: Vec<String>,
+    /// Continue the paused run instead of starting a new one: the goal and
+    /// completed steps come from the pause, `task` is ignored.
+    #[serde(default)]
+    pub resume: bool,
 }
 
 #[derive(Deserialize)]
@@ -97,7 +126,7 @@ pub struct TypeTextRequest {
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ActOutcome {
-    /// `done` | `failed` | `stopped` | `bounded`
+    /// `done` | `failed` | `stopped` | `bounded` | `paused`
     pub status: &'static str,
     pub summary: String,
     pub steps: usize,
@@ -157,6 +186,9 @@ pub enum Step {
     Press(Key),
     Scroll(i32),
     OpenApp(String),
+    /// Hand the next step to the user (a password, a choice only they can
+    /// make) and pause until they say continue.
+    WaitForUser,
     Done,
     Fail,
 }
@@ -210,12 +242,16 @@ pub fn parse_step(reply: &str, cols: usize, rows: usize) -> (String, Step) {
             if app.is_empty() { Step::Fail } else { Step::OpenApp(app) }
         }
         "done" => Step::Done,
+        "wait_for_user" => Step::WaitForUser,
         _ => Step::Fail,
     };
     (say, step)
 }
 
-fn planner_prompt(task: &str, log: &[String], cols: usize, rows: usize, guide: bool) -> String {
+fn planner_prompt(task: &str, log: &[String], cols: usize, rows: usize, guide: bool, pack: Option<&teaching::Guide>) -> String {
+    let notes = pack
+        .map(|g| format!("Notes about {}, the app in front: {}\n", g.name, g.notes))
+        .unwrap_or_default();
     let voice = if guide {
         "You are TEACHING the user to do the task themselves: \"say\" must be the instruction for \
          this one step, in second person (\"Click the blue Compose button\"), and every action must \
@@ -233,10 +269,11 @@ fn planner_prompt(task: &str, log: &[String], cols: usize, rows: usize, guide: b
          {cols}x{rows} grid; every cell has its number printed in it. Choose exactly ONE next action \
          toward the task, then the screen will be captured again.\n\
          Task: {task}\n\
+         {notes}\
          Steps already taken:\n{history}\n\
          Reply with ONLY a JSON object, no prose: {{\"say\": \"<one short sentence telling the user \
          what you are doing>\", \"action\": \"click\" | \"double_click\" | \"right_click\" | \"type\" | \
-         \"key\" | \"scroll\" | \"open_app\" | \"done\" | \"fail\", \"target\": \"<short label of the \
+         \"key\" | \"scroll\" | \"open_app\" | \"wait_for_user\" | \"done\" | \"fail\", \"target\": \"<short label of the \
          on-screen control, for click actions>\", \"cell\": <printed grid cell number containing the \
          target, for click actions>, \"text\": \"<text to type, for type>\", \"key\": \"return\" | \
          \"tab\" | \"escape\" | \"space\" | \"backspace\" | \"up\" | \"down\" | \"left\" | \"right\" | \
@@ -244,8 +281,11 @@ fn planner_prompt(task: &str, log: &[String], cols: usize, rows: usize, guide: b
          \"direction\": \"up\" | \"down\", \"app\": \"<application name, for open_app>\"}}.\n\
          Rules: click a text field before typing into it; use open_app rather than the Dock to launch \
          an app; when the task is visibly complete answer with action \"done\" and say what you see; \
-         if a step would need a password, a payment, deleting or sending something the user did not \
-         ask for, or the task cannot be done, answer with action \"fail\" and say why."
+         if the next step needs the user's own hand — a password, a file or account only they can \
+         choose, a decision that is theirs — answer with action \"wait_for_user\" and say exactly what \
+         they should do before pressing Continue; if a step would need a payment, deleting or sending \
+         something the user did not ask for, or the task cannot be done, answer with action \"fail\" \
+         and say why."
     )
 }
 
@@ -260,10 +300,20 @@ pub fn act_start(
     state: tauri::State<'_, ActState>,
     request: ActRequest,
 ) -> Result<u64, CompanionError> {
-    let task = request.task.trim().to_string();
+    let resumed = if request.resume {
+        let taken = state.paused.lock().ok().and_then(|mut p| p.take());
+        Some(taken.ok_or_else(|| err("ACT_NOTHING_TO_RESUME", "there is no paused walkthrough to continue"))?)
+    } else {
+        None
+    };
+    let task = resumed.as_ref().map_or_else(|| request.task.trim().to_string(), |p| p.task.clone());
     if task.is_empty() {
         return Err(err("ACT_EMPTY_TASK", "do what?"));
     }
+    let request = match &resumed {
+        Some(p) => ActRequest { task: task.clone(), guide: p.guide, speak: p.speak, allowed_apps: p.allowed_apps.clone(), ..request },
+        None => request,
+    };
     if task.chars().count() > MAX_TASK_CHARS {
         return Err(err("ACT_TASK_TOO_LONG", format!("a task is limited to {MAX_TASK_CHARS} characters")));
     }
@@ -289,7 +339,11 @@ pub fn act_start(
     let key = groq_api_key(&app).ok_or_else(|| {
         err("ACT_NO_PROVIDER", "doing tasks needs a Groq API key in Settings → API Keys (one screenshot per step is sent to Groq)")
     })?;
-    let monitor_index = overlay::monitor_index_for_label(window.label());
+    let monitor_index = resumed.as_ref().map_or_else(|| overlay::monitor_index_for_label(window.label()), |p| p.monitor_index);
+    let mut log = resumed.map(|p| p.log).unwrap_or_default();
+    if !log.is_empty() {
+        log.push("(you did the manual step yourself, then pressed Continue)".into());
+    }
     let job = state.jobs.start().map_err(|message| err("ACT_JOBS", message))?;
     let epoch = state.epoch.fetch_add(1, Ordering::SeqCst) + 1;
     let table = state.jobs.clone();
@@ -298,7 +352,7 @@ pub fn act_start(
     let guide = request.guide;
     let allowed_apps = request.allowed_apps;
     tauri::async_runtime::spawn_blocking(move || {
-        let result = run(&app_for_task, epoch, monitor_index, &task, &key, speak, guide, &allowed_apps);
+        let result = run(&app_for_task, epoch, monitor_index, &task, &key, speak, guide, &allowed_apps, log);
         let _ = app_for_task.emit(POINTER_EVENT, serde_json::json!({ "monitor": monitor_index, "x": 0.0, "y": 0.0, "active": false }));
         if let Ok(outcome) = &result {
             let _ = app_for_task.emit(ACT_DONE_EVENT, outcome.clone());
@@ -321,6 +375,17 @@ pub fn act_poll(state: tauri::State<'_, ActState>, job: u64) -> Result<ActPoll, 
 #[tauri::command]
 pub fn act_stop(state: tauri::State<'_, ActState>) {
     state.epoch.fetch_add(1, Ordering::SeqCst);
+    if let Ok(mut paused) = state.paused.lock() {
+        *paused = None;
+    }
+}
+
+/// The run waiting for "continue", if any — so the panel can offer it after
+/// a remount and the ask box can route a typed "continue" to it.
+#[tauri::command]
+pub fn act_paused(state: tauri::State<'_, ActState>) -> Option<PausedSummary> {
+    let guard = state.paused.lock().ok()?;
+    guard.as_ref().map(|p| PausedSummary { task: p.task.clone(), steps: p.log.len(), guide: p.guide })
 }
 
 /// Dictation: type already-transcribed text into whatever has keyboard
@@ -347,6 +412,19 @@ pub fn act_type_text(request: TypeTextRequest) -> Result<String, CompanionError>
     }
 }
 
+/// (name, bundle id, focused window title) — the title needs Accessibility
+/// and is None without it; a site pack then cannot match, an app pack still can.
+fn frontmost_app_context() -> Option<(String, String, Option<String>)> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::providers::apps::frontmost_app_with_title()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
 fn frontmost_app_name() -> Option<String> {
     #[cfg(target_os = "macos")]
     {
@@ -358,33 +436,40 @@ fn frontmost_app_name() -> Option<String> {
     }
 }
 
-/// Wait for the user's own click. Returns `Ok(true)` when a press lands
-/// within `target` (padded), `Ok(false)` on a press elsewhere, `Err(())` on
-/// stop/timeout. Edge-triggered on the button so a held press counts once.
+enum UserClick {
+    Hit,
+    Miss,
+    Stopped,
+    Timeout,
+}
+
+/// Wait for the user's own click: `Hit` when a press lands within `target`
+/// (padded), `Miss` on a press elsewhere. Edge-triggered on the button so a
+/// held press counts once.
 fn wait_for_user_click(
     app: &AppHandle,
     epoch: u64,
     target: Option<(f64, f64, f64, f64)>,
     timeout: Duration,
-) -> Result<bool, ()> {
+) -> UserClick {
     let started = Instant::now();
     let mut was_down = actuator::primary_button_down();
     while started.elapsed() < timeout {
         if stopped(app, epoch) {
-            return Err(());
+            return UserClick::Stopped;
         }
         let down = actuator::primary_button_down();
         if down && !was_down {
-            let Some((x, y, w, h)) = target else { return Ok(true) };
+            let Some((x, y, w, h)) = target else { return UserClick::Hit };
             let hit = actuator::cursor_location().map_or(true, |(cx, cy)| {
                 cx >= x - 40.0 && cx <= x + w + 40.0 && cy >= y - 40.0 && cy <= y + h + 40.0
             });
-            return Ok(hit);
+            return if hit { UserClick::Hit } else { UserClick::Miss };
         }
         was_down = down;
         std::thread::sleep(Duration::from_millis(30));
     }
-    Err(())
+    UserClick::Timeout
 }
 
 // ---------------------------------------------------------------------------
@@ -412,25 +497,36 @@ fn run(
     speak: bool,
     guide: bool,
     allowed_apps: &[String],
+    mut log: Vec<String>,
 ) -> Result<ActOutcome, CompanionError> {
     let model = vision_model(app);
     let started = Instant::now();
-    let mut log: Vec<String> = Vec::new();
+    let wall = if guide { MAX_WALL_GUIDE } else { MAX_WALL };
+    // Pause: keep the goal and every completed step so "continue" resumes
+    // instead of starting over.
+    let pause = |say: String, log: &[String]| -> Result<ActOutcome, CompanionError> {
+        if let Ok(mut slot) = app.state::<ActState>().paused.lock() {
+            *slot = Some(PausedRun { task: task.to_string(), log: log.to_vec(), guide, speak, allowed_apps: allowed_apps.to_vec(), monitor_index });
+        }
+        Ok(ActOutcome { status: "paused", summary: say, steps: log.len() })
+    };
     let (ox, oy, logical_w, logical_h) = companion::monitor_logical_rect(app, monitor_index)
         .ok_or_else(|| err("ACT_NO_MONITOR", "monitor geometry unavailable"))?;
     let outcome = |status, summary: String, steps| Ok(ActOutcome { status, summary, steps });
 
-    for index in 1..=MAX_STEPS {
+    let first = log.len() + 1;
+    for index in first..=MAX_STEPS {
         if stopped(app, epoch) {
             return outcome("stopped", "Stopped.".into(), index - 1);
         }
-        if started.elapsed() > MAX_WALL {
-            return outcome("bounded", format!("I stopped after {}s without finishing.", MAX_WALL.as_secs()), index - 1);
+        if started.elapsed() > wall {
+            return outcome("bounded", format!("I stopped after {}s without finishing.", wall.as_secs()), index - 1);
         }
         if let Some(guarded) = guarded_frontmost_app() {
             return outcome("failed", format!("{guarded} looks like a password or credential window, so I stopped."), index - 1);
         }
-        emit_step(app, index, "Looking at the screen…", "look", "", "planning");
+        let pack = frontmost_app_context().and_then(|(name, bundle, title)| teaching::guide_for(&name, &bundle, title.as_deref()));
+        emit_step(app, index, "Looking at the screen…", "look", pack.map_or("", |g| g.name.as_str()), "planning");
         let capture = sensor_bridge::capture_display_jpeg(app, monitor_index)
             .map_err(|e| err("ACT_CAPTURE_FAILED", e.message))?;
         let gridded = gridded_jpeg(&capture.jpeg_bytes, COARSE_COLS, COARSE_ROWS)
@@ -443,7 +539,7 @@ fn run(
             "messages": [{
                 "role": "user",
                 "content": [
-                    { "type": "text", "text": planner_prompt(task, &log, COARSE_COLS, COARSE_ROWS, guide) },
+                    { "type": "text", "text": planner_prompt(task, &log, COARSE_COLS, COARSE_ROWS, guide, pack) },
                     { "type": "image_url", "image_url": { "url": format!(
                         "data:image/jpeg;base64,{}",
                         base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &gridded)
@@ -468,6 +564,11 @@ fn run(
             let target = match &step {
                 Step::Done => return outcome("done", say, index - 1),
                 Step::Fail => return outcome("failed", say, index - 1),
+                Step::WaitForUser => {
+                    emit_step(app, index, &say, "your turn", "", "ok");
+                    log.push(format!("your turn — {say}"));
+                    return pause(say, &log);
+                }
                 Step::Click { cell, label, .. } => {
                     let region = refine_cell(key, &model, &capture.jpeg_bytes, capture.image_width as f64, capture.image_height as f64, &CellTarget { number: *cell, label: label.clone() });
                     let marks = companion::marks_for_box(region, label, capture.image_width as f64, capture.image_height as f64, logical_w, logical_h);
@@ -481,17 +582,24 @@ fn run(
             };
             let mut attempts = 0;
             loop {
-                match wait_for_user_click(app, epoch, target, Duration::from_secs(90)) {
-                    Ok(true) => break,
-                    Ok(false) if attempts == 0 => {
+                match wait_for_user_click(app, epoch, target, GUIDE_CLICK_WAIT) {
+                    UserClick::Hit => break,
+                    UserClick::Miss if attempts == 0 => {
                         attempts += 1;
                         emit_step(app, index, "Not quite — it's where the arrow is.", action_name, &target_label, "acting");
                         if speak { companion::speak(app, "Not quite — it's where the arrow is."); }
                     }
-                    Ok(false) => break, // second try anywhere: let the user move on
-                    Err(()) => {
+                    UserClick::Miss => break, // second try anywhere: let the user move on
+                    UserClick::Stopped => {
                         let _ = annotate::annotate_clear(app.clone());
                         return outcome("stopped", "Stopped the walkthrough.".into(), index - 1);
+                    }
+                    UserClick::Timeout => {
+                        // No click in time: the user is doing something else.
+                        // Keep the goal and the steps so far; Continue resumes here.
+                        let _ = annotate::annotate_clear(app.clone());
+                        emit_step(app, index, &say, action_name, &target_label, "acting");
+                        return pause(format!("Paused at step {index}: {say} Press Continue when you're ready."), &log);
                     }
                 }
             }
@@ -506,7 +614,7 @@ fn run(
         // `open_app` are always allowed (the first step is usually switching
         // INTO the allowed app from wherever the user pressed Do), so the
         // check runs right before a click/type/key/scroll lands somewhere.
-        if !guide && !matches!(step, Step::Done | Step::Fail | Step::OpenApp(_)) {
+        if !guide && !matches!(step, Step::Done | Step::Fail | Step::OpenApp(_) | Step::WaitForUser) {
             if let Some(front) = frontmost_app_name() {
                 if !app_allowed(allowed_apps, &front) {
                     return outcome(
@@ -520,6 +628,11 @@ fn run(
         let result: Result<(), ActuatorError> = match &step {
             Step::Done => return outcome("done", say, index - 1),
             Step::Fail => return outcome("failed", say, index - 1),
+            Step::WaitForUser => {
+                emit_step(app, index, &say, "your turn", "", "ok");
+                log.push(format!("your turn — {say}"));
+                return pause(say, &log);
+            }
             Step::OpenApp(name) => {
                 #[cfg(target_os = "macos")]
                 let _ = std::process::Command::new("open").args(["-a", name]).spawn();
@@ -597,6 +710,7 @@ fn describe(step: &Step) -> (&'static str, String) {
         Step::Press(_) => ("press", String::new()),
         Step::Scroll(lines) => ("scroll", if *lines < 0 { "up".into() } else { "down".into() }),
         Step::OpenApp(name) => ("open", name.clone()),
+        Step::WaitForUser => ("your turn", String::new()),
         Step::Done => ("done", String::new()),
         Step::Fail => ("stop", String::new()),
     }
@@ -652,10 +766,25 @@ mod tests {
 
     #[test]
     fn prompt_carries_task_and_history() {
-        let p = planner_prompt("open Notes", &["open Notes — Opening Notes".into()], 12, 8, false);
+        let p = planner_prompt("open Notes", &["open Notes — Opening Notes".into()], 12, 8, false, None);
         assert!(p.contains("Task: open Notes") && p.contains("1. open Notes") && p.contains("12x8 grid"));
-        assert!(!p.contains("TEACHING"));
-        assert!(planner_prompt("open Notes", &[], 12, 8, true).contains("TEACHING"));
+        assert!(!p.contains("TEACHING") && !p.contains("Notes about"));
+        assert!(planner_prompt("open Notes", &[], 12, 8, true, None).contains("TEACHING"));
+    }
+
+    #[test]
+    fn prompt_carries_the_teaching_pack_for_the_app_in_front() {
+        let pack = teaching::guide_for("Google Chrome", "com.google.Chrome", Some("Inbox - Gmail")).unwrap();
+        let p = planner_prompt("archive this email", &[], 12, 8, true, Some(pack));
+        assert!(p.contains("Notes about Gmail, the app in front: Compose is the button"));
+    }
+
+    #[test]
+    fn wait_for_user_is_a_closed_action_that_pauses_instead_of_acting() {
+        let (say, step) = parse_step("{\"say\":\"Type your password, then press Continue.\",\"action\":\"wait_for_user\"}", 12, 8);
+        assert_eq!(step, Step::WaitForUser);
+        assert_eq!(say, "Type your password, then press Continue.");
+        assert_eq!(describe(&Step::WaitForUser).0, "your turn");
     }
 
     #[test]

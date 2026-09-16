@@ -341,6 +341,33 @@ pub fn parse_cell_tag(text: &str) -> Option<CellTarget> {
     Some(CellTarget { number, label })
 }
 
+/// How many things one explanation may point at. With a ring + callout per
+/// target this stays under `annotate`'s 12-mark bound.
+pub const MAX_EXPLAIN_TAGS: usize = 4;
+
+/// Every `[CELL:<number>:<label>]` tag in reply order, deduplicated by cell
+/// and capped at `MAX_EXPLAIN_TAGS` — "draw on screen with narration": the
+/// model names several things while it explains and each gets a mark.
+pub fn parse_cell_tags(text: &str) -> Vec<CellTarget> {
+    const OPEN: &str = "[CELL:";
+    let mut out: Vec<CellTarget> = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find(OPEN) {
+        let after = &rest[start + OPEN.len()..];
+        let Some(end) = after.find(']') else { break };
+        if let Some(target) = parse_cell_tag(&rest[start..start + OPEN.len() + end + 1]) {
+            if !out.iter().any(|t| t.number == target.number) {
+                out.push(target);
+            }
+        }
+        if out.len() >= MAX_EXPLAIN_TAGS {
+            break;
+        }
+        rest = &after[end + 1..];
+    }
+    out
+}
+
 /// Remove `[CELL:...]` tags from the prose shown and spoken to the user.
 pub fn strip_cell_tags(text: &str) -> String {
     const OPEN: &str = "[CELL:";
@@ -1022,10 +1049,13 @@ fn vision_system_prompt(image_w: usize, image_h: usize) -> String {
          columns and {COARSE_ROWS} rows; each cell has its number printed in its top-left corner, \
          from 1 to {cells}. The grid is an aid for you only — it is not part of the user's screen, \
          so never mention it, the numbers, or the magenta lines in your prose. \
-         If your answer refers to one specific thing on screen, end your reply with a single tag \
+         If your answer refers to one specific thing on screen, end your reply with a tag \
          of the exact form [CELL:<number>:<short label>] giving the printed number of the cell \
          that thing sits in, e.g. [CELL:57:Ask button]. Read the number off the grid rather than \
-         estimating it. Use the tag only for something you can actually see, never more than one. \
+         estimating it. Use tags only for things you can actually see. When you are explaining or \
+         walking through several parts of the screen, add one tag per part, up to \
+         {MAX_EXPLAIN_TAGS}, with the most important first — they are drawn on the user's screen \
+         while your answer is spoken. \
          Start your reply with exactly one emotion tag on its own line, chosen to match the tone \
          of your answer: [EMOTION:happy], [EMOTION:curious], [EMOTION:concerned], \
          [EMOTION:comforting], [EMOTION:thinking], [EMOTION:celebrating], or [EMOTION:calm]."
@@ -1177,13 +1207,17 @@ pub fn companion_ask_poll(
         crate::jobs::JobPollState::Ready(Ok((monitor_index, outcome))) => {
             // Completion side effects run HERE, on the poll that first observes
             // the finished job — take-once semantics guarantee exactly once.
-            if !outcome.marks.is_empty() {
+            let drew = !outcome.marks.is_empty();
+            if drew {
                 annotate::show_marks_on(&app, monitor_index, outcome.marks.clone())
                     .map_err(|error| err("COMPANION_ANNOTATE_FAILED", error))?;
-                schedule_marks_clear(&app);
             }
-            if outcome.answer.spoke {
-                speak(&app, &outcome.answer.text);
+            match (drew, outcome.answer.spoke) {
+                // Drawings stay while the answer is spoken and clear when it ends.
+                (true, true) => speak_then_clear_marks(&app, &outcome.answer.text),
+                (true, false) => schedule_marks_clear(&app),
+                (false, true) => speak(&app, &outcome.answer.text),
+                (false, false) => {}
             }
             Ok(CompanionAskPoll {
                 done: true,
@@ -1472,7 +1506,8 @@ fn run_ask(
         }
         // Locator stage 1 arrived WITH the answer as a [CELL:..] tag (one
         // provider call instead of two). Stage 2 then refines it on a crop.
-        let cell = parse_cell_tag(&raw);
+        let cells = parse_cell_tags(&raw);
+        let cell = cells.first().cloned();
         // Logical size of the captured monitor (main-thread roundtrip).
         // Fallback to image dimensions keeps marks roughly placed on a 1x
         // display even if enumeration hiccups.
@@ -1494,13 +1529,22 @@ fn run_ask(
                 target.label.clone(),
             )
         });
-        let marks = match &located {
+        let mut marks = match &located {
             Some((region, label)) => {
                 marks_for_box(*region, label, image_w, image_h, logical_w, logical_h)
             }
             // No usable target — draw nothing rather than a confident guess.
             None => Vec::new(),
         };
+        // The rest of an explanation is drawn at cell precision without a
+        // second provider call per part — a "look around here" ring, not a
+        // pointer. The refined first target stays the precise one.
+        let full = LocatedBox { x: 0.0, y: 0.0, width: image_w, height: image_h };
+        for target in cells.iter().skip(1) {
+            if let Some(region) = numbered_cell_box(full, COARSE_COLS, COARSE_ROWS, target.number) {
+                marks.extend(marks_for_box(region, &target.label, image_w, image_h, logical_w, logical_h));
+            }
+        }
         // Dev-visible pipeline trace (local stdout only): enough to tell
         // "model emitted no tags" apart from "marks failed to render".
         eprintln!(
@@ -1526,7 +1570,7 @@ fn run_ask(
                 text: clean,
                 provider: "groq-vision",
                 screen_shared: true,
-                points: usize::from(!marks.is_empty()),
+                points: cells.len().min(usize::from(!marks.is_empty()) * MAX_EXPLAIN_TAGS),
                 spoke: request.speak,
                 capture_note: None,
                 emotion,
@@ -1721,36 +1765,69 @@ fn frontmost_app_name() -> Option<String> {
     }
 }
 
-pub(crate) fn schedule_marks_clear(app: &AppHandle) {
+/// Hard cap on "clear when speech ends", so a wedged `say` never leaves
+/// drawings on screen.
+const SPOKEN_MARKS_MAX: Duration = Duration::from_secs(90);
+
+fn next_marks_generation(app: &AppHandle) -> Option<u64> {
     let state = app.state::<CompanionState>();
-    let generation = {
-        let Ok(mut guard) = state.marks_generation.lock() else {
-            return;
-        };
-        *guard = guard.saturating_add(1);
-        *guard
-    };
+    let mut guard = state.marks_generation.lock().ok()?;
+    *guard = guard.saturating_add(1);
+    Some(*guard)
+}
+
+fn clear_marks_if_current(app: &AppHandle, generation: u64) {
+    let still_current = app
+        .state::<CompanionState>()
+        .marks_generation
+        .lock()
+        .map(|current| *current == generation)
+        .unwrap_or(false);
+    if !still_current {
+        return;
+    }
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Err(error) = annotate::annotate_clear(handle.clone()) {
+            eprintln!("[bridge-desktop] companion auto-clear failed: {}", error.message);
+        }
+    });
+}
+
+pub(crate) fn schedule_marks_clear(app: &AppHandle) {
+    let Some(generation) = next_marks_generation(app) else { return };
     let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(MARKS_AUTO_CLEAR);
-        let still_current = app
-            .state::<CompanionState>()
-            .marks_generation
-            .lock()
-            .map(|current| *current == generation)
-            .unwrap_or(false);
-        if !still_current {
-            return;
-        }
-        let handle = app.clone();
-        let _ = app.run_on_main_thread(move || {
-            if let Err(error) = annotate::annotate_clear(handle.clone()) {
-                eprintln!(
-                    "[bridge-desktop] companion auto-clear failed: {}",
-                    error.message
-                );
+        clear_marks_if_current(&app, generation);
+    });
+}
+
+/// Speak, and clear the drawings the moment the speech process exits (or
+/// is replaced by a newer one) — Hey Clicky's "stays while it's speaking,
+/// then everything clears". Falls back to the hard cap.
+pub(crate) fn speak_then_clear_marks(app: &AppHandle, text: &str) {
+    let Some(generation) = next_marks_generation(app) else { return };
+    speak(app, text);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        while started.elapsed() < SPOKEN_MARKS_MAX {
+            std::thread::sleep(Duration::from_millis(250));
+            let speaking = app
+                .state::<CompanionState>()
+                .speech_child
+                .lock()
+                .map(|mut guard| match guard.as_mut() {
+                    Some(child) => matches!(child.try_wait(), Ok(None)),
+                    None => false,
+                })
+                .unwrap_or(false);
+            if !speaking {
+                break;
             }
-        });
+        }
+        clear_marks_if_current(&app, generation);
     });
 }
 
@@ -2221,6 +2298,14 @@ mod tests {
         assert_eq!(target.label, "Ask button");
         assert!(parse_cell_tag("no tag here").is_none());
         assert!(parse_cell_tag("[CELL:999:out of range]").is_none());
+    }
+
+    #[test]
+    fn an_explanation_yields_one_target_per_part_deduplicated_and_capped() {
+        let many = parse_cell_tags("The toolbar [CELL:3:Toolbar] holds Save [CELL:3:Save]; the sidebar [CELL:25:Sidebar] and status [CELL:90:Status] [CELL:91:x] [CELL:92:y] [CELL:bad:z]");
+        assert_eq!(many.iter().map(|t| t.number).collect::<Vec<_>>(), vec![3, 25, 90, 91]);
+        assert_eq!(many[0].label, "Toolbar");
+        assert!(parse_cell_tags("plain prose").is_empty());
         assert_eq!(
             strip_cell_tags("Click there. [CELL:57:Ask button]"),
             "Click there."

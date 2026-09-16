@@ -45,3 +45,12 @@ test("the remaining Hey Clicky gaps have real surfaces: guide, circle-to-focus, 
   assert.match(annotateSource, /annotate_scribble_done/);
   assert.match(annotateSource, /pointerEvents: scribble \? "auto" : "none"/, "the overlay is interactive only while circling");
 });
+
+test("walkthroughs pause for the user's own hand and continue with the goal kept", () => {
+  assert.match(doSource, /"paused"/, "paused is an outcome the panel understands");
+  assert.match(doSource, /tauriInvoke\("act_paused"\)/, "a paused run is offered again after a remount");
+  assert.match(doSource, /resume,\n/, "the resume flag rides on act_start");
+  assert.match(doSource, />\s*Continue\s*</, "Continue button");
+  assert.match(askSource, /t === "continue"/, "typed continue routes to Do mode");
+});
+

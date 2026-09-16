@@ -46,7 +46,8 @@ function isExplicitResearch(text: string) {
 /** "do …" / "click …" / "type …" are tasks for the hands, not questions. */
 export function isExplicitDo(text: string) {
   const t = text.trim().toLowerCase();
-  return ["do ", "click ", "type ", "open ", "go to ", "press "].some((p) => t.startsWith(p));
+  // "continue" picks a paused walkthrough back up (DoRun resumes it on mount).
+  return t === "continue" || ["do ", "click ", "type ", "open ", "go to ", "press "].some((p) => t.startsWith(p));
 }
 
 interface CompanionCapabilities {

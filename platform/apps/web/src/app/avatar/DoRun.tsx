@@ -34,9 +34,15 @@ interface StepEvent {
 }
 
 interface ActOutcome {
-  status: "done" | "failed" | "stopped" | "bounded";
+  status: "done" | "failed" | "stopped" | "bounded" | "paused";
   summary: string;
   steps: number;
+}
+
+interface PausedSummary {
+  task: string;
+  steps: number;
+  guide: boolean;
 }
 
 export function DoRun({
@@ -81,15 +87,29 @@ export function DoRun({
     setAccessibility(Boolean(capabilities?.accessibility));
   }, [capabilities]);
 
+  // A run that handed you manual work survives the panel closing: offer
+  // Continue again, and a typed "continue" resumes it straight away.
+  useEffect(() => {
+    void (async () => {
+      const paused = (await tauriInvoke("act_paused")) as PausedSummary | null | undefined;
+      if (!paused) return;
+      setTask(paused.task);
+      setGuide(paused.guide);
+      setOutcome({ status: "paused", summary: "Your turn — press Continue when you're ready.", steps: paused.steps });
+      if (initialTask.trim().toLowerCase() === "continue") void start(paused.guide, true);
+    })();
+    // Mount-only on purpose.
+  }, []);
+
   async function refreshAccessibility() {
     const granted = (await tauriInvoke("ax_permission_status")) === true;
     setAccessibility(granted);
     if (!granted) void tauriInvoke("ax_request_permission");
   }
 
-  async function start(asGuide = false) {
+  async function start(asGuide = false, resume = false) {
     const trimmed = task.trim();
-    if (!trimmed || runningRef.current) return;
+    if ((!trimmed && !resume) || runningRef.current) return;
     runningRef.current = true;
     setGuide(asGuide);
     setRunning(true);
@@ -105,6 +125,7 @@ export function DoRun({
           speak,
           guide: asGuide,
           allowedApps: allowedApps.split(",").map((a) => a.trim()).filter(Boolean),
+          resume,
         },
       })) as number;
       for (;;) {
@@ -113,7 +134,7 @@ export function DoRun({
         if (poll.done) {
           setOutcome(poll.outcome ?? null);
           if (poll.outcome?.summary) {
-            onSaid?.(poll.outcome.summary, poll.outcome.status === "done" ? "happy" : "thinking");
+            onSaid?.(poll.outcome.summary, poll.outcome.status === "done" ? "happy" : poll.outcome.status === "paused" ? "curious" : "thinking");
           }
           break;
         }
@@ -219,6 +240,17 @@ export function DoRun({
           </button>
         ) : (
           <>
+          {outcome?.status === "paused" && (
+            <button
+              type="button"
+              disabled={guide ? !canGuide : !canRun}
+              title="Picks the walkthrough up where it paused — the goal and finished steps are kept"
+              onClick={() => void start(guide, true)}
+              className="rounded-[var(--radius-button)] border border-border bg-[var(--color-navy)] text-[var(--color-background)] text-xs px-3 py-1.5 hover:opacity-90 disabled:opacity-50"
+            >
+              Continue
+            </button>
+          )}
           <button
             type="button"
             disabled={!canGuide || !task.trim()}
@@ -264,7 +296,7 @@ export function DoRun({
       {outcome && (
         <div role="status" aria-live="polite" className="rounded-[var(--radius-button)] border border-border bg-[var(--color-surface)] p-2">
           <p className="text-xs font-medium text-[var(--color-navy-mid)]">
-            {outcome.status === "done" ? (guide ? "Walkthrough complete" : "Done") : outcome.status === "stopped" ? "Stopped" : outcome.status === "bounded" ? "Ran out of steps" : "Could not finish"}
+            {outcome.status === "done" ? (guide ? "Walkthrough complete" : "Done") : outcome.status === "paused" ? "Your turn" : outcome.status === "stopped" ? "Stopped" : outcome.status === "bounded" ? "Ran out of steps" : "Could not finish"}
             {" · "}{outcome.steps} {outcome.steps === 1 ? "step" : "steps"}
           </p>
           <p className="whitespace-pre-wrap text-[var(--color-navy)]">{outcome.summary}</p>
