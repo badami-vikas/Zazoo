@@ -92,7 +92,7 @@ test("VOCAB5 upgrades the immutable Relationship manifest", async () => {
   // 0.3.1 — a genuine, immutable manifest content change, never a
   // stale-test-vs-code drift. See packages/module-manifests/src/index.ts's built-in
   // NetworkManager manifest for the current version.
-  assert.equal(current.manifest.version, "0.3.1");
+  assert.equal(current.manifest.version, "0.4.0");
 
   const priorManifest = structuredClone(current.manifest);
   priorManifest.version = "0.2.1";
@@ -116,7 +116,7 @@ test("VOCAB5 upgrades the immutable Relationship manifest", async () => {
 
   assert.equal((await store.get(prior.id))?.state, "legacy");
   const available = await store.getAvailable(PILOT_ORGANIZATION, "relationship");
-  assert.equal(available?.moduleVersion, "0.3.1");
+  assert.equal(available?.moduleVersion, "0.4.0");
   assert.ok(
     available?.manifest.capabilities.some(
       (capability) => capability.id === "relationship.submodule.relations",

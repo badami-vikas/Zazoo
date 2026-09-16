@@ -36,6 +36,39 @@ import {
   type Wiring,
 } from "../src/wiring.js";
 import { WEB_RESEARCH_SKILL_ID } from "../src/web-research-skill.js";
+import { GOVERNED_WEB_RESEARCH_MODULE } from "../src/router-shared.js";
+import { COMMONS_BUILT_IN_MODULES } from "@bridge/module-manifests";
+
+/**
+ * Since the 2026-09-15 egress split the Relationship Module does NOT bundle
+ * `web-research` — it declares a Commons need for it, so reaching the public
+ * web is a separate governed install. Every test that expects a Research Run
+ * to reach a provider has to grant that reach first; this is that install,
+ * done straight against the store rather than through a live registry.
+ */
+async function installWebResearchSkill(wiring: Wiring): Promise<void> {
+  const entry = COMMONS_BUILT_IN_MODULES.find(
+    (candidate) => candidate.manifest.name === GOVERNED_WEB_RESEARCH_MODULE,
+  );
+  assert.ok(entry, "the governed-web-research Commons entry is curated");
+  await wiring.moduleStore.create({
+    organizationId: PILOT_ORGANIZATION,
+    moduleName: entry.manifest.name,
+    moduleVersion: entry.manifest.version,
+    manifest: entry.manifest,
+    computedRisk: entry.computedRisk,
+    lineageManifestId: null,
+    state: "available",
+    status: "installed",
+    moduleAttachment: {
+      source: "commons",
+      ownerModuleName: "relationship",
+      agentId: "learning-agent",
+      needId: "governed-web-research",
+      contentHash: `sha256:${"0".repeat(64)}`,
+    },
+  });
+}
 
 function makeRun(): RunCtx {
   const clock = new SystemClock();
@@ -252,6 +285,7 @@ test("web-research runs as the server-selected Learning Agent through cloud/publ
     webResearchContentGuard: fixture.contentGuard,
   });
   try {
+    await installWebResearchSkill(wiring);
     const caller = await makeCaller(wiring);
     const memoriesBefore = await wiring.memoryStore.retrieve(
       { limit: 100 },
@@ -373,6 +407,7 @@ test("web-research surfaces attributable provider unavailability instead of retu
   };
   const wiring = await buildWiring({ searchProviders: unavailable });
   try {
+    await installWebResearchSkill(wiring);
     const caller = await makeCaller(wiring);
     await assert.rejects(
       () =>
@@ -415,6 +450,7 @@ test("web-research rejects unsafe quarantine verdicts before Result or Memory pe
     webResearchContentGuard: unsafeGuard,
   });
   try {
+    await installWebResearchSkill(wiring);
     const caller = await makeCaller(wiring);
     const memoriesBefore = await wiring.memoryStore.retrieve(
       { limit: 100 },

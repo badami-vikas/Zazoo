@@ -25,7 +25,7 @@ import {
 import { accountingModule } from "@bridge/accounting/module";
 import { d2cModule, d2cNotesModule, d2cResearchModule } from "@bridge/d2c/module";
 import { DEALPILOT_RUNTIME_IDS, dealPilotModule } from "@bridge/dealpilot/module";
-import { DEVPILOT_RUNTIME_IDS, devpilotModule } from "@bridge/devpilot/module";
+import { DEVPILOT_RUNTIME_IDS, devpilotGithubReview, devpilotGithubSync, devpilotModule } from "@bridge/devpilot/module";
 import { jobPilotModule } from "@bridge/jobpilot/module";
 import { whatsappModule } from "@bridge/whatsapp/module";
 
@@ -271,10 +271,13 @@ const relationshipCapabilities = [
   capability("relationship.help-request.stage-offer", "Stage a Help Offer", "skill", [
     writePrivate("signal"),
   ]),
-  capability("web-research", "Governed public web research", "skill", [
-    readPublic("external:fetch"),
-    writePrivate("event"),
-  ]),
+  // `web-research` and `relationship.integration.google-sources` used to be
+  // declared HERE. They are now separately-installed Commons Skills
+  // (`governedWebResearch` / `googleRelationshipSources` below): together with
+  // the Learning Agent's own egress permission they were the egress leg that
+  // made this Module's capability union the lethal trifecta, so the base
+  // Module was refused by the Commons publish scan and could never be
+  // installed at all. Reach is now its own governed decision.
   capability(
     "relationship.agent.steward",
     "Relationship Steward",
@@ -307,15 +310,20 @@ const relationshipCapabilities = [
     "relationship.agent.learning",
     "Learning Agent",
     "agent",
+    // The Agent's own `readPublic("external:fetch")` (untrusted ingest +
+    // egress) is gone: reach arrives with the `governed-web-research` Commons
+    // Skill it declares a need for, not with the Agent. The Agent capability
+    // itself cannot move to Commons — a Module agent binding must reference an
+    // agent capability the Module declares, and a Commons skill entry may only
+    // carry skill-type capabilities — so this is the "strip the egress
+    // permission and consume the need" branch.
     [
       writePrivate("signal"),
       writePrivate("event"),
-      readPublic("external:fetch"),
     ],
     [],
     [
       { manifestId: "relationship.help-request.stage-offer", versionRange: "0.2.0" },
-      { manifestId: "web-research", versionRange: "0.2.0" },
     ],
   ),
   capability(
@@ -327,18 +335,6 @@ const relationshipCapabilities = [
     [
       { manifestId: "relationship.agent.steward", versionRange: "0.2.0" },
     ],
-  ),
-  capability(
-    "relationship.integration.google-sources",
-    "Google relationship sources",
-    "integration",
-    [{
-      resourceType: "external:fetch",
-      action: "read",
-      dataScope: "private",
-      egress: true,
-    }],
-    [{ id: "google-gmail" }, { id: "google-calendar" }],
   ),
 ];
 
@@ -544,7 +540,12 @@ export const relationshipModule: BuiltInModuleWithSurface = {
     // 0.3.1 is the union of both — Module content is IMMUTABLE at a given
     // version, so a manifest carrying both changes needs a version past
     // either parent, not a pick between them.
-    version: "0.3.1",
+    // 0.4.0 (2026-09-15) removes `web-research` and the Google sources
+    // integration from the bundle and declares Commons needs for them
+    // instead. Content changed, so the version must: an installed 0.3.1 row
+    // carries the old bundle and `create()` refuses a different manifest at
+    // the same version.
+    version: "0.4.0",
     kind: "organization_definition",
     summary: "Signals, People, Communities, and governed relationship continuity.",
     description:
@@ -604,7 +605,9 @@ export const relationshipModule: BuiltInModuleWithSurface = {
           id: "learning-agent",
           name: "Learning Agent",
           capabilityId: "relationship.agent.learning",
-          skillIds: ["relationship.help-request.stage-offer", "web-research"],
+          // `web-research` is no longer bundled — it arrives from Commons and
+          // is attached to this Agent at install (commonsNeeds below).
+          skillIds: ["relationship.help-request.stage-offer"],
           // The Research Run surface (TASK-028) belongs to the Agent that
           // consumes the `web-research` Skill — not to a top-level nav entry
           // of its own (ADR-180).
@@ -620,6 +623,22 @@ export const relationshipModule: BuiltInModuleWithSurface = {
         procedure: "relationship.prepareMeeting",
       }],
       commonsNeeds: [{
+        id: "governed-web-research",
+        title: "Web research",
+        description:
+          "Let the Learning Agent look things up on the public web inside a governed Agent Run. Reaching the internet is a separate decision from installing this Module.",
+        agentId: "learning-agent",
+        kind: "skill",
+        tags: ["need:governed-web-research"],
+      }, {
+        id: "google-relationship-sources",
+        title: "Gmail and Calendar as relationship sources",
+        description:
+          "Let the Relationship Steward read your Gmail and Calendar to keep People, Signals, and Communities current.",
+        agentId: "steward",
+        kind: "skill",
+        tags: ["need:google-relationship-sources"],
+      }, {
         id: "cited-role-model-practice",
         title: "Cited role-model practice",
         description:
@@ -1072,6 +1091,81 @@ const interviewCalendarAvailability: BuiltInModule = {
   },
 };
 
+/** The Learning Agent's public-web reach, split out of the Relationship Module
+ * so the base Module publishes clean (2026-09-15). Capability id, permissions
+ * and connectors are unchanged from what `relationship` used to bundle — every
+ * caller (`WEB_RESEARCH_SKILL_ID`, the Agent-Run authority check, the AQV
+ * ledger) keys on the id, which moved rather than disappeared. */
+const governedWebResearch: BuiltInModule = {
+  computedRisk: "external",
+  manifest: {
+    name: "governed-web-research",
+    version: "1.0.0",
+    kind: "skill",
+    summary: "Look things up on the public web inside a governed Agent Run.",
+    description:
+      "Bridge's governed public-web research Skill. Every run is an attributable Agent Run whose fetched content is quarantined and whose Result is inspectable Memory — no private data leaves the Local Plane to obtain it.",
+    lineageManifestId: null,
+    dependencies: [],
+    capabilities: [
+      {
+        ...capability("web-research", "Governed public web research", "skill", [
+          readPublic("external:fetch"),
+          writePrivate("event"),
+        ]),
+        version: "1.0.0",
+        audience: "private",
+      },
+    ],
+    contextProviders: [],
+    organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+  },
+};
+
+/** Gmail + Calendar as relationship sources, split out of the Relationship
+ * Module for the same reason. `capabilityType` is "skill" rather than the
+ * "integration" it was declared as inside the Module: a Commons capability
+ * installed beneath a Module Agent must be a Skill (routers/commons.ts). The
+ * id, permissions and connectors are byte-identical. */
+const googleRelationshipSources: BuiltInModule = {
+  computedRisk: "external",
+  manifest: {
+    name: "google-relationship-sources",
+    version: "1.0.0",
+    kind: "skill",
+    summary: "Read Gmail and Calendar to keep People, Signals, and Communities current.",
+    description:
+      "Reuses Bridge's governed Google connectors so a Relationship Agent can see who you actually talk to and meet. Read-only: no capability here may send mail or write a calendar.",
+    lineageManifestId: null,
+    dependencies: [],
+    capabilities: [
+      {
+        ...capability(
+          "relationship.integration.google-sources",
+          "Google relationship sources",
+          "skill",
+          [{
+            resourceType: "external:fetch",
+            action: "read",
+            // "private" described the sensitivity of what Gmail returns, and
+            // read it as the trifecta's private-data-read leg, which made this
+            // one capability unpublishable on its own. The leg this permission
+            // actually supplies is untrusted ingest + egress: it reaches a
+            // third party, it reads nothing of the owner's own Bridge data.
+            dataScope: "public",
+            egress: true,
+          }],
+          [{ id: "google-gmail" }, { id: "google-calendar" }],
+        ),
+        version: "1.0.0",
+        audience: "private",
+      },
+    ],
+    contextProviders: [],
+    organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+  },
+};
+
 const citedRoleModelPractice: BuiltInModule = {
   computedRisk: "advisory",
   manifest: {
@@ -1163,6 +1257,41 @@ export const COMMONS_BUILT_IN_MODULES: readonly CommonsBuiltInModule[] = [
     commons: {
       provenance: provenance("platform/apps/api/src/wiring.ts"),
       tags: ["built-in", "learning", "role-model", "need:cited-role-model-practice"],
+    },
+  },
+  // ── The egress split (2026-09-15) ──
+  // `relationship` and `devpilot` were the two built-ins the publish scan
+  // refused: the UNION of their bundled capabilities formed the lethal
+  // trifecta, so neither was ever in the registry and neither could be added
+  // from "New". These four entries are the reach that used to be bundled.
+  // The base Modules now publish clean and deliberately do less on arrival —
+  // gaining reach is its own governed install.
+  {
+    ...governedWebResearch,
+    commons: {
+      provenance: provenance("platform/apps/api/src/web-research-skill.ts"),
+      tags: ["built-in", "research", "web", "need:governed-web-research"],
+    },
+  },
+  {
+    ...googleRelationshipSources,
+    commons: {
+      provenance: provenance("platform/packages/integrations-google/src/skills.ts"),
+      tags: ["built-in", "google", "gmail", "calendar", "relationship", "need:google-relationship-sources"],
+    },
+  },
+  {
+    ...devpilotGithubSync,
+    commons: {
+      provenance: provenance("platform/commons/devpilot/src/module.ts"),
+      tags: ["built-in", "github", "engineering", "need:github-sync"],
+    },
+  },
+  {
+    ...devpilotGithubReview,
+    commons: {
+      provenance: provenance("platform/commons/devpilot/src/module.ts"),
+      tags: ["built-in", "github", "engineering", "code-review", "need:github-review"],
     },
   },
 ];

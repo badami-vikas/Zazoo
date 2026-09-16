@@ -70,11 +70,31 @@ test("Task Manager is a signed installable Module with one Task Database and Age
   assert.deepEqual(normalized.module?.commonsNeeds, []);
 });
 
-test("Relationship exposes governed web research only through the Learning Agent", () => {
+test("Relationship declares web research as a Commons need instead of bundling it", () => {
+  // INTENDED BEHAVIOUR CHANGE (2026-09-15): `web-research` used to be bundled
+  // in this Module. Bundled, it supplied the egress leg that made the Module's
+  // capability union the lethal trifecta — so the Module was REFUSED by the
+  // Commons publish scan, was absent from the registry, and could never be
+  // added from "New". The Skill now ships as its own Commons entry and the
+  // Learning Agent declares a need for it: reach is a separate install.
   const relationship = requireBuiltInModule("relationship").manifest;
-  const webResearch = relationship.capabilities.find(
-    (capability) => capability.id === "web-research",
+  assert.equal(
+    relationship.capabilities.find((capability) => capability.id === "web-research"),
+    undefined,
   );
+  assert.deepEqual(
+    relationship.module?.agents.filter((agent) => agent.skillIds.includes("web-research")).map((a) => a.id),
+    [],
+  );
+  const need = relationship.module?.commonsNeeds?.find((candidate) => candidate.id === "governed-web-research");
+  assert.equal(need?.agentId, "learning-agent");
+  assert.equal(need?.kind, "skill");
+
+  // The Commons entry that satisfies it carries the same capability id and the
+  // same permissions the Module used to declare — the id moved, it did not go.
+  const entry = COMMONS_BUILT_IN_MODULES.find((candidate) => candidate.manifest.name === "governed-web-research");
+  assert.ok(need?.tags.every((tag) => entry?.commons.tags.includes(tag)));
+  const webResearch = entry?.manifest.capabilities.find((capability) => capability.id === "web-research");
   assert.equal(webResearch?.capabilityType, "skill");
   assert.ok(
     webResearch?.permissions.some(
@@ -85,10 +105,6 @@ test("Relationship exposes governed web research only through the Learning Agent
         permission.egress,
     ),
   );
-  const consumers = relationship.module?.agents.filter((agent) =>
-    agent.skillIds.includes("web-research"),
-  );
-  assert.deepEqual(consumers?.map((agent) => agent.id), ["learning-agent"]);
 });
 
 test("moduleNavTarget lands each Module on its primary data Page with a highlight base", () => {

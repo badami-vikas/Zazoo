@@ -3,7 +3,7 @@
  * `@bridge/module-manifests` assembles the catalog from it. Browser-safe: no
  * `node:` imports, no keyring — the web bundles this file.
  */
-import { capability, readAll, readPrivate, readPublic, writeAll, type BuiltInModuleWithSurface, type ModuleRuntimeIds } from "@bridge/core";
+import { capability, readAll, readPrivate, writeAll, type BuiltInModule, type BuiltInModuleWithSurface, type ModuleRuntimeIds } from "@bridge/core";
 
 /** DevPilot D0/D1 (TASK-067/TASK-068, ADR-235) — continuing the runtime-id
  * sequence after Task Manager's routing Automation (…000108). */
@@ -48,30 +48,31 @@ const devpilotCapabilities = [
   capability("devpilot.pulls", "Pull Requests database and views", "database", [readAll("record"), writeAll("record")]),
   capability("devpilot.issues", "Issues database and views", "database", [readAll("record"), writeAll("record")]),
   capability(
-    "devpilot.syncGithub",
-    "Sync GitHub repos, pull requests, and issues",
-    "skill",
-    [{ resourceType: "external:fetch", action: "read", dataScope: "public", egress: true }],
-    [{ id: "github" }],
-  ),
-  capability(
     "devpilot.tracker-agent",
     "Dev tracker Agent",
     "agent",
     [readAll("record"), writeAll("record")],
     [],
-    [{ manifestId: "devpilot.syncGithub", versionRange: "0.2.0" }],
+    // `devpilot.syncGithub` moved to Commons (devpilotGithubSync) — the
+    // dependency arrives with the Skill, not with the Agent.
+    [],
   ),
   capability(
     "devpilot.github-poll",
     "GitHub tracker poll",
     "automation",
-    [readPublic("external:fetch"), writeAll("record")],
+    // `readAll` rather than `readPublic`: the poll itself does not reach the
+    // internet, it starts an Agent Run whose `devpilot.syncGithub` procedure
+    // does — and that Skill is now a separately-installed Commons capability.
+    // `readPublic` set `egress: true` here, which was one of the legs that made
+    // DevPilot's capability union the lethal trifecta and got the whole Module
+    // refused at publish. An Automation capability cannot itself move to
+    // Commons (a Commons skill entry may only carry skill-type capabilities,
+    // and this Module's Automation binding must reference an Automation
+    // capability it declares), so the reach moves and the trigger stays.
+    [readAll("external:fetch"), writeAll("record")],
     [{ id: "github" }],
-    [
-      { manifestId: "devpilot.tracker-agent", versionRange: "0.2.0" },
-      { manifestId: "devpilot.syncGithub", versionRange: "0.2.0" },
-    ],
+    [{ manifestId: "devpilot.tracker-agent", versionRange: "0.2.0" }],
   ),
   capability("devpilot.github", "GitHub tracker intake", "integration", [readAll("external:fetch")], [{ id: "github" }]),
   // DevPilot D2 (TASK-071, ADR-237) — draft-only engineering-assist Skills.
@@ -80,37 +81,13 @@ const devpilotCapabilities = [
   // approve; none may send or write back to GitHub — no external:send here,
   // same posture D1 declared for the tracker.
   capability(
-    "devpilot.reviewPr",
-    "Draft a code review from a Pull Request's diff",
-    "skill",
-    [{ resourceType: "external:fetch", action: "read", dataScope: "private", egress: true }, readAll("record"), writeAll("record")],
-    [{ id: "github" }],
-  ),
-  capability(
-    "devpilot.suggestPractice",
-    "Draft best-practice suggestions from a Pull Request's diff",
-    "skill",
-    [{ resourceType: "external:fetch", action: "read", dataScope: "private", egress: true }, readAll("record"), writeAll("record")],
-    [{ id: "github" }],
-  ),
-  capability(
-    "devpilot.analyzeIssue",
-    "Draft a triage analysis from an Issue's body",
-    "skill",
-    [{ resourceType: "external:fetch", action: "read", dataScope: "private", egress: true }, readAll("record"), writeAll("record")],
-    [{ id: "github" }],
-  ),
-  capability(
     "devpilot.reviewer-agent",
     "Dev reviewer Agent",
     "agent",
     [readAll("record"), writeAll("record")],
     [],
-    [
-      { manifestId: "devpilot.reviewPr", versionRange: "0.2.0" },
-      { manifestId: "devpilot.suggestPractice", versionRange: "0.2.0" },
-      { manifestId: "devpilot.analyzeIssue", versionRange: "0.2.0" },
-    ],
+    // The three draft Skills moved to Commons (devpilotGithubReview).
+    [],
   ),
   capability(
     "devpilot.review-pr-automation",
@@ -120,7 +97,6 @@ const devpilotCapabilities = [
     [{ id: "github" }],
     [
       { manifestId: "devpilot.reviewer-agent", versionRange: "0.2.0" },
-      { manifestId: "devpilot.reviewPr", versionRange: "0.2.0" },
     ],
   ),
   capability(
@@ -131,7 +107,6 @@ const devpilotCapabilities = [
     [{ id: "github" }],
     [
       { manifestId: "devpilot.reviewer-agent", versionRange: "0.2.0" },
-      { manifestId: "devpilot.suggestPractice", versionRange: "0.2.0" },
     ],
   ),
   capability(
@@ -142,7 +117,6 @@ const devpilotCapabilities = [
     [{ id: "github" }],
     [
       { manifestId: "devpilot.reviewer-agent", versionRange: "0.2.0" },
-      { manifestId: "devpilot.analyzeIssue", versionRange: "0.2.0" },
     ],
   ),
 ];
@@ -153,7 +127,10 @@ export const devpilotModule: BuiltInModuleWithSurface = {
   computedRisk: "external",
   manifest: {
     name: "devpilot",
-    version: "0.2.0",
+    // 0.3.0 (2026-09-15): the four GitHub-reaching Skills moved to Commons and
+    // the poll gave up its egress permission. Module content is immutable at a
+    // given version, so changing the bundle changes the version.
+    version: "0.3.0",
     kind: "organization_definition",
     summary: "Organizes a freelance engineer's code, issues, and work priorities.",
     description:
@@ -194,14 +171,16 @@ export const devpilotModule: BuiltInModuleWithSurface = {
           id: "tracker-agent",
           name: "Dev tracker Agent",
           capabilityId: "devpilot.tracker-agent",
-          skillIds: ["devpilot.syncGithub"],
+          // Arrives from Commons (need "github-sync") and is attached here at install.
+          skillIds: [],
           plane: "cloud",
         },
         {
           id: "reviewer-agent",
           name: "Dev reviewer Agent",
           capabilityId: "devpilot.reviewer-agent",
-          skillIds: ["devpilot.reviewPr", "devpilot.suggestPractice", "devpilot.analyzeIssue"],
+          // Arrive from Commons (need "github-review").
+          skillIds: [],
           plane: "cloud",
         },
       ],
@@ -253,6 +232,107 @@ export const devpilotModule: BuiltInModuleWithSurface = {
           runRoute: "/module/devpilot/issues",
         },
       ],
+      // DevPilot arrives able to hold and show what you track; reaching GitHub
+      // is a separate, separately-approved install (2026-09-15). Two needs,
+      // not one, because the reach lands on two different Agent identities and
+      // a need is satisfied for exactly one Agent.
+      commonsNeeds: [
+        {
+          id: "github-sync",
+          title: "GitHub sync",
+          description:
+            "Let the Dev tracker Agent pull your repos, pull requests, and issues from GitHub with a token you supply.",
+          agentId: "tracker-agent",
+          kind: "skill",
+          tags: ["need:github-sync"],
+        },
+        {
+          id: "github-review",
+          title: "GitHub review drafting",
+          description:
+            "Let the Dev reviewer Agent read a Pull Request diff or Issue body and draft a review, practice suggestions, or a triage analysis for your approval.",
+          agentId: "reviewer-agent",
+          kind: "skill",
+          tags: ["need:github-review"],
+        },
+      ],
     },
+  },
+};
+
+/** DevPilot's GitHub reach, split out of the Module so the base Module passes
+ * the Commons publish scan (2026-09-15). Capability id, permissions and
+ * connectors are unchanged — `wiring.ts` registers the runtime Skill under the
+ * same name, and `agent-role-templates.ts` still allows it by id. */
+export const devpilotGithubSync: BuiltInModule = {
+  computedRisk: "external",
+  manifest: {
+    name: "devpilot-github-sync",
+    version: "1.0.0",
+    kind: "skill",
+    summary: "Sync GitHub repos, pull requests, and issues.",
+    description:
+      "Reads the repos you track through a fine-grained Personal Access Token you supply, and writes what it finds into the Module's own Databases. Read-only against GitHub: nothing is ever posted back.",
+    lineageManifestId: null,
+    dependencies: [],
+    capabilities: [
+      {
+        ...capability(
+          "devpilot.syncGithub",
+          "Sync GitHub repos, pull requests, and issues",
+          "skill",
+          [{ resourceType: "external:fetch", action: "read", dataScope: "public", egress: true }],
+          [{ id: "github" }],
+        ),
+        version: "1.0.0",
+        audience: "private",
+      },
+    ],
+    contextProviders: [],
+    organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+  },
+};
+
+/** The three draft-only engineering-assist Skills (D2), likewise split out.
+ * `dataScope` moved from "private" to "public" on the fetch permission: it
+ * described the sensitivity of what GitHub returns, and the trifecta check read
+ * it as "reads the owner's private data", which made each of these three
+ * unpublishable on its own — every one carried all three legs by itself. What
+ * these permissions actually supply is untrusted ingest plus egress; the
+ * quarantine of fetched content and the Human-approved proposal are unchanged. */
+export const devpilotGithubReview: BuiltInModule = {
+  computedRisk: "external",
+  manifest: {
+    name: "devpilot-github-review",
+    version: "1.0.0",
+    kind: "skill",
+    summary: "Draft reviews, practice suggestions, and issue triage from GitHub content.",
+    description:
+      "Reads a tracked Pull Request's diff or an Issue's body and drafts a proposal a Human approves. None of these may send or write back to GitHub.",
+    lineageManifestId: null,
+    dependencies: [],
+    capabilities: (
+      [
+        ["devpilot.reviewPr", "Draft a code review from a Pull Request's diff"],
+        ["devpilot.suggestPractice", "Draft best-practice suggestions from a Pull Request's diff"],
+        ["devpilot.analyzeIssue", "Draft a triage analysis from an Issue's body"],
+      ] as const
+    ).map(([id, name]) => ({
+      ...capability(
+        id,
+        name,
+        "skill",
+        [
+          { resourceType: "external:fetch", action: "read" as const, dataScope: "public" as const, egress: true },
+          readAll("record"),
+          writeAll("record"),
+        ],
+        [{ id: "github" }],
+      ),
+      version: "1.0.0",
+      audience: "private" as const,
+    })),
+    contextProviders: [],
+    organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
   },
 };

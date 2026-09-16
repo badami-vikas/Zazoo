@@ -439,18 +439,26 @@ export interface IntegrationSummary {
 export const BRIEFING_INTEGRATION_CAP = 20;
 
 /**
- * The Integrations Bridge can connect today — read from the Module manifests'
- * `integration` capabilities and their connectors (google-gmail,
- * google-calendar, github, …), never from a hand-kept list. Static data, so it
- * has no "unavailable" state; an empty result means no manifest declares one.
+ * The Integrations Bridge can connect today — read from the catalog's
+ * connectors (google-gmail, google-calendar, github, …), never from a
+ * hand-kept list. Static data, so it has no "unavailable" state; an empty
+ * result means no manifest declares one.
+ *
+ * Source is the CommonS catalog, and every capability type counts, because of
+ * the 2026-09-15 egress split: Relationship's Google reach left the Module and
+ * became the separately-installed `google-relationship-sources`, a `skill`
+ * entry that is in `COMMONS_BUILT_IN_MODULES` but not `BUILT_IN_MODULES`. With
+ * the old `integration`-only filter over `BUILT_IN_MODULES`, google-calendar
+ * silently vanished from the Builder's briefing — Bridge could still connect
+ * it, and the Builder no longer knew. A connector is a connector whichever
+ * capability type declares it.
  */
 export function integrationsForBriefing(
-  modules: readonly { manifest: ModuleManifest }[] = BUILT_IN_MODULES,
+  modules: readonly { manifest: ModuleManifest }[] = COMMONS_BUILT_IN_MODULES,
 ): IntegrationSummary[] {
   const byConnector = new Map<string, string[]>();
   for (const { manifest } of modules) {
     for (const capability of manifest.capabilities) {
-      if (capability.capabilityType !== "integration") continue;
       for (const connector of capability.connectors) {
         const declared = byConnector.get(connector.id) ?? [];
         declared.push(`${manifest.name}: ${capability.name} (${governanceOf(capability.permissions)})`);

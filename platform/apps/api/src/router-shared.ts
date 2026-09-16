@@ -1711,11 +1711,6 @@ export async function assertWebResearchModuleBinding(
     (agent) =>
       resolveModuleAgentRuntimeId(manifest.name, agent.id) === LEARNING_AGENT,
   );
-  const skill = manifest?.capabilities.find(
-    (capability) =>
-      capability.id === WEB_RESEARCH_SKILL_ID &&
-      capability.capabilityType === "skill",
-  );
   if (
     installed?.status !== "installed" ||
     installed.moduleAttachment !== undefined ||
@@ -1723,9 +1718,65 @@ export async function assertWebResearchModuleBinding(
     manifest === null ||
     canonicalizeManifest(manifest) !==
       SUPPORTED_RELATIONSHIP_CONTRACT.canonicalManifest ||
-    !learningAgent?.skillIds.includes(WEB_RESEARCH_SKILL_ID) ||
-    !skill ||
-    !skill.permissions.some(
+    // 2026-09-15 egress split: the Module no longer BUNDLES web-research (the
+    // canonical-manifest pin above is what proves it), so the binding that
+    // authorizes a Run is the Commons ATTACHMENT checked below, not the
+    // manifest. Nothing is relaxed: the same Skill id, the same public
+    // external:fetch read with egress, and the same Learning Agent must all be
+    // present — they arrive by install rather than by shipping with the Module.
+    !learningAgent
+  ) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        "The installed Relationship Module does not bind web-research to the Learning Agent",
+    });
+  }
+  await assertAttachedWebResearchSkill(
+    wiring,
+    organizationId,
+    SUPPORTED_RELATIONSHIP_CONTRACT.name,
+    learningAgent.id,
+    "The installed Relationship Module does not bind web-research to the Learning Agent",
+  );
+}
+
+/** The Commons Module that carries the `web-research` Skill after the split,
+ * and the `commonsNeeds` id an owning Module declares to consume it. */
+export const GOVERNED_WEB_RESEARCH_MODULE = "governed-web-research";
+export const GOVERNED_WEB_RESEARCH_NEED = "governed-web-research";
+
+/**
+ * The web-research binding as it exists after the egress split: the
+ * `governed-web-research` Commons entry, installed beneath `ownerModuleName`'s
+ * Learning Agent, carrying the `web-research` Skill with public external:fetch
+ * read + egress. Same contract the owning Module used to declare inline.
+ */
+async function assertAttachedWebResearchSkill(
+  wiring: Wiring,
+  organizationId: string,
+  ownerModuleName: string,
+  ownerAgentBindingId: string,
+  message: string,
+): Promise<void> {
+  // The attachment target is REQUIRED: `getAvailable` with none matches only
+  // root installations, and this row is attached beneath a Module Agent.
+  const attached = await wiring.moduleStore.getAvailable(organizationId, GOVERNED_WEB_RESEARCH_MODULE, {
+    ownerModuleName,
+    agentId: ownerAgentBindingId,
+    needId: GOVERNED_WEB_RESEARCH_NEED,
+  });
+  const attachment = attached?.moduleAttachment;
+  const skill = attached?.manifest.capabilities.find(
+    (capability) =>
+      capability.id === WEB_RESEARCH_SKILL_ID && capability.capabilityType === "skill",
+  );
+  if (
+    attached?.status !== "installed" ||
+    attachment?.source !== "commons" ||
+    attachment.ownerModuleName !== ownerModuleName ||
+    resolveModuleAgentRuntimeId(attachment.ownerModuleName, attachment.agentId) !== LEARNING_AGENT ||
+    !skill?.permissions.some(
       (permission) =>
         permission.resourceType === "external:fetch" &&
         permission.action === "read" &&
@@ -1733,11 +1784,7 @@ export async function assertWebResearchModuleBinding(
         permission.egress,
     )
   ) {
-    throw new TRPCError({
-      code: "PRECONDITION_FAILED",
-      message:
-        "The installed Relationship Module does not bind web-research to the Learning Agent",
-    });
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message });
   }
 }
 

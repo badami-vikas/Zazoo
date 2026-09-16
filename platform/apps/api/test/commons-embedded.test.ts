@@ -74,14 +74,15 @@ test("a registry is seeded with the curated Modules it lacks, and nothing is rep
     // Carry the reason into the assertion: `startEmbeddedCommons` returns null
     // for every refusal, so without this a failure here says only "not true".
     assert.ok(first, `should host on a free loopback port — ${firstLog.join(" | ")}`);
-    // NOT `COMMONS_BUILT_IN_MODULES.length`: `relationship` and `devpilot` are
-    // refused by the publish scan because their capability union is the lethal
-    // trifecta, so the registry holds 13 of 15 and neither ever reaches the New
-    // dialog (BUGS OPEN 2026-09-11, user report repeated 2026-09-15). Pin the
-    // real number so the day that decision is taken, this test says so.
+    // FIXED 2026-09-15 — this used to pin the bug: `relationship` and
+    // `devpilot` were REFUSED by the publish scan (their capability union was
+    // the lethal trifecta), so the registry held 13 of 15 and neither Module
+    // ever reached the New dialog. The egress-carrying capabilities are now
+    // separately-installed Commons Skills, both base Modules publish clean,
+    // and EVERY curated built-in is seeded.
     const refused = firstLog.filter((line) => line.includes("could not publish"));
-    assert.equal(refused.length, 2, `only the two trifecta built-ins are refused — ${refused.join(" | ")}`);
-    assert.equal(first.seeded, COMMONS_BUILT_IN_MODULES.length - 2);
+    assert.deepEqual(refused, [], "no curated built-in may be refused by the publish scan");
+    assert.equal(first.seeded, COMMONS_BUILT_IN_MODULES.length);
     const listed = await fetch(`${first.url}/v1/modules?limit=50`).then((r) => r.json()) as {
       total: number;
       items: { name: string }[];
@@ -89,13 +90,14 @@ test("a registry is seeded with the curated Modules it lacks, and nothing is rep
     assert.equal(listed.total, first.seeded);
     const offered = new Set(listed.items.map((item) => item.name));
     assert.ok(offered.has("deal-pilot"));
-    // The two the publish scan used to refuse outright, so they reached no
-    // surface at all: their capability union IS the lethal trifecta, and as
-    // first-party built-ins they are published with that verdict recorded
-    // rather than withheld (user report 2026-09-11, repeated 2026-09-15).
-    // `modules.install` still halts them for the owner's approval.
-    assert.ok(!offered.has("relationship"), "Relationship is withheld by the trifecta gate — the open defect");
-    assert.ok(!offered.has("devpilot"), "DevPilot is withheld by the trifecta gate — the open defect");
+    // The two that were withheld are now offered, and so is the reach each of
+    // them gave up to get here — installing that reach is its own decision.
+    assert.ok(offered.has("relationship"));
+    assert.ok(offered.has("devpilot"));
+    assert.ok(offered.has("governed-web-research"));
+    assert.ok(offered.has("google-relationship-sources"));
+    assert.ok(offered.has("devpilot-github-sync"));
+    assert.ok(offered.has("devpilot-github-review"));
     // The publish token is a real secret, persisted — not a fixed default.
     const token = JSON.parse(readFileSync(join(dataDir, "publish-token.json"), "utf8")) as {
       publishToken: string;
@@ -121,8 +123,7 @@ test("a registry is seeded with the curated Modules it lacks, and nothing is rep
       items: { name: string }[];
     };
     assert.ok(relisted.items.some((item) => item.name === "deal-pilot"), "the missing Module is offered again");
-    // Only the two the scan refuses may appear here; anything the registry
-    // already holds must not be tried at all.
+    // Nothing the registry already holds may be tried at all.
     const held = new Set(relisted.items.map((item) => item.name));
     for (const line of lines.filter((l) => l.includes("could not publish"))) {
       const name = /could not publish ([^:]+):/.exec(line)?.[1];

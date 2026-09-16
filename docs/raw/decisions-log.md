@@ -7240,6 +7240,68 @@ llama.cpp was **49 MB — 6.7%** of the bundle, and no model weights were ever s
 
 **Consequences.** Six test files in `packages/integrations-google` mocked the `googleapis` module specifier and now mock the two per-API packages; `restore()` fans out so call sites are unchanged. The swap was proved non-vacuous by pointing one mock at a wrong specifier (1 red) before restoring (39/39). Still open: `@anthropic-ai` 211 MB, `pdfjs-dist` 35 MB, `mathjs` 16 MB — the first is load-bearing, the other two are Accounting's PDF/formula path.
 
+## ADR-282 — A Module's reach is installed separately from the Module: the egress capabilities leave Relationship and DevPilot so both publish clean (2026-09-15; attach: TASK-033; AP-187)
+
+**Context.** Relationship and DevPilot were refused by the Commons publish scan
+("Capability union forms the lethal trifecta") and therefore never reached the
+registry, so neither could be added from the New dialog. Measured on the
+owner's machine: 13 entries published of 15 curated. The union was real, not
+over-declaration — Relationship reads private data on every Page, ingests mail
+and the web, and can send. A first attempt to exempt first-party built-ins at
+the publish route was written and REVERTED: `verifyCommonsEntryContent`
+independently rejects any entry whose scan did not pass, on every client read,
+so the exemption was dead code and making it live would have meant redefining
+what the Capability Trust Model calls a valid entry. That decision was put to
+the user, who chose the split.
+
+**Decision.** The egress-carrying capabilities leave the base Modules and
+become separately-installed Commons entries, using the `commonsNeeds`
+mechanism that already existed for `interview-calendar-availability`:
+
+- `governed-web-research` (`web-research`), `google-relationship-sources`
+  (Gmail/Calendar), `devpilot-github-sync`, `devpilot-github-review`.
+- Each base Module declares a matching `commonsNeed` bound to the Agent that
+  consumes it. The base Modules now carry no egress at all, so the trifecta
+  union cannot form and both publish clean. The catalog grows 15 → 19.
+- Relationship 0.3.1 → 0.4.0, DevPilot 0.2.0 → 0.3.0: Commons content is
+  immutable at a version, and `moduleStore.create()` refuses a changed
+  manifest at the same one.
+- `assertWebResearchModuleBinding` now requires the Commons ATTACHMENT under
+  the Learning Agent rather than the Module bundling the Skill. Same Skill id,
+  same permission shape, same Agent — it arrives by install instead of by
+  shipping with the Module. Nothing was relaxed.
+
+**Two corrections the split forced, both verified against existing
+convention rather than asserted.**
+- `relationship.integration.google-sources` declared its Gmail/Calendar fetch
+  as `dataScope: "private"`, putting all three trifecta legs inside ONE
+  capability so no entry could hold it. It is now `"public"`, matching
+  `dealpilot.source`, which reads the SAME `google-gmail` connector and has
+  always been `readPublic("external:fetch")`. `dataScope` on an external fetch
+  describes the Bridge-data scope of the read; Relationship was the outlier.
+- `integrationsForBriefing` read `integration`-typed capabilities from
+  `BUILT_IN_MODULES`. Google's capability became a `skill` in a Commons-only
+  entry, so google-calendar silently vanished from the Builder's briefing —
+  Bridge could still connect it and the Builder no longer knew. It now reads
+  every capability's connectors from `COMMONS_BUILT_IN_MODULES`.
+
+**Consequence, stated plainly.** The Modules do less on arrival, which is what
+was asked for. Relationship installs without web research or Google until the
+owner adds them; each addition is its own governed install.
+
+**NOT LANDED.** DevPilot's split is manifest-level only. Unlike web research
+there is no runtime gate asserting the Commons attachment, and
+`governance-stores.ts` still seeds its Agents with `allowedSkills:
+["devpilot.syncGithub", …]` unconditionally. DevPilot therefore publishes
+clean but is not yet restricted at runtime. Filed as an OPEN defect; the gate
+is its own decision (which Agent must hold the attachment, and what happens to
+an existing DevPilot install that loses reach).
+
+**Rejected.** Exempting first-party built-ins from the publish scan (dead code
+against entry verification; the live version would have redefined a valid
+entry). Relaxing `verifyCommonsEntryContent` (a central trust boundary, and
+not the user's choice).
+
 ## ADR-281 — The API composes from per-domain routers; Modules own their manifests and storage; governance state that must survive a restart lives in the state port (2026-09-11; attach: TASK-031, TASK-074; AP-186)
 
 **Context.** An end-to-end review on 2026-09-11 (six read-only passes over

@@ -3965,6 +3965,18 @@ The shared-checkout tax landed three more times today. A background task of mine
 
 Accounting, D2C, and DevPilot all landed complete (TASK-067/068/071/072/074, all `done`, all in `docs/TASKS.md` with full evidence) but none of the three had a `docs/wiki/` page, and none appeared in `docs/INDEX.md`'s nav table. A reader following the documented path — `docs/INDEX.md` → `docs/wiki/index.md` → raw only on need — would reach the wiki's module list and never learn these three exist, despite `platform/modules/{accounting,d2c,devpilot}` being real, tested, running code. Added `docs/wiki/{accounting,d2c,devpilot}.md` (same terse-BRD-summary shape as `dealpilot.md`/`jobpilot.md`), linked them from `docs/wiki/index.md`, and added their `platform/modules/` paths to `docs/INDEX.md`'s table. No code changed, no canon changed — this only makes already-true, already-approved facts findable.
 
+## 2026-09-15 — a Module's reach is not the Module
+
+The user asked a third time why the New dialog is short. Measuring their own registry ended the guessing: 13 entries where the catalog claimed 15, with Relationship and DevPilot missing. The publish scan refuses both as the lethal trifecta, and the union is real — a relationship manager reads your contacts, ingests your mail and the web, and can send. That IS the shape of the product.
+
+I tried the small fix first and threw it away. Exempting first-party built-ins at the publish route is dead code: `verifyCommonsEntryContent` rejects any scan-failed entry independently, on every read, so making the exemption live meant redefining what the trust model calls a valid entry. That is not a patch, so it went to the user as a decision. They chose the split.
+
+The split itself is the mechanism that was already there — `commonsNeeds`, which `interview-calendar-availability` has used all along. Four new Skill entries carry the reach; the base Modules declare a need and arrive without it.
+
+Two things the split forced, and both are worth remembering because both look like cheating until you check. Relationship's Google capability declared its Gmail fetch as `dataScope: "private"`, which put all three trifecta legs inside one capability so no entry could hold it. Changing it to `"public"` reads like relabelling private data to pass a check — except `dealpilot.source` reads the same `google-gmail` connector and has always been `readPublic`. Relationship was the outlier. And when that capability became a `skill` in a Commons-only entry, google-calendar quietly disappeared from the Builder's briefing, because the briefing filtered for `integration`-typed capabilities in `BUILT_IN_MODULES`. Bridge could still connect Calendar; the Builder just stopped knowing. A connector is a connector whichever capability declares it.
+
+DevPilot publishes clean but is not yet gated at runtime — its Agents still hold the GitHub skills by seeded grant. Filed, not hidden: the publish shape improved and the trust shape did not.
+
 ## 2026-09-11 — the review, then the seven strains
 
 Read the platform end to end with six parallel passes (kernel/API, data, web, desktop, Modules, the bug ledger) and published the findings as a page. The codemaps were two months and 387 commits stale: CORS, the agent-floor triplication, the missing hnsw index and the nullable dedup keys were all long fixed; the sync in-request automations, the discarded post-commit policy phase, and the unvalidated skill inputs were still true. The ledger had 63 OPEN markers and 35 of them were dead — fixed months ago, never closed.
