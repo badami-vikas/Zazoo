@@ -18,6 +18,7 @@ import { HomePage } from "./pages/HomePage";
 // AP-086 / ADR-154: Intelligence is its own top-level cross-Module capability page.
 import { IntelligencePage } from "./pages/IntelligencePage";
 import { AgentDetailPage } from "./pages/AgentDetailPage";
+import { ModuleIntelligenceEntryPage } from "./pages/ModuleIntelligenceEntryPage";
 // TASK-028: background Research Run timeline/interrupt Page (plan §5).
 import { ResearchRunsPage } from "./pages/ResearchRunsPage";
 // ADR 2026-09-04: the standard Module Page — every manifest-declared Page of
@@ -318,6 +319,10 @@ export const router = createBrowserRouter([
       { path: "intelligence", Component: IntelligencePage },
       // Agent Detail is reached from its card on Intelligence (ADR-250).
       { path: "agent/:moduleName/:agentId", Component: AgentDetailPage },
+      // TASK-114: a Skill, Automation or Integration has a page of its own,
+      // under the Module that ships it — reached through its Module, never
+      // from a nav entry of its own.
+      { path: "module/:moduleName/intelligence/:kind/:entryId", Component: ModuleIntelligenceEntryPage },
       { path: "task-manager", Component: TaskManagerPage },
       { path: "task-manager/:taskId", Component: TaskRecordDetailPage },
 

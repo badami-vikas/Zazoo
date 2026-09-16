@@ -11,6 +11,11 @@
  *
  * Honest empty states throughout (UI-RULES §6a): no dummy rows, ever, and a
  * short line rather than a definition of what is missing.
+ *
+ * EVERY ROW OPENS ITS ELEMENT (TASK-114). An Agent opens its Agent page; an
+ * Automation and an Integration open their entry page, where every field is
+ * editable except the few that say why not. A row that looks clickable and is
+ * not is the thing canon forbids, so the rows are links.
  */
 import { useEffect, useMemo, useState } from "react";
 import { Sparkles, Bot, Zap, Cable, ExternalLink } from "lucide-react";
@@ -18,6 +23,10 @@ import { Link } from "react-router";
 import { trpc, PILOT_ORGANIZATION } from "../../lib/trpc";
 
 type ModuleRow = Awaited<ReturnType<typeof trpc.modules.list.query>>["items"][number];
+
+/** An entry's own page (TASK-114) — the one place this route is spelled. */
+export const intelligenceEntryRoute = (moduleName: string, kind: string, entryId: string) =>
+  `/module/${encodeURIComponent(moduleName)}/intelligence/${kind}/${encodeURIComponent(entryId)}`;
 type IntelligenceTab = "agents" | "automations" | "integrations";
 
 const TABS: { id: IntelligenceTab; label: string; icon: typeof Bot }[] = [
@@ -138,12 +147,15 @@ export function ModuleIntelligenceSection({
               {agents.map((agent) => (
                 <li key={agent.id} className="flex items-center gap-3 p-3">
                   <Bot className="size-4 shrink-0" style={{ color: "var(--color-warm-gray)" }} />
-                  <div className="min-w-0 flex-1">
+                  <Link
+                    to={`/agent/${encodeURIComponent(moduleName)}/${encodeURIComponent(agent.id)}`}
+                    className="min-w-0 flex-1 no-underline"
+                  >
                     <p className="truncate text-sm font-medium" style={{ color: "var(--color-navy)" }}>{agent.name}</p>
                     <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>
                       {agent.skillIds.length} {agent.skillIds.length === 1 ? "Skill" : "Skills"}
                     </p>
-                  </div>
+                  </Link>
                   {/* ADR-180: an Agent's Run surface (e.g. Research Runs for the
                       Learning Agent) is reached through the Agent that owns it,
                       from the manifest's run_route — never a nav entry. */}
@@ -168,12 +180,15 @@ export function ModuleIntelligenceSection({
               {automations.map((automation) => (
                 <li key={automation.id} className="flex items-center gap-3 p-3">
                   <Zap className="size-4 shrink-0" style={{ color: "var(--color-warm-gray)" }} />
-                  <div className="min-w-0 flex-1">
+                  <Link
+                    to={intelligenceEntryRoute(moduleName, "automation", automation.id)}
+                    className="min-w-0 flex-1 no-underline"
+                  >
                     <p className="truncate text-sm font-medium" style={{ color: "var(--color-navy)" }}>{automation.name}</p>
                     <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>
                       Trigger: {automation.trigger} · Agent: {agentNames.get(automation.agentId) ?? automation.agentId}
                     </p>
-                  </div>
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -185,10 +200,13 @@ export function ModuleIntelligenceSection({
             {connectors.map((connector, index) => (
               <li key={`${connector.id}-${index}`} className="flex items-center gap-3 p-3">
                 <Cable className="size-4 shrink-0" style={{ color: "var(--color-warm-gray)" }} />
-                <div className="min-w-0 flex-1">
+                <Link
+                  to={intelligenceEntryRoute(moduleName, "integration", connector.id)}
+                  className="min-w-0 flex-1 no-underline"
+                >
                   <p className="truncate text-sm font-medium" style={{ color: "var(--color-navy)" }}>{connector.id}</p>
                   <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>Used by: {connector.capabilityName}</p>
-                </div>
+                </Link>
                 {connector.externalSend && (
                   <span
                     className="flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs"

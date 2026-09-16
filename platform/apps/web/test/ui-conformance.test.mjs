@@ -53,7 +53,9 @@ const EXEMPT = {
   "RelationshipSubmodulePage.tsx":
     "Signpost for a sub-module whose Records live on another Page — it owns no Database rows, only links and the Module Sections.",
   "AgentDetailPage.tsx":
-    "One Agent's manifest-sourced, read-only detail with the ADR-250 Zazoo room rig — no Database rows, like IntelligencePage it reads modules.list.",
+    "One Agent's detail with the ADR-250 Zazoo room rig — editable fields and its Skills/Automations, no Database rows; like IntelligencePage it reads modules.list.",
+  "ModuleIntelligenceEntryPage.tsx":
+    "One Skill/Automation/Integration's entry page (TASK-114) — a field list from moduleIntelligence.get, Record Detail shape (§3b), not a view of a Database's rows.",
 };
 
 /**

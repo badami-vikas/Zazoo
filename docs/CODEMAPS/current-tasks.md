@@ -47,4 +47,3 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-109 | in_progress | P1 | Cells look like what they hold, and columns can be shaped | TASK-084, TASK-104 |
 | TASK-110 | in_progress | P1 | Filters, sorts and Lists a person can actually build | TASK-062, TASK-064 |
 | TASK-111 | in_progress | P2 | List, Timeline and Chart Views, and a Gallery worth the name | TASK-062, TASK-100 |
-| TASK-114 | ready | P1 | Every intelligence element opens on its own page and is editable there | TASK-084, TASK-096, TASK-113 |

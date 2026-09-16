@@ -272,6 +272,20 @@ export {
   type GovernanceVerdict,
   type ModuleGovernanceOverlay,
 } from "./module/governance.js";
+export {
+  MODULE_INTELLIGENCE_KINDS,
+  MODULE_INTELLIGENCE_FIELDS,
+  moduleIntelligenceField,
+  moduleIntelligenceKey,
+  editableModuleIntelligenceFields,
+  readModuleIntelligenceOverlay,
+  resolveModuleIntelligence,
+  type ModuleIntelligenceKind,
+  type ModuleIntelligenceField,
+  type ModuleIntelligenceFieldType,
+  type ModuleIntelligencePatch,
+  type ModuleIntelligenceOverlay,
+} from "./module/intelligence.js";
 export { computeModuleRisk, moduleHasLethalTrifecta, type ModuleRiskResult } from "./module/risk.js";
 export {
   InvalidModuleTransitionError,

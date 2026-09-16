@@ -7438,3 +7438,25 @@ deliberately.
 
 **Consequences.** `wait_for_user` is expressible in hands mode too, so the planner can hand a password field to the user instead of failing; the Privacy Guard still halts before any capture of a credential window on resume. Web and Rust checks green; no live run this session.
 
+
+## 2026-09-16 — Editing is the default; a locked field is data that carries its own reason (ADR-283)
+
+**Context.** User directive 2026-09-11, verbatim: *"Also I want the agents, skills, integrations and automations and other intelligence related elements editable and opening an element page of their own. Literally I want everything can be edited, editable. Not being able to edit should be an rare exception"* (TASK-114).
+
+Read-only was never decided. Manifests are immutable (ADR-178), nothing held a user's edits to an Agent or an Automation, so every intelligence surface rendered prose. Read-only was the default **by omission**, which is exactly the shape ADR-263 had already fixed once for a Module's governance policy.
+
+**Decision.**
+
+1. **The same overlay shape as governance (ADR-263), not a new mechanism.** Edits live on the Local Plane keyed by Organization + Module (`module:intelligence:<name>`), resolved over the declared manifest at read time. Manifests stay immutable; `reset` removes the overlay and the shipped declaration comes back.
+
+2. **Resolved ONCE, in `modules.list`.** Every reader of an installed Module — the Intelligence Section, the Agent page, the Builder briefing — gets the Organization's version. Resolving per page would have left surfaces still showing the shipped name of an element the user had renamed, which is the defect, not the fix.
+
+3. **The editability rules are a table, not `if` statements** (ADR-247). `MODULE_INTELLIGENCE_FIELDS` in `@bridge/core` lists every field of every kind; a row with no `lockedReason` is editable. The server refuses a write by reading that table, the page greys the field out with the reason from that same table, served over `moduleIntelligence.get`. The client ships no copy of the rules, so a lock cannot exist on one surface and not the other, and the locked fields are something you can count rather than go looking for.
+
+4. **A locked field with no reason is not allowed to exist.** A test asserts every `lockedReason` is real prose. The four kinds of lock are the four boundaries the platform already enforces: identity (what other rows point at), the governed capability, residency (Local/Cloud), and the signed trust claim the publish gate scanned.
+
+5. **A Skill, Automation and Integration each open a page of their own** at `/module/:moduleName/intelligence/:kind/:entryId`, one component for all three because the fields come from the server. Agents keep `AgentDetailPage` and its ADR-250 room rig, now with the same editable field list; Skills are reached from the Agent that consumes them, per canon, never from a nav entry.
+
+**Alternatives rejected.** An `enabled` toggle on a Skill or a connector — nothing in the runtime reads such a flag today, and a switch that silently changes nothing is ADR-045's failure again; it becomes a row in the table when the runtime can honour it. Making `permissions` editable — that is the claim `scanCommonsModule` scanned, and editing it here would change what was scanned without re-scanning it. Four per-kind pages — three more places for the rules to drift.
+
+**Consequences.** A cadence on an Automation the Module gave no schedule is refused with its reason rather than stored as a no-op (found while verifying live, fixed before landing). A connector composed by two capabilities is ONE Integration: the same connection, one answer. Locked fields holding objects (a Skill's permissions) render as `read · record · all`, not `[object Object]` — also found live. Verified in a running app against a real API: an Agent renamed on its page, the new name on the Intelligence Section; a Skill's description edited and reset; the Automation and Integration pages opened; nine api tests, the resolve one seen failing unfixed.

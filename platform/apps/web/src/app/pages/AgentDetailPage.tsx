@@ -1,11 +1,13 @@
 /**
  * AgentDetailPage — one governed Agent, opened from its card on Intelligence.
  *
- * Everything on this page is manifest-sourced (`modules.list`) and read-only:
- * the Agent's capability, its plane, the Skills it consumes, the Automations
- * that start Runs on it, and the Module that provides it. Canon: Skills are
- * never free-standing, so they are listed HERE, under the Agent allowed to
- * invoke them, and never anywhere else.
+ * The Agent's own fields are EDITABLE in place (TASK-114): its name and the
+ * Skills it consumes are this Organization's to change; its capability, plane
+ * and Runs route are the exceptions, and each says why on the row. Below that
+ * sit the Skills it consumes and the Automations that start Runs on it — every
+ * one of them a link to its own entry page. Canon: Skills are never
+ * free-standing, so they are reached HERE, under the Agent allowed to invoke
+ * them, and never from a nav entry of their own.
  *
  * The live companion rig sits top-right. It is cast from the Agent id and
  * carries no data — it is how you recognise this Agent, not a claim about it.
@@ -16,6 +18,8 @@ import { Link, useParams } from "react-router";
 import { AgentRoom } from "../avatar/zazoo/AgentZazoo";
 import { type PoseKey } from "../avatar/zazoo/ZazooWorld";
 import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
+import { intelligenceEntryRoute } from "../components/shared/ModuleIntelligenceSection";
+import { ModuleIntelligenceFields, type IntelligenceView } from "../components/shared/ModuleIntelligenceFields";
 
 type ModuleRow = Awaited<ReturnType<typeof trpc.modules.list.query>>["items"][number];
 
@@ -27,6 +31,7 @@ export function AgentDetailPage() {
   // the Agent is actually running; binding this to live Run state is the next
   // step, not something to fake now.
   const [pose, setPose] = useState<PoseKey>("working");
+  const [intelligence, setIntelligence] = useState<IntelligenceView | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -36,6 +41,19 @@ export function AgentDetailPage() {
       .catch((cause) => { if (active) setError(String(cause)); });
     return () => { active = false; };
   }, []);
+
+  // The editable half. Separate request, deliberately: the fields, their labels
+  // and which of them are locked are the SERVER's answer (TASK-114), not
+  // something this page derives from a manifest it happens to hold.
+  useEffect(() => {
+    if (!moduleName) return;
+    let active = true;
+    trpc.moduleIntelligence.get
+      .query({ organizationId: PILOT_ORGANIZATION, moduleName })
+      .then((result) => { if (active) setIntelligence(result); })
+      .catch((cause) => { if (active) setError(String(cause)); });
+    return () => { active = false; };
+  }, [moduleName]);
 
   const found = useMemo(() => {
     const row = rows?.find((r) => r.moduleName === moduleName);
@@ -142,6 +160,30 @@ export function AgentDetailPage() {
               </div>
             </header>
 
+            {(() => {
+              const entry = intelligence?.entries.find(
+                (entry) => entry.kind === "agent" && entry.id === found.agent.id,
+              );
+              return entry && intelligence ? (
+                <Section icon={Bot} title="Details">
+                  <ModuleIntelligenceFields
+                    moduleName={moduleName}
+                    entry={entry}
+                    view={intelligence}
+                    onChanged={(next) => {
+                      setIntelligence(next);
+                      // The Skills and Automations below read modules.list, so
+                      // re-read it rather than leave the page half-updated.
+                      trpc.modules.list
+                        .query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
+                        .then((result) => setRows(result.items))
+                        .catch((cause) => setError(String(cause)));
+                    }}
+                  />
+                </Section>
+              ) : null;
+            })()}
+
             <Section icon={Wrench} title={`Skills (${found.skills.length})`}>
               {found.skills.length === 0 ? (
                 <Empty text="This Agent declares no Skills." />
@@ -149,12 +191,23 @@ export function AgentDetailPage() {
                 <ul className="divide-y rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
                   {found.skills.map(({ id, capability }) => (
                     <li key={id} className="p-3">
-                      <p className="text-sm" style={{ color: "var(--color-navy)" }}>{capability?.name ?? id}</p>
-                      <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>
-                        {capability
-                          ? `Skill capability ${id}`
-                          : `Declared as “${id}”; the Module ships no Skill capability under that id.`}
-                      </p>
+                      {/* A Skill the Module does not ship has no page to open —
+                          the row says so instead of linking nowhere. */}
+                      {capability ? (
+                        <Link to={intelligenceEntryRoute(moduleName, "skill", id)} className="block no-underline">
+                          <p className="text-sm" style={{ color: "var(--color-navy)" }}>{capability.name}</p>
+                          <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                            Skill capability {id}
+                          </p>
+                        </Link>
+                      ) : (
+                        <>
+                          <p className="text-sm" style={{ color: "var(--color-navy)" }}>{id}</p>
+                          <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                            Declared as “{id}”; the Module ships no Skill capability under that id.
+                          </p>
+                        </>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -168,10 +221,12 @@ export function AgentDetailPage() {
                 <ul className="divide-y rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
                   {found.automations.map((a) => (
                     <li key={a.id} className="p-3">
-                      <p className="text-sm" style={{ color: "var(--color-navy)" }}>{a.name}</p>
-                      <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>
-                        Trigger: {a.trigger}
-                      </p>
+                      <Link to={intelligenceEntryRoute(moduleName, "automation", a.id)} className="block no-underline">
+                        <p className="text-sm" style={{ color: "var(--color-navy)" }}>{a.name}</p>
+                        <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                          Trigger: {a.trigger}
+                        </p>
+                      </Link>
                     </li>
                   ))}
                 </ul>

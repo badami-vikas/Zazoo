@@ -1,8 +1,9 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { resolveActivationApproval, canonicalizeJson, parseModuleManifest, ModuleManifestValidationError, computeModuleRisk, maxRisk, evaluateSandboxRequirement, isUntrustedOrigin, trustGrantsForOrigin, advanceModuleState, promoteToAvailable, rollbackFromHistory, InvalidModuleTransitionError, type CapabilityManifest, type CapabilityManifestRow, type CapabilityOrigin, type TrustGrantView, type Proposal, type ModuleInstallationRow, type ModuleManifest } from "@bridge/core";
+import { resolveActivationApproval, canonicalizeJson, parseModuleManifest, ModuleManifestValidationError, computeModuleRisk, maxRisk, evaluateSandboxRequirement, isUntrustedOrigin, trustGrantsForOrigin, advanceModuleState, resolveModuleIntelligence, promoteToAvailable, rollbackFromHistory, InvalidModuleTransitionError, type CapabilityManifest, type CapabilityManifestRow, type CapabilityOrigin, type TrustGrantView, type Proposal, type ModuleInstallationRow, type ModuleManifest } from "@bridge/core";
 import { LEARNING_RECOMMENDATION_SKILL_ID, resolveModuleAgentRuntimeId, resolveModuleAutomationRuntimeId } from "@bridge/module-manifests";
 import { assertCommonsEntryContentTrusted } from "../commons-client.js";
+import { readModuleIntelligenceOverlayFor } from "./moduleIntelligence.js";
 import { MODULE_RECORDS_NAMESPACE_PREFIX } from "./moduleRecords.js";
 import { TABLE_SCHEMA_NAMESPACE_PREFIX } from "../table-schema.js";
 import { MODULE_MANIFEST_FILE, readModuleManifestFile, registerModuleManifest } from "../module-register.js";
@@ -672,6 +673,14 @@ export const modulesRouter = t.router({
         }
         return {
           ...installation,
+          // TASK-114: every reader of an installed Module sees it as this
+          // Organization edited it. Resolving HERE rather than on each page is
+          // why there is no surface still showing the shipped name of an
+          // entry the user renamed.
+          manifest: resolveModuleIntelligence(
+            installation.manifest,
+            await readModuleIntelligenceOverlayFor(ctx.wiring, input.organizationId, installation.moduleName),
+          ),
           runtimeAutomationIds,
           runtimeSkillIds,
           runtimeBindingIssues,

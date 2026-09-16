@@ -33,6 +33,7 @@ import { graphRouter } from "./routers/graph.js";
 import { jobpilotRouter } from "./routers/jobpilot.js";
 import { builderRouter } from "./routers/builder.js";
 import { moduleGovernanceRouter } from "./routers/moduleGovernance.js";
+import { moduleIntelligenceRouter } from "./routers/moduleIntelligence.js";
 import { tableSchemaRouter } from "./routers/tableSchema.js";
 import { accountingRouter } from "./routers/accounting.js";
 import { d2cRouter } from "./routers/d2c.js";
@@ -72,6 +73,7 @@ const kernelNamespaces = {
   graph: graphRouter,
   builder: builderRouter,
   moduleGovernance: moduleGovernanceRouter,
+  moduleIntelligence: moduleIntelligenceRouter,
   tableSchema: tableSchemaRouter,
   records: recordsRouter,
   moduleRecords: moduleRecordsRouter,
