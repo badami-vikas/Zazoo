@@ -25,6 +25,8 @@
 //! window needs an initialization script carrying the sidecar API's resolved
 //! port (`window.__BRIDGE_API_URL__`), which is only known at runtime.
 
+mod act;
+mod actuator;
 mod annotate;
 mod api_sidecar;
 mod chase;
@@ -680,6 +682,7 @@ pub fn run() {
         .manage(notch::NotchState::default())
         .manage(chase::ChaseState::default())
         .manage(point::PointJobs::default())
+        .manage(act::ActState::default())
         .manage(companion::CompanionState::default())
         .manage(companion::CompanionAskJobs::default())
         .manage(whatsapp_webview::WhatsAppState::default())
@@ -745,6 +748,13 @@ pub fn run() {
             chase::stop_chase_game,
             point::point_at_start,
             point::point_at_poll,
+            act::act_start,
+            act::act_poll,
+            act::act_stop,
+            act::act_type_text,
+            annotate::annotate_scribble_begin,
+            annotate::annotate_scribble_cancel,
+            annotate::annotate_scribble_done,
             overlay::overlay_dock_notch,
             overlay::overlay_undock_free,
             overlay::overlay_present_docked_panel,
@@ -758,6 +768,7 @@ pub fn run() {
             companion::companion_speak,
             companion::companion_stop_speaking,
             companion::open_privacy_settings,
+            companion::open_external_url,
             companion::companion_transcribe,
             companion::companion_move_pointer,
             companion::companion_demo_pointer,

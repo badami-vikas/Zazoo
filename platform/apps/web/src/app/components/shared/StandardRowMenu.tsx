@@ -36,6 +36,12 @@ export interface StandardRowMenuProps {
   onEditRecord?: (row: DataRow) => void;
   onDuplicate?: (row: DataRow) => void | Promise<void>;
   onPin?: (rowId: string) => void | Promise<void>;
+  /**
+   * Delete this one Record — through the SAME governed path a bulk delete uses
+   * (TableView calls its `onDeleteRows` with a one-element list). There is
+   * deliberately no separate single-Record write path to diverge from it.
+   */
+  onDelete?: (row: DataRow) => void | Promise<void>;
 }
 
 export function StandardRowMenuItems({
@@ -46,6 +52,7 @@ export function StandardRowMenuItems({
   onEditRecord,
   onDuplicate,
   onPin,
+  onDelete,
 }: StandardRowMenuProps) {
   return (
     <>
@@ -82,9 +89,14 @@ export function StandardRowMenuItems({
       </DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuItem
-        disabled
+        disabled={!onDelete}
         variant="destructive"
-        title="Unavailable: deletion requires dependency preview and undo support"
+        title={
+          onDelete
+            ? undefined
+            : "Unavailable: this Database has no governed delete path wired on this Page"
+        }
+        onSelect={() => void onDelete?.(row)}
       >
         Delete
       </DropdownMenuItem>

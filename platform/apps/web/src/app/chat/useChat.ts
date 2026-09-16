@@ -3,6 +3,7 @@ import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
 import {
   canApplyChatResponse,
   mergeChatThreadState,
+  needsCloudGrant,
 } from "./chat-state.mjs";
 
 export type ChatSurfaceKind =
@@ -35,6 +36,8 @@ interface PendingCloudRequest {
 
 const ACTIVE_THREAD_KEY = `bridge.${PILOT_ORGANIZATION}.chat.active.v2`;
 const CHAT_CHANNEL = `bridge.${PILOT_ORGANIZATION}.chat.v2`;
+/** Window event the left nav listens to for re-reading installed Modules. */
+export const MODULES_CHANGED_EVENT = "bridge:modules-changed";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -56,7 +59,13 @@ function persistActiveThread(id: string): void {
   }
 }
 
-export function useChat(surfaceKind: ChatSurfaceKind) {
+/**
+ * `moduleName` binds this surface to a Module's own conversation: opening the
+ * Module reopens its live thread with history rather than whatever thread was
+ * last active (ADR-267e). Undefined = the standalone Chat, which keeps its
+ * "resume the last thread you used" behaviour.
+ */
+export function useChat(surfaceKind: ChatSurfaceKind, moduleName?: string) {
   const [view, setView] = useState<ChatThreadView | null>(null);
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [model, setModel] = useState<ChatModelStatus | null>(null);
@@ -146,9 +155,14 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
     window.dispatchEvent(new CustomEvent(CHAT_CHANNEL, { detail }));
   }, []);
 
+  // `backend` picks WHICH engine answers the thread: the built-in Bridge model
+  // path, or an agentic backend (Claude Code) that runs its own tool loop. The
+  // server decides the plane for an agentic backend, so callers pass one or the
+  // other, never both meaningfully.
   const newChat = useCallback(async (
     plane?: "local" | "cloud",
     clientRequestId: string = crypto.randomUUID(),
+    backend?: "bridge" | "claude_code",
   ) => {
     setError(null);
     const generation = ++selectionGenerationRef.current;
@@ -160,6 +174,7 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
       created = await trpc.chat.thread.create.mutate({
         organizationId: PILOT_ORGANIZATION,
         ...(plane ? { plane } : {}),
+        ...(backend ? { backend } : {}),
         clientRequestId,
       });
     } catch (cause) {
@@ -178,6 +193,74 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
     return created;
   }, [announce, refreshThreads]);
 
+  /**
+   * Point the CURRENT conversation at a different engine. Bridge holds the
+   * context, so switching models keeps every turn — the thread is not cleared
+   * and not replaced. Falls back to starting a fresh thread only when the
+   * server refuses the switch (a deployment that stores the two planes
+   * separately cannot move a thread between them).
+   */
+  const switchBackend = useCallback(async (
+    backend: "bridge" | "claude_code",
+    plane?: "local" | "cloud",
+  ) => {
+    setError(null);
+    const threadId = activeIdRef.current;
+    if (!threadId) {
+      await newChat(plane, crypto.randomUUID(), backend);
+      return;
+    }
+    setCloudDisclosure(null);
+    setPendingCloudRequest(null);
+    try {
+      const updated = await trpc.chat.thread.setBackend.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        threadId,
+        backend,
+        ...(plane ? { plane } : {}),
+      });
+      setView(updated);
+      await refreshThreads();
+      announce(updated.thread.id, true);
+    } catch (cause) {
+      // The one honest fallback: this deployment keeps Local and Cloud Chat in
+      // separate stores, so the conversation genuinely cannot move. Say so and
+      // start a new thread on the chosen model rather than leaving the user on
+      // an engine they did not pick.
+      setError(cause instanceof Error ? cause.message : "Could not switch model");
+      await newChat(plane, crypto.randomUUID(), backend);
+    }
+  }, [announce, newChat, refreshThreads]);
+
+  /** Reopen a Module's own conversation — resumed with its history, or created
+   * on first visit and resumed from then on. */
+  const openModuleChat = useCallback(async (moduleName: string) => {
+    setError(null);
+    const opened = await trpc.chat.thread.forModule.mutate({
+      organizationId: PILOT_ORGANIZATION,
+      moduleName,
+    });
+    activeIdRef.current = opened.thread.id;
+    desiredIdRef.current = opened.thread.id;
+    persistActiveThread(opened.thread.id);
+    setView(opened);
+    await refreshThreads();
+    announce(opened.thread.id, true);
+    return opened;
+  }, [announce, refreshThreads]);
+
+  /** Pull another Module into this same conversation. */
+  const attachModule = useCallback(async (moduleName: string) => {
+    const threadId = activeIdRef.current;
+    if (!threadId) return;
+    const updated = await trpc.chat.thread.attachModule.mutate({
+      organizationId: PILOT_ORGANIZATION,
+      threadId,
+      moduleName,
+    });
+    setView(updated);
+  }, []);
+
   const selectThread = useCallback(async (threadId: string) => {
     const result = await loadThread(threadId);
     if (activeIdRef.current === threadId) announce(threadId, true);
@@ -190,6 +273,13 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
     void (async () => {
       const [listed] = await Promise.all([refreshThreads(), refreshModel()]);
       if (!active) return;
+      // A Module surface resumes THAT Module's conversation. The server
+      // creates one on first visit and returns the same one after, so this is
+      // resume-or-start rather than a new thread per navigation.
+      if (moduleName) {
+        await openModuleChat(moduleName);
+        return;
+      }
       const stored = activeThreadId();
       const selected = listed.find((thread) => thread.id === stored) ?? listed[0];
       if (selected) {
@@ -207,7 +297,7 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
     return () => {
       active = false;
     };
-  }, [loadThread, newChat, refreshModel, refreshThreads]);
+  }, [loadThread, moduleName, newChat, openModuleChat, refreshModel, refreshThreads]);
 
   useEffect(() => {
     const handleChange = (threadId: string | undefined, select = false) => {
@@ -265,6 +355,8 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
       clientRequestId: string;
       retryTurnId?: string;
     },
+    /** Runtime ids of Agents addressed with `@` (2026-09-05). */
+    mentions?: string[],
   ) => {
     if (!view) return false;
     const threadId = view.thread.id;
@@ -282,6 +374,7 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
         surface: { kind: surfaceKind },
         ...(cloudGrantId ? { cloudGrantId } : {}),
         ...(request?.retryTurnId ? { retryTurnId: request.retryTurnId } : {}),
+        ...(mentions && mentions.length > 0 ? { mentions } : {}),
       });
       accepted = true;
       if (canApplyChatResponse({
@@ -295,6 +388,9 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
         setView((current) => mergeChatThreadViews(current, result));
       }
       announce(threadId);
+      // A turn may have built and installed a Module; the left nav re-reads
+      // modules.list on this so the reply and the sidebar agree.
+      window.dispatchEvent(new CustomEvent(MODULES_CHANGED_EVENT));
       await refreshThreads();
     } catch (cause) {
       setError(errorMessage(cause));
@@ -308,9 +404,9 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
     return accepted;
   }, [announce, loadThread, refreshThreads, surfaceKind, view]);
 
-  const send = useCallback(async (message: string) => {
+  const send = useCallback(async (message: string, mentions?: string[]) => {
     if (!view) return false;
-    if (view.thread.plane === "cloud") {
+    if (needsCloudGrant(view.thread)) {
       // Picking a Cloud Plane thread IS the user's consent to send this
       // message to that thread's model provider (user directive 2026-08-10)
       // — the per-message grant is still fetched and still does its real job
@@ -329,14 +425,14 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
           message,
           surface: { kind: surfaceKind },
         });
-        return await submit(message, disclosure.grantId, { clientRequestId });
+        return await submit(message, disclosure.grantId, { clientRequestId }, mentions);
       } catch (cause) {
         setError(errorMessage(cause));
         setSending(false);
         return false;
       }
     }
-    return submit(message);
+    return submit(message, undefined, undefined, mentions);
   }, [submit, surfaceKind, view]);
 
   const confirmCloud = useCallback(async () => {
@@ -392,7 +488,7 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
       setError("The original request for this failed turn is unavailable.");
       return;
     }
-    if (view.thread.plane === "cloud") {
+    if (needsCloudGrant(view.thread)) {
       setSending(true);
       setError(null);
       try {
@@ -501,6 +597,9 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
     cloudDisclosure,
     pendingCloudMessage: pendingCloudRequest?.message ?? null,
     selectThread,
+    switchBackend,
+    openModuleChat,
+    attachModule,
     loadOlder,
     newChat,
     send,

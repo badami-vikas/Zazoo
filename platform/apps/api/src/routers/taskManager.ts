@@ -1,25 +1,94 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { INTERNAL_STRATEGIST_AGENT, GOVERNANCE_AGENT, CHIEF_OF_STAFF_AGENT, TASK_ROUTING_CANDIDATE_AGENTS, resolveLocalPlanningModel } from "../wiring.js";
-import { AlreadyResolvedError, emitTasksMarkdown, emitAgentLedgerTemplate, AGENT_LEDGER_TEMPLATE_FILE, TASK_PROJECTION_COMPLETED_CAP, TASK_RECORD_STATUSES, detectTaskProjectionDrift, applyApprovedTaskProjectionReconciliation, mergeEditedPlanningPayload, blockedTasks, TaskDependencyCycleError, MAX_MATERIALIZED_TASKS, evaluateTaskGuards, DEFAULT_STALE_AFTER_DAYS, planCompletedBaySweep, routeTaskByRequiredSkill, classifyTaskChangeBand, calibratedTaskChangeDecision } from "@bridge/core";
+import { AlreadyResolvedError, emitTasksMarkdown, emitAgentLedgerTemplate, AGENT_LEDGER_TEMPLATE_FILE, TASK_PROJECTION_COMPLETED_CAP, TASK_RECORD_STATUSES, detectTaskProjectionDrift, applyApprovedTaskProjectionReconciliation, mergeEditedPlanningPayload, blockedTasks, TaskDependencyCycleError, MAX_MATERIALIZED_TASKS, evaluateTaskGuards, DEFAULT_STALE_AFTER_DAYS, planCompletedBaySweep, routeTaskByRequiredSkill } from "@bridge/core";
 import { transition } from "@bridge/jobpilot";
-import { TASK_MANAGER_DRIFT_AUTOMATION_ID, TASK_MANAGER_SWEEP_AUTOMATION_ID, TASK_MANAGER_SCAN_AUTOMATION_ID, TASK_MANAGER_PLANNING_AUTOMATION_ID, TASK_MANAGER_STANDUP_AUTOMATION_ID, TASK_MANAGER_STALE_REVIEW_AUTOMATION_ID, TASK_MANAGER_WIP_BREACH_AUTOMATION_ID, TASK_MANAGER_UNVERIFIED_DONE_AUTOMATION_ID, TASK_MANAGER_GOAL_REVIEW_AUTOMATION_ID, TASK_MANAGER_IMPACT_FIT_AUTOMATION_ID, TASK_MANAGER_RESTRUCTURE_AUTOMATION_ID, TASK_MANAGER_REOPEN_AUTOMATION_ID, TASK_MANAGER_DEPENDENCY_AUTOMATION_ID, TASK_MANAGER_ROUTING_AUTOMATION_ID } from "../built-in-modules.js";
+import { TASK_MANAGER_DRIFT_AUTOMATION_ID, TASK_MANAGER_SWEEP_AUTOMATION_ID, TASK_MANAGER_SCAN_AUTOMATION_ID, TASK_MANAGER_PLANNING_AUTOMATION_ID, TASK_MANAGER_STANDUP_AUTOMATION_ID, TASK_MANAGER_STALE_REVIEW_AUTOMATION_ID, TASK_MANAGER_WIP_BREACH_AUTOMATION_ID, TASK_MANAGER_UNVERIFIED_DONE_AUTOMATION_ID, TASK_MANAGER_GOAL_REVIEW_AUTOMATION_ID, TASK_MANAGER_IMPACT_FIT_AUTOMATION_ID, TASK_MANAGER_RESTRUCTURE_AUTOMATION_ID, TASK_MANAGER_REOPEN_AUTOMATION_ID, TASK_MANAGER_DEPENDENCY_AUTOMATION_ID, TASK_MANAGER_ROUTING_AUTOMATION_ID } from "@bridge/module-manifests";
 import { MAX_MODULE_FILE_BYTES, readModuleFileContent, replaceModuleFileContent, withOrganizationFileOperationLock } from "../module-files.js";
-import { t, procedure, createGovernedModelProvider, taskOutcomeInput, taskRecordStatusInput, normalizeTaskOutcomes, taskRestructureInput, TASK_MANAGER_PROJECTION_FILE, runTaskManagerAgentAutomation, runTaskChangeGate, EDITED_PLANNING_ITEM, sha256Content, idempotentUuid, requireInstalledTaskManager, requireOrganizationNameForFiles, replaceTaskProjectionFile, withHumanInputTaint, ensureTaskManagerAutomation } from "../router-shared.js";
+import { EDITED_PLANNING_ITEM, TASK_MANAGER_PROJECTION_FILE, authenticatedProcedure, authorizeModelCompletion, createGovernedModelProvider, ensureTaskManagerAutomation, idempotentUuid, moduleFolderLabel, normalizeTaskOutcomes, organizationGuard, procedure, replaceTaskProjectionFile, requireInstalledTaskManager, requireOrganizationNameForFiles, runTaskChangeGate, runTaskManagerAgentAutomation, sha256Content, t, taskOutcomeInput, taskRecordStatusInput, taskRestructureInput, withHumanInputTaint } from "../router-shared.js";
 
 export const taskManagerRouter = t.router({
-  list: procedure.input(z.object({ organizationId: z.string().uuid() })).query(async ({ input, ctx }) => {
+  list: authenticatedProcedure.input(z.object({ organizationId: z.string().uuid() })).use(organizationGuard).query(async ({ input, ctx }) => {
     return ctx.wiring.taskManager.list(input.organizationId);
   }),
-  get: procedure.input(z.object({
+  /**
+   * Import the repository's canonical ledger (ADR-271).
+   *
+   * The caller sends the PROJECTION, not the Markdown: `docs/TASKS.md` is a
+   * repository file the API has no path to in a packaged desktop build, and
+   * the projection is already generated, already committed, and already in
+   * the web bundle. Re-parsing the document server-side would put a second
+   * parser in the system that could disagree with the first.
+   *
+   * Not routed through the governed pipeline: it writes no Skill and invokes
+   * no Agent. It is a Human writing Task Records in their own Organization,
+   * which is exactly what `taskManager.create` already permits directly. The
+   * governance that matters here is idempotence — `recordId` maps to one
+   * deterministic uuid, so running it twice re-states statuses instead of
+   * minting a second copy of the queue.
+   */
+  importCanonicalLedger: authenticatedProcedure.input(z.object({
+    organizationId: z.string().uuid(),
+    entries: z.array(z.object({
+      recordId: z.string().trim().min(1).max(80),
+      title: z.string().trim().min(1).max(200),
+      isGoal: z.boolean(),
+      parentRecordId: z.string().trim().min(1).max(80).nullable().optional(),
+      status: taskRecordStatusInput,
+      priority: z.string().trim().min(1).max(8).optional(),
+      estimate: z.string().trim().min(1).max(16).optional(),
+      outcome: z.string().trim().min(1).max(4_000).optional(),
+      exitTest: z.string().trim().min(1).max(4_000).optional(),
+    }).strict()).min(1).max(500),
+  }).strict()).use(organizationGuard).mutation(async ({ input, ctx }) => {
+    // Ledger identity -> Task identity, derived the same way every time so a
+    // re-import updates the rows it created rather than duplicating them.
+    const taskIdFor = (recordId: string) =>
+      idempotentUuid(`${input.organizationId}:canonical-ledger:${recordId}`);
+    const known = new Set(input.entries.map((entry) => entry.recordId));
+    const entries = input.entries.map((entry) => {
+      if (entry.parentRecordId && !known.has(entry.parentRecordId)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `ledger entry ${entry.recordId} names an absent parent ${entry.parentRecordId}`,
+        });
+      }
+      return {
+        recordId: entry.recordId,
+        taskId: taskIdFor(entry.recordId),
+        title: entry.title,
+        isGoal: entry.isGoal,
+        ...(entry.parentRecordId ? { parentTaskId: taskIdFor(entry.parentRecordId) } : {}),
+        status: entry.status,
+        ...(entry.priority ? { priority: entry.priority } : {}),
+        ...(entry.estimate ? { estimate: entry.estimate } : {}),
+        ...(entry.outcome ? { outcome: entry.outcome } : {}),
+        ...(entry.exitTest ? { exitTest: entry.exitTest } : {}),
+      };
+    });
+    try {
+      return await ctx.wiring.taskManager.importCanonicalLedger(
+        input.organizationId,
+        entries,
+        ctx.identity.id,
+        { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() },
+      );
+    } catch (cause) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: cause instanceof Error ? cause.message : String(cause),
+      });
+    }
+  }),
+  get: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     taskId: z.string().uuid(),
-  })).query(async ({ input, ctx }) => {
+  })).use(organizationGuard).query(async ({ input, ctx }) => {
     const task = await ctx.wiring.taskManager.get(input.organizationId, input.taskId);
     if (!task) throw new TRPCError({ code: "NOT_FOUND", message: `unknown Task ${input.taskId}` });
     return task;
   }),
-  create: procedure.input(z.object({
+  create: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     title: z.string().trim().min(1),
     taskType: z.string().trim().min(1).optional(),
@@ -34,8 +103,9 @@ export const taskManagerRouter = t.router({
     assignedAgentId: z.string().uuid().optional(),
     requiredSkillId: z.string().trim().min(1).optional(),
     parentTaskId: z.string().uuid().optional(),
+    estimate: z.string().trim().min(1).max(16).optional(),
     scheduledFor: z.string().date().optional(),
-  })).mutation(async ({ input, ctx }) => {
+  })).use(organizationGuard).mutation(async ({ input, ctx }) => {
     const taskId = ctx.run.ids.next();
     const taskInput = {
       id: taskId,
@@ -53,6 +123,7 @@ export const taskManagerRouter = t.router({
       ...(input.assignedAgentId ? { assignedAgentId: input.assignedAgentId } : {}),
       ...(input.requiredSkillId ? { requiredSkillId: input.requiredSkillId } : {}),
       ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
+      ...(input.estimate ? { estimate: input.estimate } : {}),
       ...(input.scheduledFor ? { scheduledFor: input.scheduledFor } : {}),
     };
     const populated = (await ctx.wiring.taskManager.list(input.organizationId)).length > 0;
@@ -101,21 +172,21 @@ export const taskManagerRouter = t.router({
       nowISO: () => ctx.run.clock.nowISO(),
     });
   }),
-  transition: procedure.input(z.object({
+  transition: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     taskId: z.string().uuid(),
     status: taskRecordStatusInput,
-  })).mutation(async ({ input, ctx }) => {
+  })).use(organizationGuard).mutation(async ({ input, ctx }) => {
     return ctx.wiring.taskManager.transition(input.organizationId, input.taskId, input.status, {
       nextId: () => ctx.run.ids.next(),
       nowISO: () => ctx.run.clock.nowISO(),
     });
   }),
-  verify: procedure.input(z.object({
+  verify: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     taskId: z.string().uuid(),
     evidenceRefs: z.array(z.string().trim().min(1)).min(1),
-  })).mutation(async ({ input, ctx }) => {
+  })).use(organizationGuard).mutation(async ({ input, ctx }) => {
     return ctx.wiring.taskManager.verify(input.organizationId, input.taskId, {
       verifiedAt: ctx.run.clock.nowISO(),
       verifiedBy: ctx.identity.id,
@@ -123,12 +194,12 @@ export const taskManagerRouter = t.router({
       result: "passed",
     }, { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() });
   }),
-  updateOutcomeTarget: procedure.input(z.object({
+  updateOutcomeTarget: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     taskId: z.string().uuid(),
     outcomeId: z.string().min(1),
     target: z.string().trim().min(1),
-  })).mutation(async ({ input, ctx }) => {
+  })).use(organizationGuard).mutation(async ({ input, ctx }) => {
     const result = await ctx.wiring.taskManager.updateOutcomeTarget(
       input.organizationId,
       input.taskId,
@@ -168,10 +239,10 @@ export const taskManagerRouter = t.router({
     }
     return result;
   }),
-  proposeRestructure: procedure.input(z.object({
+  proposeRestructure: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     operation: taskRestructureInput,
-  })).mutation(async ({ input, ctx }) => {
+  })).use(organizationGuard).mutation(async ({ input, ctx }) => {
     const operation = input.operation.kind === "insert_ancestor_above"
       ? {
           ...input.operation,
@@ -237,19 +308,19 @@ export const taskManagerRouter = t.router({
    * pipeline proposal and this row share an id (ADR-199), so a client that
    * has the ledger entry can read the queue-side draft with the same id.
    */
-  proposal: procedure.input(z.object({
+  proposal: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     proposalId: z.string().uuid(),
-  })).query(async ({ input, ctx }) => {
+  })).use(organizationGuard).query(async ({ input, ctx }) => {
     return ctx.wiring.taskManager.getProposal(input.organizationId, input.proposalId);
   }),
-  decideProposal: procedure.input(z.object({
+  decideProposal: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     proposalId: z.string().uuid(),
     decision: z.enum(["approve", "edit", "veto"]),
     editedExternalContent: z.string().max(MAX_MODULE_FILE_BYTES).optional(),
     editedPlanningItems: z.array(EDITED_PLANNING_ITEM).min(1).max(MAX_MATERIALIZED_TASKS).optional(),
-  })).mutation(async ({ input, ctx }) => {
+  })).use(organizationGuard).mutation(async ({ input, ctx }) => {
     if (ctx.identity.type !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "Only a Human may decide a Task proposal" });
     const taskProposal = await ctx.wiring.taskManager.getProposal(input.organizationId, input.proposalId);
     if (!taskProposal) throw new TRPCError({ code: "NOT_FOUND", message: "Task proposal not found" });
@@ -381,7 +452,7 @@ export const taskManagerRouter = t.router({
           async () => {
             const file = await readModuleFileContent(
               organizationName,
-              installation.manifest.module!.displayName,
+              moduleFolderLabel(installation),
               TASK_MANAGER_PROJECTION_FILE,
               ctx.wiring.moduleFilesBridgeRoot,
             );
@@ -399,7 +470,7 @@ export const taskManagerRouter = t.router({
             const written = await replaceTaskProjectionFile(
               ctx.wiring,
               organizationName,
-              installation.manifest.module!.displayName,
+              moduleFolderLabel(installation),
               file.contentHash,
               projection.content,
             );
@@ -416,7 +487,7 @@ export const taskManagerRouter = t.router({
               () => replaceTaskProjectionFile(
                 ctx.wiring,
                 organizationName,
-                installation.manifest.module!.displayName,
+                moduleFolderLabel(installation),
                 fileEffect.written.contentHash,
                 fileEffect.originalContent,
               ),
@@ -533,10 +604,10 @@ export const taskManagerRouter = t.router({
     }
     return decided;
   }),
-  projection: procedure.input(z.object({
+  projection: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     externalContent: z.string().optional(),
-  })).query(async ({ input, ctx }) => {
+  })).use(organizationGuard).query(async ({ input, ctx }) => {
     const [tasks, edges] = await Promise.all([
       ctx.wiring.taskManager.list(input.organizationId),
       ctx.wiring.taskManager.listDependencies(input.organizationId),
@@ -548,10 +619,10 @@ export const taskManagerRouter = t.router({
       guards: evaluateTaskGuards(tasks),
     };
   }),
-  emitProjectionFile: procedure.input(z.object({
+  emitProjectionFile: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     expectedFileHash: z.string().regex(/^sha256:[0-9a-f]{64}$/).nullable().optional(),
-  })).mutation(async ({ input, ctx }) => {
+  })).use(organizationGuard).mutation(async ({ input, ctx }) => {
     const installation = await requireInstalledTaskManager(ctx.wiring, input.organizationId);
     const [projectedTasks, projectedEdges] = await Promise.all([
       ctx.wiring.taskManager.list(input.organizationId),
@@ -569,7 +640,7 @@ export const taskManagerRouter = t.router({
         replaceTaskProjectionFile(
           ctx.wiring,
           organizationName,
-          installation.manifest.module!.displayName,
+          moduleFolderLabel(installation),
           input.expectedFileHash ?? null,
           projection.content,
         ),
@@ -597,7 +668,7 @@ export const taskManagerRouter = t.router({
     // checked against a caller expectation: it is generated, never edited,
     // and a stale copy is simply replaced.
     const template = emitAgentLedgerTemplate({
-      moduleDisplayName: installation.manifest.module!.displayName,
+      moduleDisplayName: moduleFolderLabel(installation),
       organizationName,
       projectionFileName: TASK_MANAGER_PROJECTION_FILE,
       completedCap: TASK_PROJECTION_COMPLETED_CAP,
@@ -614,13 +685,13 @@ export const taskManagerRouter = t.router({
         // first time.
         const existing = await readModuleFileContent(
           organizationName,
-          installation.manifest.module!.displayName,
+          moduleFolderLabel(installation),
           AGENT_LEDGER_TEMPLATE_FILE,
           ctx.wiring.moduleFilesBridgeRoot,
         );
         return replaceModuleFileContent(
           organizationName,
-          installation.manifest.module!.displayName,
+          moduleFolderLabel(installation),
           AGENT_LEDGER_TEMPLATE_FILE,
           existing?.contentHash ?? null,
           Buffer.from(template, "utf8"),
@@ -648,13 +719,13 @@ export const taskManagerRouter = t.router({
       },
     };
   }),
-  proposeProjectionReconcile: procedure.input(z.object({
+  proposeProjectionReconcile: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     externalContent: z.string().max(MAX_MODULE_FILE_BYTES),
     expectedFileHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
     idempotencyKey: z.string().trim().min(8).max(200),
     expiresAt: z.string().datetime(),
-  })).mutation(async ({ input, ctx }) => {
+  })).use(organizationGuard).mutation(async ({ input, ctx }) => {
     const expiresAt = Date.parse(input.expiresAt);
     const now = Date.parse(ctx.run.clock.nowISO());
     if (expiresAt <= now || expiresAt > now + 24 * 60 * 60 * 1000) {
@@ -677,7 +748,7 @@ export const taskManagerRouter = t.router({
       input.organizationId,
       () => readModuleFileContent(
           organizationName,
-          installation.manifest.module!.displayName,
+          moduleFolderLabel(installation),
           TASK_MANAGER_PROJECTION_FILE,
           ctx.wiring.moduleFilesBridgeRoot,
       ),
@@ -763,7 +834,7 @@ export const taskManagerRouter = t.router({
    * and there is nothing to apply here. The pipeline proposal carrying the
    * draft IS the review artifact.
    */
-  runPlanningPlaybook: procedure.input(z.object({
+  runPlanningPlaybook: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     taskId: z.string().uuid(),
     skill: z.enum([
@@ -777,7 +848,7 @@ export const taskManagerRouter = t.router({
     horizon: z.string().trim().min(1).max(160).optional(),
     idempotencyKey: z.string().trim().min(8).max(200),
     expiresAt: z.string().datetime(),
-  }).strict()).mutation(async ({ input, ctx }) => {
+  }).strict()).use(organizationGuard).mutation(async ({ input, ctx }) => {
     await requireInstalledTaskManager(ctx.wiring, input.organizationId);
 
     const task = await ctx.wiring.taskManager.get(input.organizationId, input.taskId);
@@ -904,11 +975,11 @@ export const taskManagerRouter = t.router({
    * the queue and every finding names the row it came from, so approval is
    * where a candidate would ever become real.
    */
-  runOpportunityScan: procedure.input(z.object({
+  runOpportunityScan: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     idempotencyKey: z.string().trim().min(8).max(200),
     expiresAt: z.string().datetime(),
-  }).strict()).mutation(async ({ input, ctx }) => {
+  }).strict()).use(organizationGuard).mutation(async ({ input, ctx }) => {
     await requireInstalledTaskManager(ctx.wiring, input.organizationId);
 
     const queue = await ctx.wiring.taskManager.list(input.organizationId);
@@ -993,7 +1064,7 @@ export const taskManagerRouter = t.router({
    * the staleness question asked over a longer one. A nineteenth Skill for
    * the same computation would have been a roster entry, not a capability.
    */
-  runQueueBrief: procedure.input(z.object({
+  runQueueBrief: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     brief: z.enum(["standup-brief", "stale-task-review"]),
     /** The window each brief looks back over. Defaults differ because the
@@ -1001,7 +1072,7 @@ export const taskManagerRouter = t.router({
      * review asks "what has nobody touched in two weeks". */
     windowDays: z.number().int().min(1).max(90).optional(),
     idempotencyKey: z.string().trim().min(8).max(200),
-  }).strict()).mutation(async ({ input, ctx }) => {
+  }).strict()).use(organizationGuard).mutation(async ({ input, ctx }) => {
     await requireInstalledTaskManager(ctx.wiring, input.organizationId);
 
     const isStaleReview = input.brief === "stale-task-review";
@@ -1075,7 +1146,7 @@ export const taskManagerRouter = t.router({
    * unverified `done` are different problems with different remedies, and
    * merging them would make either one easy to miss.
    */
-  runQueueGuard: procedure.input(z.object({
+  runQueueGuard: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     // `goal-review-cadence` is Internal Strategist's, not Governance's
     // (ADR-107's split: whether a goal is due for review is a planning
@@ -1084,7 +1155,7 @@ export const taskManagerRouter = t.router({
     guard: z.enum(["wip-breach-detector", "unverified-done-challenger", "goal-review-cadence"]),
     wipLimit: z.number().int().min(1).max(20).optional(),
     idempotencyKey: z.string().trim().min(8).max(200),
-  }).strict()).mutation(async ({ input, ctx }) => {
+  }).strict()).use(organizationGuard).mutation(async ({ input, ctx }) => {
     await requireInstalledTaskManager(ctx.wiring, input.organizationId);
 
     const guardBinding = {
@@ -1164,14 +1235,14 @@ export const taskManagerRouter = t.router({
    * means anything calling it could hand itself a calibrated verdict. A gate
    * that trusts the caller's account of its own track record is not a gate.
    */
-  runChangeGate: procedure.input(z.object({
+  runChangeGate: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     kind: z.enum(["route", "reschedule"]),
     deltaDays: z.number().int().min(-3650).max(3650).optional(),
     candidateCount: z.number().int().min(0).max(100).optional(),
     crossesModule: z.boolean().optional(),
     idempotencyKey: z.string().trim().min(8).max(200),
-  }).strict()).mutation(async ({ input, ctx }) => {
+  }).strict()).use(organizationGuard).mutation(async ({ input, ctx }) => {
     await requireInstalledTaskManager(ctx.wiring, input.organizationId);
     return runTaskChangeGate(ctx, {
       organizationId: input.organizationId,
@@ -1189,21 +1260,21 @@ export const taskManagerRouter = t.router({
    * `blocked` STATUS, which says someone believed a Task was blocked but not
    * by what, so nothing could ever tell them it had stopped being true.
    */
-  dependencies: procedure.input(z.object({
+  dependencies: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
-  })).query(async ({ input, ctx }) => {
+  })).use(organizationGuard).query(async ({ input, ctx }) => {
     const [queue, edges] = await Promise.all([
       ctx.wiring.taskManager.list(input.organizationId),
       ctx.wiring.taskManager.listDependencies(input.organizationId),
     ]);
     return { dependencies: edges, blocked: blockedTasks(queue, edges) };
   }),
-  addDependency: procedure.input(z.object({
+  addDependency: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     taskId: z.string().uuid(),
     dependsOnTaskId: z.string().uuid(),
     reason: z.string().trim().min(1).max(2_000).optional(),
-  }).strict()).mutation(async ({ input, ctx }) => {
+  }).strict()).use(organizationGuard).mutation(async ({ input, ctx }) => {
     // Both ends must be real Tasks in THIS Organization. The composite FKs
     // enforce it in Postgres; checking here turns a constraint violation
     // into an answer the caller can act on.
@@ -1229,10 +1300,10 @@ export const taskManagerRouter = t.router({
       throw error;
     }
   }),
-  removeDependency: procedure.input(z.object({
+  removeDependency: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     dependencyId: z.string().uuid(),
-  }).strict()).mutation(async ({ input, ctx }) => {
+  }).strict()).use(organizationGuard).mutation(async ({ input, ctx }) => {
     const removed = await ctx.wiring.taskManager.removeDependency(input.organizationId, input.dependencyId);
     if (!removed) throw new TRPCError({ code: "NOT_FOUND", message: "Dependency not found" });
     return { removed };
@@ -1247,10 +1318,10 @@ export const taskManagerRouter = t.router({
    * Task started, and flipping its status would decide for the Human that
    * the work is now theirs to pick up.
    */
-  runDependencyUnblockNotifier: procedure.input(z.object({
+  runDependencyUnblockNotifier: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     idempotencyKey: z.string().trim().min(8).max(200),
-  }).strict()).mutation(async ({ input, ctx }) => {
+  }).strict()).use(organizationGuard).mutation(async ({ input, ctx }) => {
     await requireInstalledTaskManager(ctx.wiring, input.organizationId);
     const [queue, dependencies] = await Promise.all([
       ctx.wiring.taskManager.list(input.organizationId),
@@ -1275,13 +1346,13 @@ export const taskManagerRouter = t.router({
       blocked: Array.isArray(output["blocked"]) ? output["blocked"] : [],
     };
   }),
-  runCompletedBaySweep: procedure.input(z.object({
+  runCompletedBaySweep: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     completedCap: z.number().int().min(0).max(100).default(10),
     maxAgeDays: z.number().int().min(0).max(365).default(7),
     idempotencyKey: z.string().trim().min(8).max(200),
     expiresAt: z.string().datetime(),
-  })).mutation(async ({ input, ctx }) => {
+  })).use(organizationGuard).mutation(async ({ input, ctx }) => {
     const nowIso = ctx.run.clock.nowISO();
     const expiresAt = Date.parse(input.expiresAt);
     const now = Date.parse(nowIso);
@@ -1413,12 +1484,12 @@ export const taskManagerRouter = t.router({
    *    a person has to own it" — offering an approve button there would
    *    invite someone to approve an assignment nobody computed.
    */
-  assign: procedure.input(z.object({
+  assign: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     taskId: z.string().uuid(),
     idempotencyKey: z.string().trim().min(8).max(200),
     expiresAt: z.string().datetime(),
-  }).strict()).mutation(async ({ input, ctx }) => {
+  }).strict()).use(organizationGuard).mutation(async ({ input, ctx }) => {
     await requireInstalledTaskManager(ctx.wiring, input.organizationId);
 
     const task = await ctx.wiring.taskManager.get(input.organizationId, input.taskId);
@@ -1556,11 +1627,11 @@ export const taskManagerRouter = t.router({
     );
     return { runId, proposal: governed, routing, gate, routeProposal: decided.proposal, assigned: decided.result ?? null };
   }),
-  route: procedure.input(z.object({
+  route: authenticatedProcedure.input(z.object({
     organizationId: z.string().uuid(),
     requiredSkillId: z.string().trim().min(1),
     candidateAgentIds: z.array(z.string().uuid()).min(1),
-  })).query(async ({ input, ctx }) => {
+  })).use(organizationGuard).query(async ({ input, ctx }) => {
     const manifests = ctx.wiring.skillManifests.forSkill(input.organizationId, input.requiredSkillId);
     const agents = await Promise.all(input.candidateAgentIds.map(async (id) => ({
       id,
@@ -1576,27 +1647,5 @@ export const taskManagerRouter = t.router({
       plane: manifest.plane,
       dataScopes: manifest.dataScopes,
     })));
-  }),
-  approvalBand: procedure.input(z.object({
-    organizationId: z.string().uuid(),
-    kind: z.enum(["route", "reschedule"]),
-    deltaDays: z.number().optional(),
-    candidateCount: z.number().int().nonnegative().optional(),
-    crossesModule: z.boolean().optional(),
-    approvals: z.number().int().nonnegative(),
-    vetoes: z.number().int().nonnegative(),
-  })).query(async ({ input, ctx }) => {
-    const band = classifyTaskChangeBand({
-      kind: input.kind,
-      ...(input.deltaDays !== undefined ? { deltaDays: input.deltaDays } : {}),
-      ...(input.candidateCount !== undefined ? { candidateCount: input.candidateCount } : {}),
-      ...(input.crossesModule !== undefined ? { crossesModule: input.crossesModule } : {}),
-    });
-    return { band, decision: calibratedTaskChangeDecision({
-      band,
-      approvals: input.approvals,
-      vetoes: input.vetoes,
-      actorType: ctx.identity.type === "user" ? "human" : "agent",
-    }) };
   }),
 });

@@ -44,7 +44,9 @@
  * table bottoms out is the WANTED behaviour, and `contain` would break it.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import type { RowFilter, TableSpec, ViewConfig, ViewKind } from "@bridge/tables";
+import { applyFilters, applySorts, defaultViewConfig, filterOpsForKind } from "@bridge/tables";
+import type { ColumnKind, RowFilter, TableSpec, ViewConfig, ViewKind } from "@bridge/tables";
+import { AddColumnDialog } from "../components/shared/AddColumnDialog.js";
 import { StandardDropdown } from "../components/shared/StandardDropdown.js";
 import { Button } from "../components/ui/button.js";
 import { Input } from "../components/ui/input.js";
@@ -68,7 +70,17 @@ import {
 } from "./registry.js";
 import { computeEligibleKinds, migrateViewConfig, viewConfigForKind } from "./eligibility.js";
 import { filterRowsByQuery } from "./rowSearch.js";
-import { ArrowUpDown, ChevronDown, ChevronUp, Eye, Filter, List as ListIcon, MoreVertical, Plus, Search } from "lucide-react";
+import { useSavedViews } from "./useSavedViews.js";
+import { FilterBuilder } from "./FilterBuilder.js";
+import { SortEditor } from "./SortEditor.js";
+import { PaginationBar } from "./PaginationBar.js";
+import { DEFAULT_PAGE_SIZE } from "./pagination.js";
+import { columnIdFromLabel } from "./columnId.js";
+import { RECORD_SECTION_IDS, RECORD_SECTION_LABELS, useRecordSections } from "./useRecordSections.js";
+import { RecordPage } from "./RecordPage.js";
+import { useShareGrants, type ShareAccessLevel } from "./useShareGrants.js";
+import { useRecordMetadata } from "./useRecordMetadata.js";
+import { ArrowUpDown, ChevronDown, ChevronUp, Eye, Filter, LayoutList, List as ListIcon, MoreVertical, Plus, Search } from "lucide-react";
 import type { DataRow, DataViewProps } from "./types.js";
 
 /**
@@ -151,15 +163,51 @@ export interface DataViewsProps
   insights?: ReactNode;
   /**
    * §5's "Custom actions" slot: page-specific controls (scope toggles, a
-   * governed action button) that belong IN the sandwich row, between Filter
-   * and the 3-dots. This slot exists because its absence is what made pages
-   * diverge — with nowhere to put a Goals/Candidates toggle, TaskManager
-   * built a second bordered row of its own beneath the toolbar, and the
-   * "one line between toggle and dashboard" rule was broken by the kit, not
-   * by the page. Anything passed here must stay compact; long lists belong
-   * in the 3-dots menu.
+   * governed action button). This slot exists because its absence is what made
+   * pages diverge — with nowhere to put a Goals/Candidates toggle, TaskManager
+   * built a second bordered row of its own beneath the toolbar.
+   *
+   * IT NO LONGER RENDERS IN THE ROW (user report 2026-09-05: "no other buttons
+   * should appear … If necessary, add additional options inside 3 dots"). The
+   * row is exactly List + View + Search on the left and Filter + ⋮ on the
+   * right; whatever a page passes here becomes a labelled group at the top of
+   * the ⋮ menu, reaching the same handler from a different address.
    */
   actions?: ReactNode;
+  /**
+   * How this surface opens a Record page for a NEW Record. Supplying it makes
+   * New navigate; without it the shell falls back to rendering the Record page
+   * in place of the view (the surfaces that have no Record route of their own).
+   */
+  onOpenNewRecord?: () => void;
+  /**
+   * Server-paged mode. Supply this when the SURFACE has already asked the
+   * server for this View's search, filters, sorts and page window: `data` is
+   * then ONE page and this is how many Records match in the whole Database.
+   * The shell stops filtering, sorting and slicing a second time, and the
+   * pagination control counts the server's answer rather than the page it can
+   * see — which is what lets a filter match a Record beyond the loaded page
+   * (TASK-108/110).
+   */
+  serverTotal?: number;
+  /** In server-paged mode, the window and search the shell now needs. Filters
+   * and sorts are not repeated here: they live in the View the surface already
+   * holds, so `onViewChange` is what tells it those moved. */
+  onWindowChange?: (window: { offset: number; pageSize: number; search: string }) => void;
+  /**
+   * The Module this Database belongs to, for an Record page's Sections.
+   * Defaults to the spec id's own prefix (`deal-pilot.deals` → `deal-pilot`),
+   * which is how nearly every spec in the repository is named; the handful
+   * whose Database is not named after its Module pass it.
+   */
+  moduleName?: string;
+  /**
+   * What the Event log calls these Records (TASK-063). Supplying it fills the
+   * derived `createdTime`/`createdBy`/`lastEditedTime`/`lastEditedBy` columns
+   * for the rows on screen; without it they render honestly empty rather than
+   * showing a time nothing recorded.
+   */
+  recordEntityType?: string;
 }
 
 export function DataViews({
@@ -174,20 +222,105 @@ export function DataViews({
   onAddView,
   insights,
   actions,
+  onOpenNewRecord,
+  serverTotal,
+  onWindowChange,
+  moduleName,
+  recordEntityType,
   ...viewProps
 }: DataViewsProps) {
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+  // TASK-062 — saved Lists. Keyed by the Database (the TableSpec id), so a
+  // second Database shows its own Views and never this one's.
+  const savedViews = useSavedViews(spec.id);
+  const [listNameDraft, setListNameDraft] = useState("");
+  const [listSaveError, setListSaveError] = useState<string | null>(null);
+  const [listPopoverOpen, setListPopoverOpen] = useState(false);
+  // TASK-064 — the Share panel's data. Keyed by the SELECTED saved List,
+  // because a share points at a saved View and "All" is not one.
+  const shareGrants = useShareGrants(savedViews.selectedId);
+  const [shareLevel, setShareLevel] = useState<ShareAccessLevel>("view");
+  const [shareLink, setShareLink] = useState<string | null>(null);
+  // TASK-083 — which Sections every Record page of this Database shows.
+  const recordSections = useRecordSections(spec.id);
+  /** New is open. The Record page replaces the view; nothing is written until
+   *  Save, so backing out is just this flag going false. */
+  const [creating, setCreating] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(true);
-  const [filterDraft, setFilterDraft] = useState("");
-  const [filterColumn, setFilterColumn] = useState(spec.columns[0]?.id ?? "");
   const [search, setSearch] = useState("");
-  const filterInput = useRef<HTMLInputElement>(null);
+  /** The first row on screen. Pagination is the SHELL's, not each page's
+   * (TASK-110) — see <PaginationBar>. */
+  const [offset, setOffset] = useState(0);
+  // Server-paged surfaces are told the window and search they now need. The
+  // delay is for typing: one query per keystroke would be a request storm.
+  useEffect(() => {
+    if (!onWindowChange) return undefined;
+    const timer = window.setTimeout(
+      () => onWindowChange({ offset, pageSize: view.pageSize ?? DEFAULT_PAGE_SIZE, search }),
+      250,
+    );
+    return () => window.clearTimeout(timer);
+  }, [onWindowChange, offset, view.pageSize, search]);
+
+  /** Managing the selected List: rename draft and the delete confirmation.
+   * Deleting a List is destructive and irreversible, so it asks first. */
+  const [listRenameDraft, setListRenameDraft] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
   const hidden = useToolbarOverflow(rowRef);
 
+  /**
+   * The "Add column" slot, answered by the SERVER (TASK-084 + the 2026-09-05
+   * user report "why is add column inactive… I should always be able to add
+   * columns in all modules").
+   *
+   * It used to carry one hard-coded sentence saying no capability existed —
+   * true when nothing behind it could add a column, a lie once a Module
+   * Database can. Both halves now come from `tableSchema.get`: the handler
+   * exists only where `canAddColumn` is true, and the disabled reason is the
+   * server's `addReason`, never a sentence composed here.
+   *
+   * It now OPENS THE DIALOG rather than creating anything (user report
+   * 2026-09-07: "Adding a column, just adds column, it doesnt ask me for
+   * column type, column name"). It used to mint a column called "New column"
+   * of kind `text` on the spot, so every column had to be renamed and retyped
+   * afterwards. The dialog is the same component the column menu's own Add
+   * column left/right opens.
+   */
+  const [addingColumn, setAddingColumn] = useState(false);
+  const addColumnSlot = useMemo<{ onAdd?: () => void; addDisabledReason?: string }>(() => {
+    const schema = viewProps.columnSchema;
+    if (!schema?.addColumn || !schema.capability?.canAddColumn) {
+      return {
+        addDisabledReason:
+          schema?.capability?.addReason ??
+          schema?.capability?.reason ??
+          "This surface has not asked the server whether this Database can gain a column.",
+      };
+    }
+    return { onAdd: () => setAddingColumn(true) };
+  }, [viewProps.columnSchema]);
+
+  // Derived metadata first, so a search or a sort on "last edited" sees the
+  // real value rather than an empty cell (TASK-063).
+  const withMetadata = useRecordMetadata(spec, data, recordEntityType);
   // Free-text search across all columns, applied before the view's own column
   // filters/sorts. Shared by every Module table (empty query = no filtering).
-  const searchedData = useMemo(() => filterRowsByQuery(data, search), [data, search]);
+  const searchedData = useMemo(
+    () => filterRowsByQuery(withMetadata, search),
+    [withMetadata, search],
+  );
+
+  /** columnId -> kind, so `applyFilters` compares a date as a date rather
+   * than as text. The map the engine has always accepted and nothing passed. */
+  const columnKinds = useMemo(
+    () =>
+      Object.fromEntries(spec.columns.map((column) => [column.id, column.kind])) as Record<
+        string,
+        ColumnKind
+      >,
+    [spec.columns],
+  );
 
   const switcherKinds = useMemo(() => {
     const eligible = computeEligibleKinds(spec);
@@ -203,6 +336,47 @@ export function DataViews({
   );
 
   const activeView = migrateViewConfig(spec, view);
+  /**
+   * FILTER AND SORT HAPPEN HERE, ONCE, WITH THE COLUMN KINDS.
+   *
+   * The view components call `applyFilters` themselves but have no kind map to
+   * pass, so a date filter compared as text there. The shell has the spec, so
+   * it filters and sorts first and hands the view an already-narrowed page with
+   * `rowFilters: []` — filtering twice, the second time without kinds, would
+   * undo exactly the sharpening this exists for.
+   *
+   * Above the early returns below because it is a hook: a filtered page is no
+   * reason to change how many hooks this component runs.
+   */
+  const resolved = useMemo(
+    () =>
+      serverTotal !== undefined
+        ? data
+        : activeView
+        ? applySorts(
+            applyFilters(
+              searchedData,
+              activeView.rowFilters,
+              activeView.filterMatch,
+              columnKinds,
+            ),
+            activeView.sorts,
+          )
+        : searchedData,
+    [serverTotal, data, searchedData, activeView, columnKinds],
+  );
+  const pageSize = activeView?.pageSize ?? DEFAULT_PAGE_SIZE;
+  /** In server-paged mode `data` IS the page, so there is nothing to slice and
+   * the total is the server's, not the length of what arrived. */
+  const serverPaged = serverTotal !== undefined;
+  const totalRows = serverPaged ? serverTotal : resolved.length;
+  /** A filter that shrinks the result below the current window would otherwise
+   * leave the user staring at an empty page four. */
+  const pageOffset = offset >= totalRows ? 0 : offset;
+  const pageRows = useMemo(
+    () => (serverPaged ? data : resolved.slice(pageOffset, pageOffset + pageSize)),
+    [serverPaged, data, resolved, pageOffset, pageSize],
+  );
   if (!activeView || !isRegisteredViewKind(activeView.kind)) {
     // The enforcement boundary: an unregistered kind never reaches a component.
     return (
@@ -231,12 +405,12 @@ export function DataViews({
   }
 
   const ViewComponent = VIEW_COMPONENT_REGISTRY[activeView.kind];
+  /** What the view renders: this page's rows, and no filters left to re-apply. */
+  const pagedView: ViewConfig = { ...activeView, rowFilters: [] };
 
-  function applyTextFilter() {
-    const nextFilters: RowFilter[] = filterDraft
-      ? [{ field: filterColumn, op: "contains", value: filterDraft }]
-      : [];
-    onViewChange({ ...activeView!, rowFilters: nextFilters });
+  function changeFilters(nextFilters: RowFilter[], nextMatch: "all" | "any") {
+    setOffset(0);
+    onViewChange({ ...activeView!, rowFilters: nextFilters, filterMatch: nextMatch });
   }
 
   /** What the "Sort by" row reports without being opened. */
@@ -246,6 +420,7 @@ export function DataViews({
       : (spec.columns.find((col) => col.id === activeView.sorts[0]!.id)?.label ??
         activeView.sorts[0]!.id);
 
+
   /** "Reset view" is only offered when there is something to reset — an enabled
    * control that would visibly do nothing is the thing AP-021 forbids. Hidden
    * columns are local state here, so they count as modification too. */
@@ -253,14 +428,51 @@ export function DataViews({
     activeView.sorts.length > 0 ||
     activeView.rowFilters.length > 0 ||
     hiddenColumns.size > 0 ||
-    search !== "" ||
-    filterDraft !== "";
+    search !== "";
+
+  /** Save what is on screen — the view config AND the shell's own column
+   * visibility — as a named List on this Database. */
+  async function saveCurrentList() {
+    const name = listNameDraft.trim();
+    if (name === "") return;
+    setListSaveError(null);
+    try {
+      await savedViews.save(name, activeView!, [...hiddenColumns]);
+      setListNameDraft("");
+      setListPopoverOpen(false);
+    } catch (cause) {
+      setListSaveError(cause instanceof Error ? cause.message : "Could not save this list");
+    }
+  }
+
+  async function updateCurrentList() {
+    setListSaveError(null);
+    try {
+      await savedViews.update(activeView!, [...hiddenColumns]);
+      setListPopoverOpen(false);
+    } catch (cause) {
+      setListSaveError(cause instanceof Error ? cause.message : "Could not update this list");
+    }
+  }
 
   function resetView() {
     setHiddenColumns(new Set());
     setSearch("");
-    setFilterDraft("");
-    onViewChange({ ...activeView!, sorts: [], rowFilters: [] });
+    setOffset(0);
+    onViewChange({ ...activeView!, sorts: [], rowFilters: [], filterMatch: "all" });
+  }
+
+  const selectedList = savedViews.views.find((saved) => saved.id === savedViews.selectedId) ?? null;
+
+  /** Every List verb reports the server's own failure text, never a sentence
+   * composed here (ADR-247). */
+  async function runListAction(action: () => Promise<void>) {
+    setListSaveError(null);
+    try {
+      await action();
+    } catch (cause) {
+      setListSaveError(cause instanceof Error ? cause.message : "That did not work");
+    }
   }
 
   return (
@@ -271,31 +483,275 @@ export function DataViews({
           child that can shrink. As the row runs out of width the response is
           staged, not a wrap: the search box narrows first (`ToolbarSearch`),
           then button labels drop to icon-only, and only once that's
-          exhausted does an element move into the 3-dots overflow menu — see
-          `useToolbarOverflow` below. This was specified in
-          ui-architecture-rules-2026-07.md long before this fix; the row had
-          drifted back to `flex-wrap` and a two-group split, which is exactly
-          the erosion this rewrite closes. */}
+          exhausted does a Record move into the 3-dots overflow menu — see
+          `useToolbarOverflow` below.
+
+          §5 SLOT ORDER (user report 2026-09-05: "the three dots and filter
+          should be right aligned and search bar and list and view dropdowns
+          should be left aligned and no other buttons should appear"):
+            LEFT  — List dropdown, View dropdown, Search.
+            RIGHT — Filter, then the ⋮ (pushed over by `ml-auto`).
+          Nothing else. A page's `actions` are a group inside the ⋮ menu, not a
+          third button between Filter and it. */}
       <div ref={rowRef} className="flex flex-none flex-nowrap items-center gap-2 overflow-hidden">
         {/* §5: List dropdown ALWAYS renders first, View dropdown second — this is
             the enforcement point, not StandardToolbar (which almost nothing
-            mounts). "All" is the one real List every Database has today; saved
-            Lists are TASK-062 (ViewConfig persistence isn't built yet), so Add
-            List is shown — never hidden — disabled with that reason (§3a/AP-021:
-            explain, don't omit) but reachable by keyboard/screen reader too
-            (aria-disabled, not disabled — see StandardDropdown). */}
+            mounts). "All" is every Database's own default; the entries beside
+            it are saved Views (TASK-062), durable per Database and per owner.
+            Add List opens a name field rather than saving an unnamed View: a
+            List a user cannot recognise in this dropdown is not a saved List.
+            When the surface cannot reach the store at all, the row stays
+            visible and says why (§3a/AP-021: explain, don't omit). */}
         <div className="flex shrink-0 items-center gap-2">
           <StandardDropdown
             ariaLabel="Select list"
-            options={[{ id: "all", label: "All" }]}
-            activeId="all"
-            onSelect={() => {}}
+            options={[
+              { id: "all", label: "All" },
+              ...savedViews.views.map((saved) => ({ id: saved.id, label: saved.name })),
+            ]}
+            activeId={savedViews.selectedId ?? "all"}
+            onSelect={(id) => {
+              const chosen = savedViews.select(id === "all" ? null : id);
+              if (!chosen) {
+                // "All" is the Database's own default view, not a saved one.
+                setHiddenColumns(new Set());
+                onViewChange(defaultViewConfig(activeView!.id, activeView!.kind));
+                return;
+              }
+              // A saved View restores BOTH halves of what was on screen: the
+              // view config and the column visibility the shell owns.
+              setHiddenColumns(new Set(chosen.hiddenColumns));
+              onViewChange(chosen.config as unknown as ViewConfig);
+            }}
+            {...(savedViews.unavailableReason === null
+              ? { onAdd: () => setListPopoverOpen(true) }
+              : {})}
             addLabel="Add list"
-            addDisabledReason="Saved Lists need persisted View configuration, which is not built yet (TASK-062)."
+            {...(savedViews.unavailableReason !== null
+              ? { addDisabledReason: `Saved Lists are unavailable: ${savedViews.unavailableReason}` }
+              : {})}
             emptyLabel="No lists yet"
             triggerIcon={<ListIcon className="size-4 shrink-0" style={{ color: "var(--color-steel)" }} />}
             showLabel={!hidden.has("list-label")}
           />
+          {/* Naming a List. Anchored beside the dropdown that opened it rather
+              than inside it, because StandardDropdown closes on select and a
+              field that vanishes mid-typing is not a field. */}
+          <Popover open={listPopoverOpen} onOpenChange={setListPopoverOpen}>
+            <PopoverTrigger asChild>
+              <span className="sr-only" aria-hidden />
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-64 space-y-2">
+              <div className="text-xs font-medium text-muted-foreground">
+                Save this list
+              </div>
+              <Input
+                autoFocus
+                placeholder="Name this list…"
+                aria-label="List name"
+                value={listNameDraft}
+                onChange={(event) => setListNameDraft(event.target.value)}
+                onKeyDown={(event) => event.key === "Enter" && void saveCurrentList()}
+                className="h-8 w-full rounded-lg border"
+                style={{ borderColor: "var(--color-border)" }}
+              />
+              {listSaveError && (
+                <p className="text-xs text-destructive" role="alert">
+                  {listSaveError}
+                </p>
+              )}
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  className="flex-1"
+                  disabled={listNameDraft.trim() === ""}
+                  onClick={() => void saveCurrentList()}
+                >
+                  Save list
+                </Button>
+                {savedViews.selectedId && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void updateCurrentList()}
+                    title="Overwrite the selected list with what is on screen"
+                  >
+                    Update
+                  </Button>
+                )}
+              </div>
+
+              {/* THE REST OF A LIST'S VERBS (TASK-110). Rename, personal vs
+                  shared, default and duplicate were all reachable on the server
+                  and unreachable in the UI — `remove()` had existed in the hook
+                  with no caller at all. Deleting asks first: it is the one verb
+                  here that destroys something. */}
+              {selectedList && (
+                <div className="space-y-1.5 border-t pt-2" style={{ borderColor: "var(--color-border)" }}>
+                  <div className="text-xs font-medium text-muted-foreground">
+                    Manage "{selectedList.name}"
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      placeholder={selectedList.name}
+                      aria-label="Rename list"
+                      value={listRenameDraft}
+                      onChange={(event) => setListRenameDraft(event.target.value)}
+                      className="h-8 min-w-0 flex-1 rounded-lg border"
+                      style={{ borderColor: "var(--color-border)" }}
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        listRenameDraft.trim() === "" || listRenameDraft.trim() === selectedList.name
+                      }
+                      onClick={() =>
+                        void runListAction(async () => {
+                          await savedViews.rename(selectedList.id, listRenameDraft.trim());
+                          setListRenameDraft("");
+                        })
+                      }
+                    >
+                      Rename
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      aria-label="List visibility"
+                      value={selectedList.scope}
+                      onChange={(event) =>
+                        void runListAction(() =>
+                          savedViews.setScope(
+                            selectedList.id,
+                            event.target.value as "personal" | "organization",
+                          ),
+                        )
+                      }
+                      className="h-8 min-w-0 flex-1 rounded-lg border px-2 text-xs"
+                      style={{ borderColor: "var(--color-border)" }}
+                    >
+                      <option value="personal">Only me</option>
+                      <option value="organization">Everyone here</option>
+                    </select>
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        aria-label="Open on this list"
+                        checked={selectedList.isDefault === true}
+                        onChange={(event) =>
+                          void runListAction(() =>
+                            savedViews.setDefault(selectedList.id, event.target.checked),
+                          )
+                        }
+                      />
+                      Open on this
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => void runListAction(() => savedViews.duplicate(selectedList.id))}
+                    >
+                      Duplicate
+                    </Button>
+                    {confirmDelete ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() =>
+                            void runListAction(async () => {
+                              await savedViews.remove(selectedList.id);
+                              setConfirmDelete(false);
+                              setListPopoverOpen(false);
+                            })
+                          }
+                        >
+                          Delete for good
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
+                          Keep
+                        </Button>
+                      </>
+                    ) : (
+                      <Button size="sm" variant="outline" onClick={() => setConfirmDelete(true)}>
+                        Delete
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* SHARE (TASK-064). The affordance shipped disabled with an
+                  honest reason — Bridge's only sharing primitive was welded to
+                  Helpdesk. It is generalized now, so the control acts. */}
+              <div className="border-t pt-2" style={{ borderColor: "var(--color-border)" }}>
+                <div className="text-xs font-medium text-muted-foreground">Share this list</div>
+                {shareGrants.unavailableReason ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {shareGrants.unavailableReason}
+                  </p>
+                ) : (
+                  <>
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <select
+                        aria-label="Share access level"
+                        value={shareLevel}
+                        onChange={(event) => setShareLevel(event.target.value as ShareAccessLevel)}
+                        className="h-8 flex-1 rounded-lg border px-2 text-xs"
+                        style={{ borderColor: "var(--color-border)" }}
+                      >
+                        <option value="view">Can view</option>
+                        <option value="edit">Can edit</option>
+                        <option value="coowner">Co-owner</option>
+                      </select>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          const grant = await shareGrants.createLink(shareLevel);
+                          setShareLink(grant?.accessToken ?? null);
+                        }}
+                      >
+                        Create link
+                      </Button>
+                    </div>
+                    {shareLink && (
+                      // The token itself, not a fabricated URL: Bridge has no
+                      // route that opens a shared View yet, and printing one
+                      // would be a capability that does not exist (ADR-247).
+                      <p className="mt-1.5 break-all text-xs text-muted-foreground">
+                        Share token: <span className="font-mono">{shareLink}</span>
+                      </p>
+                    )}
+                    <ul className="mt-2 space-y-1">
+                      {shareGrants.grants.map((grant) => (
+                        <li key={grant.id} className="flex items-center gap-2 text-xs">
+                          <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                            {grant.granteeUserId ? "Member" : "Link"} · {grant.accessLevel}
+                            {grant.usable ? "" : " · revoked"}
+                          </span>
+                          {grant.usable && (
+                            <button
+                              type="button"
+                              className="rounded border px-1.5 py-0.5"
+                              style={{ borderColor: "var(--color-border)" }}
+                              onClick={() => void shareGrants.revoke(grant.id)}
+                            >
+                              Revoke
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
           {/* §5e: the View dropdown is a StandardDropdown like every other dropdown —
               selected first, searchable, pinned Add slot. Not a bespoke Select. */}
           <StandardDropdown
@@ -341,7 +797,10 @@ export function DataViews({
           />
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        {/* THE RIGHT GROUP. `ml-auto` is what right-aligns it, so the two
+            groups stay pinned to their own edges however wide the search box
+            grows or shrinks. */}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           {/* ONE Filter control, not two (user report 2026-08-10: "Why are
               there 2 filters, retain only the button. Currently its not
               clickable, why?"). There used to be a always-visible draft input
@@ -361,51 +820,17 @@ export function DataViews({
                   {!hidden.has("filter-label") && "Filter"}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-72 space-y-2">
-                <div className="text-xs font-medium text-muted-foreground">Filter</div>
-                {/* The column picker is a StandardDropdown like every other
-                    dropdown in the app — the kit used by the kit (§5e). */}
-                <StandardDropdown
-                  ariaLabel="Filter column"
-                  options={spec.columns.map((column) => ({ id: column.id, label: column.label }))}
-                  activeId={filterColumn}
-                  onSelect={setFilterColumn}
-                  addLabel="Add column"
-                  addDisabledReason="Adding a column is a schema mutation, and this surface has no governed schema-mutation capability."
-                  className="w-full"
+              <PopoverContent align="end" className="w-72">
+                <FilterBuilder
+                  spec={spec}
+                  filters={activeView.rowFilters}
+                  match={activeView.filterMatch}
+                  onChange={changeFilters}
+                  addColumnSlot={addColumnSlot}
                 />
-                <Input
-                  ref={filterInput}
-                  placeholder="Contains…"
-                  aria-label="Filter value"
-                  value={filterDraft}
-                  onChange={(e) => setFilterDraft(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && applyTextFilter()}
-                  className="h-8 w-full rounded-lg border"
-                  style={{ borderColor: "var(--color-border)" }}
-                />
-                <div className="flex items-center gap-2">
-                  <Button size="sm" className="flex-1" onClick={applyTextFilter}>
-                    Apply
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={filterDraft === "" && activeView.rowFilters.length === 0}
-                    onClick={() => {
-                      setFilterDraft("");
-                      onViewChange({ ...activeView!, rowFilters: [] });
-                    }}
-                  >
-                    Clear
-                  </Button>
-                </div>
               </PopoverContent>
             </Popover>
           )}
-
-          {/* §5 slot order: Custom actions sit after Filter, before the 3-dots. */}
-          {actions}
 
           {/* The overflow menu, in the Avilo shape: the view-level commands
               collect behind one ⋮ instead of each claiming a toolbar button.
@@ -420,9 +845,24 @@ export function DataViews({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-60">
+              {/* §5's Custom actions slot, moved here from the row. Same node,
+                  same handler — a page's control is still one click away, it
+                  just no longer adds a button to a row the user asked to hold
+                  only List/View/Search and Filter/⋮. Key events are stopped so
+                  Radix's type-ahead does not eat an input a page passes. */}
+              {actions && (
+                <div
+                  className="space-y-1.5 border-b p-2"
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
+                  <div className="text-xs font-medium text-muted-foreground">Actions</div>
+                  {actions}
+                </div>
+              )}
+
               {/* When the row has no space left, Filter drops out of the row
                   and lives here instead — same input, same handler, just a
-                  different address (user directive 2026-08-10: "the elements
+                  different address (user directive 2026-08-10: "the Records
                   should move inside 3 dots one by one"). Key/click events are
                   stopped so Radix's menu type-ahead doesn't eat keystrokes. */}
               {hidden.has("filter") && (
@@ -431,32 +871,28 @@ export function DataViews({
                   onKeyDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                    <Filter className="size-3.5" /> Filter
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Input
-                      ref={filterInput}
-                      placeholder={`Filter ${spec.columns.find((column) => column.id === filterColumn)?.label ?? spec.id}…`}
-                      value={filterDraft}
-                      onChange={(e) => setFilterDraft(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && applyTextFilter()}
-                      className="h-7 flex-1 text-xs"
-                    />
-                    <Button size="sm" variant="outline" className="h-7 px-2" onClick={applyTextFilter}>
-                      Apply
-                    </Button>
-                  </div>
+                  <FilterBuilder
+                    spec={spec}
+                    filters={activeView.rowFilters}
+                    match={activeView.filterMatch}
+                    onChange={changeFilters}
+                    addColumnSlot={addColumnSlot}
+                  />
                 </div>
               )}
 
-              {/* Disabled with a stated reason rather than hidden: AP-021 —
-                  interactive-looking UI must perform OR explain. Adding a
-                  column is a schema mutation and this surface has no governed
-                  capability for one. */}
+              {/* Enabled where the server said this Database's row store can
+                  hold a new column, disabled WITH THE SERVER'S OWN REASON
+                  where it cannot (AP-021: perform OR explain; ADR-247: never
+                  claim what is not true). It used to be unconditionally
+                  disabled against a sentence saying no capability existed
+                  anywhere, which is what the user hit in a Module. */}
               <DropdownMenuItem
-                disabled
-                title="Unavailable: adding a column is a schema mutation, and this surface has no governed schema-mutation capability"
+                disabled={!addColumnSlot.onAdd}
+                {...(addColumnSlot.addDisabledReason
+                  ? { title: `Unavailable: ${addColumnSlot.addDisabledReason}` }
+                  : {})}
+                {...(addColumnSlot.onAdd ? { onSelect: addColumnSlot.onAdd } : {})}
                 className="justify-between"
               >
                 <span className="flex items-center gap-2">
@@ -494,6 +930,43 @@ export function DataViews({
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
 
+              {/* Records (TASK-083, ADR-261 under AP-171). PER-DATABASE:
+                  switching one on or off applies to every Record of this
+                  Database. Per-Record toggling was rejected — two Records of
+                  one Database with different Sections is exactly the
+                  single-page divergence the UI gate exists to catch. */}
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="justify-between">
+                  <span className="flex items-center gap-2">
+                    <LayoutList className="size-4" /> Records
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {RECORD_SECTION_IDS.filter((id) => recordSections.sections[id]).length} on
+                  </span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {RECORD_SECTION_IDS.map((section) => (
+                    <DropdownMenuCheckboxItem
+                      key={section}
+                      checked={recordSections.sections[section]}
+                      disabled={!recordSections.ready || recordSections.unavailableReason !== null}
+                      title={recordSections.unavailableReason ?? undefined}
+                      onSelect={(event) => event.preventDefault()}
+                      onCheckedChange={(checked) =>
+                        void recordSections.toggle(section, checked === true)
+                      }
+                    >
+                      {RECORD_SECTION_LABELS[section]}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                  {recordSections.unavailableReason && (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                      {recordSections.unavailableReason}
+                    </div>
+                  )}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger className="justify-between">
                   <span className="flex items-center gap-2">
@@ -503,24 +976,19 @@ export function DataViews({
                     {activeSortLabel ?? "None"}
                   </span>
                 </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  <DropdownMenuItem
-                    disabled={!activeView || activeView.sorts.length === 0}
-                    onSelect={() => activeView && onViewChange({ ...activeView, sorts: [] })}
-                  >
-                    Clear sort
-                  </DropdownMenuItem>
-                  {spec.columns.map((col) => (
-                    <DropdownMenuItem
-                      key={col.id}
-                      onSelect={() =>
-                        activeView &&
-                        onViewChange({ ...activeView, sorts: [{ id: col.id, dir: "asc" }] })
-                      }
-                    >
-                      {col.label}
-                    </DropdownMenuItem>
-                  ))}
+                <DropdownMenuSubContent
+                  className="p-0"
+                  onKeyDown={(event) => event.stopPropagation()}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {/* Levels, not one column: `applySorts` breaks ties with the
+                      later rows and every write site here used to replace the
+                      array with a single entry. */}
+                  <SortEditor
+                    spec={spec}
+                    sorts={activeView.sorts}
+                    onChange={(sorts) => onViewChange({ ...activeView!, sorts })}
+                  />
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
 
@@ -552,23 +1020,92 @@ export function DataViews({
       {/* THE DEFINITE-HEIGHT BOX. Nothing below this line may fall back to
           content sizing — see the header block. */}
       <div className={fill ? "min-h-0 flex-1 overflow-auto" : "h-[28rem] overflow-auto"}>
+        {creating ? (
+          <RecordPage
+            spec={spec}
+            moduleName={moduleName ?? spec.id.split(".")[0]!}
+            {...(viewProps.onInsert ? { onSave: viewProps.onInsert } : {})}
+            {...(viewProps.insertDisabledReason
+              ? { saveDisabledReason: viewProps.insertDisabledReason }
+              : {})}
+            onCancel={() => setCreating(false)}
+          />
+        ) : !ViewComponent ? (
+          // A kind the grammar names but this build has no renderer for. Say so
+          // rather than showing an empty pane (ADR-247).
+          <div className="p-6 text-sm" style={{ color: "var(--color-warm-gray)" }}>
+            This build has no {VIEW_METADATA[activeView.kind]?.label ?? activeView.kind} view yet.
+          </div>
+        ) : (
         <ViewComponent
           spec={visibleSpec}
-          view={activeView}
-          data={searchedData}
+          view={pagedView}
+          data={pageRows}
           onViewChange={onViewChange}
           {...viewProps}
           onRequestFilter={(columnId) => {
-            setFilterColumn(columnId);
+            // "Filter this column" from the column menu ADDS a row for it
+            // rather than replacing whatever is there — a second filter used to
+            // overwrite the first.
+            if (!activeView!.rowFilters.some((filter) => filter.field === columnId)) {
+              const kind = columnKinds[columnId] ?? "text";
+              changeFilters(
+                [
+                  ...activeView!.rowFilters,
+                  { field: columnId, op: filterOpsForKind(kind)[0]!, value: "" },
+                ],
+                activeView!.filterMatch,
+              );
+            }
             viewProps.onRequestFilter?.(columnId);
-            window.setTimeout(() => filterInput.current?.focus(), 0);
           }}
           onHideColumn={(columnId) => {
             setHiddenColumns((current) => new Set(current).add(columnId));
             viewProps.onHideColumn?.(columnId);
           }}
+          // New opens a PAGE wherever the surface has a Record route (user
+          // report 2026-09-05: "shouldnt I be taken to the element page when
+          // adding a new element?"). The inline Record page below stays as the
+          // fallback for the hand-written surfaces that have no such route —
+          // there it is still a whole-view swap, never a half-page.
+          onRequestCreate={onOpenNewRecord ?? (() => setCreating(true))}
         />
+        )}
       </div>
+
+      {/* ONE pagination control for every surface (TASK-110). It counts the
+          rows the shell actually filtered, so "of N" is the real N. */}
+      {!creating && (
+        <PaginationBar
+          total={totalRows}
+          pageSize={pageSize}
+          offset={pageOffset}
+          onOffsetChange={setOffset}
+          onPageSizeChange={(next) => {
+            setOffset(0);
+            onViewChange({ ...activeView!, pageSize: next });
+          }}
+        />
+      )}
+
+      {/* ADD COLUMN — the same dialog the column header's own Add column
+          left/right opens, so the question is identical from either place
+          (TASK-112). The toolbar's version names no neighbour, so the column
+          lands at the end, which is what "Add column" there has always meant. */}
+      <AddColumnDialog
+        open={addingColumn}
+        title="Add a column"
+        onCancel={() => setAddingColumn(false)}
+        onSubmit={async (column) => {
+          await viewProps.columnSchema?.addColumn?.({
+            columnId: columnIdFromLabel(column.label, spec.columns),
+            label: column.label,
+            kind: column.kind,
+            ...(column.options.length > 0 ? { options: column.options } : {}),
+          });
+          setAddingColumn(false);
+        }}
+      />
     </div>
   );
 }

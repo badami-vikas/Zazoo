@@ -11,7 +11,7 @@
  * ON TOP of CapabilityManifest/RiskBand/etc., never redefines them.
  */
 import type { CapabilityManifest, RiskBand } from "../capability/types.js";
-import type { OrganizationBlueprint } from "../blueprint.js";
+import type { BlueprintColumnSpec, OrganizationBlueprint } from "../blueprint.js";
 import type { Plane } from "../types.js";
 import type { CommonsModuleEntry } from "./commons.js";
 
@@ -51,6 +51,46 @@ export interface ModulePageBinding {
   route: string;
   databaseId: string;
   capabilityId: string;
+}
+
+/**
+ * A Database a Module declares in its manifest (ADR 2026-09-04) — the columns
+ * the standard Module Page renders when the Module ships no code of its own.
+ * `columns` is the Blueprint mirror of @bridge/tables' ColumnSpec, so the same
+ * validation covers a Blueprint and a manifest.
+ */
+export interface ModuleDatabaseBinding {
+  id: string;
+  name: string;
+  columns: BlueprintColumnSpec[];
+  /**
+   * Which Sections every Record page of this Database shows (UI Rulebook
+   * Part IV §1: switched per DATABASE, never per Record, never in code). The
+   * parser fills all three `true` when absent — Notes and Governance are
+   * mandatory by default and the owner switches them off from the Page's
+   * ⋮ menu. Optional on the type so a code-built manifest still compiles;
+   * `moduleStructure().sections()` applies the default.
+   */
+  sections?: ModuleDatabaseSections;
+}
+
+export interface ModuleDatabaseSections {
+  notes: boolean;
+  intelligence: boolean;
+  governance: boolean;
+}
+
+/**
+ * A sub-module (UI Rulebook §2 rule 3): related data that needs its own
+ * toolbar, Lists and Files but is not strongly related to the root. It is a
+ * NAVIGATION grouping of this Module's own Pages — a collapsible child in the
+ * left nav — not a Module of its own (that is `parentModule`). A Page id
+ * belongs to at most one sub-module; Pages listed nowhere are the root's.
+ */
+export interface ModuleSubModuleBinding {
+  id: string;
+  name: string;
+  pages: string[];
 }
 
 export interface ModuleAgentBinding {
@@ -159,6 +199,11 @@ export interface ModuleSurfaceManifest {
    */
   parentModule?: string;
   pages: ModulePageBinding[];
+  /** Declared Databases with their columns; absent for a Module whose specs are code. */
+  databases?: ModuleDatabaseBinding[];
+  /** Sub-modules grouping this Module's Pages under collapsible nav children
+   * (TASK-100). Absent means every Page belongs to the root. */
+  subModules?: ModuleSubModuleBinding[];
   agents: ModuleAgentBinding[];
   automations: ModuleAutomationBinding[];
   /** Versioned methodologies this Module ships. Optional: most Modules have
@@ -298,6 +343,10 @@ export interface ModuleInstallationRow {
   state: ModuleVersionState;
   status: "pending_review" | "installed" | "rejected";
   lineageManifestId: string | null;
+  /** What this Organization calls the Module (TASK-081). `null` = never renamed;
+   *  the manifest's display name stands. See `moduleInstallations` in the db
+   *  schema for why this is not written into the manifest. */
+  displayNameOverride?: string | null;
   /** Installation-local ownership. The signed Commons artifact stays immutable. */
   moduleAttachment?: ModuleAttachment;
   /** Verified source envelope for a root Module installed/reconciled from Commons. */

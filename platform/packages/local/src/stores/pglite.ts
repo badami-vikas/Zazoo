@@ -1072,6 +1072,14 @@ class PgliteLocalStateStore implements LocalStateStore {
     return state === undefined ? null : structuredClone(state);
   }
 
+  async remove(organizationId: string, namespace: string): Promise<boolean> {
+    const result = await this.db.query<{ namespace: string }>(
+      `DELETE FROM local_state WHERE organization_id=$1 AND namespace=$2 RETURNING namespace`,
+      [organizationId, namespace],
+    );
+    return result.rows.length > 0;
+  }
+
   async update<T>(
     organizationId: string,
     namespace: string,

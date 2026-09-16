@@ -18,37 +18,49 @@ export type ActorType = "user" | "team" | "agent";
 /**
  * Resource types the governance spine can authorize against.
  * Mirror + Operational + Infra planes (see node_types in SCHEMA.sql).
+ *
+ * A RUNTIME array, with `ResourceType` derived from it, because a
+ * compile-time-only union cannot be consumed by the validators that must agree
+ * with it. `automation-stores.ts` kept a hand-written zod mirror of this list
+ * and drifted five members behind it (2026-09-08); the symptom was an
+ * Automation step over a Relation or a Module installation failing as
+ * `invalid_enum_value`, which reads like a corrupt database row rather than a
+ * list nobody updated. Adding a member here now reaches every consumer at
+ * once — there is no second list to forget.
  */
-export type ResourceType =
-  | "person"
-  | "community"
-  | "relation"
-  | "event"
-  | "record"
-  | "automation"
-  | "module"
-  | "module_installation"
-  | "organization_definition"
-  | "file"
-  | "signal"
-  | "policy"
-  | "policy_param"
-  | "skill"
-  | "capability"
-  | "agent"
-  | "role"
-  | "permission"
-  | "ledger"
-  | "delegation"
-  | "integration"
+export const RESOURCE_TYPES = [
+  "person",
+  "community",
+  "relation",
+  "event",
+  "record",
+  "automation",
+  "module",
+  "module_installation",
+  "organization_definition",
+  "file",
+  "signal",
+  "policy",
+  "policy_param",
+  "skill",
+  "capability",
+  "agent",
+  "role",
+  "permission",
+  "ledger",
+  "delegation",
+  "integration",
   // K3 (TASK-047): a knowledge-substrate claim — materialized only through a
   // governed proposal on this resource type (decisionRef on every row).
-  | "claim"
+  "claim",
   // Special read targets (not table rows):
-  | "network_graph:full"
+  "network_graph:full",
   // Internet egress (the API gate): outbound send + inbound sourcing of internet data.
-  | "external:send"
-  | "external:fetch";
+  "external:send",
+  "external:fetch",
+] as const;
+
+export type ResourceType = typeof RESOURCE_TYPES[number];
 
 /**
  * The plane an actor runs on (local-first gate). `local` = the customer-controlled
@@ -238,7 +250,7 @@ export interface LedgerEntry {
   action: Action;
   /** The Skill that produced this row's output — `ActionRequest.skill`, persisted.
    * This is the capability-attribution key: for a Skill capability the Skill id and
-   * the manifest id are the same string (see modules/manifests), so grouping ledger
+   * the manifest id are the same string (see packages/module-manifests), so grouping ledger
    * rows by `skill` is what lets the Agent Quality Vector score a capability from
    * real production episodes instead of from a synthetic dataset. Optional only for
    * rows appended before migration 0037; never omitted by the pipeline. */
@@ -248,7 +260,10 @@ export interface LedgerEntry {
   inputs: unknown;
   proposedOutput?: unknown;
   /** null until a human decides; then approve|veto|edit|auto. */
-  userDecision: Decision | "auto" | null;
+  /** `superseded`: withdrawn by the machine because a newer identical proposal
+   * from the same Automation replaced it (never a Human decision, never
+   * executed) — ADR 2026-09-04 "Approvals belong to Tasks". */
+  userDecision: Decision | "auto" | "superseded" | null;
   diff?: unknown;
   policyResults: PolicyResult[];
   /** Links a decision row back to the proposal it resolves. */

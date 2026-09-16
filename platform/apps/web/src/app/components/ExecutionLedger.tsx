@@ -192,7 +192,7 @@ export function ExecutionLedger() {
       <div className="flex items-center gap-2 flex-wrap">
         <Filter className="w-4 h-4" style={{ color: 'var(--color-warm-gray)' }} />
         <Select value={actorFilter} onChange={setActorFilter} opts={[{ v: 'all', label: 'All actors' }, { v: 'agent', label: 'Agents' }, { v: 'human', label: 'Humans' }]} />
-        <Select value={decisionFilter} onChange={setDecisionFilter} opts={[{ v: 'all', label: 'Any decision' }, { v: 'approved', label: 'Approved' }, { v: 'edited_approved', label: 'Edited + approved' }, { v: 'vetoed', label: 'Vetoed' }, { v: 'auto_approved', label: 'Auto-approved' }, { v: 'pending', label: 'Pending' }]} />
+        <Select value={decisionFilter} onChange={setDecisionFilter} opts={[{ v: 'all', label: 'Any decision' }, { v: 'approved', label: 'Approved' }, { v: 'edited_approved', label: 'Edited + approved' }, { v: 'vetoed', label: 'Vetoed' }, { v: 'auto_approved', label: 'Auto-approved' }, { v: 'withdrawn', label: 'Withdrawn' }, { v: 'pending', label: 'Pending' }]} />
         <Select value={resourceFilter} onChange={setResourceFilter} opts={[{ v: 'all', label: 'Any resource' }, { v: 'person', label: 'Person' }, { v: 'record', label: 'Record' }, { v: 'community', label: 'Community' }, { v: 'automation', label: 'Automation' }, { v: 'external', label: 'External' }]} />
         <button
           onClick={() => setLens(l => !l)}

@@ -34,13 +34,16 @@
       "path": "../../packages/net-guard"
     },
     {
-      "path": "../../modules/dealpilot"
+      "path": "../../packages/research"
     },
     {
-      "path": "../../modules/jobpilot"
+      "path": "../../commons/dealpilot"
     },
     {
-      "path": "../../modules/manifests"
+      "path": "../../commons/jobpilot"
+    },
+    {
+      "path": "../../packages/module-manifests"
     },
     {
       "path": "../../tools/company-sourcing"
@@ -49,19 +52,25 @@
       "path": "../../packages/models"
     },
     {
-      "path": "../../modules/whatsapp"
+      "path": "../../commons/whatsapp"
     },
     {
-      "path": "../../modules/devpilot"
+      "path": "../../commons/devpilot"
     },
     {
       "path": "../../packages/integrations-github"
     },
     {
-      "path": "../../modules/accounting"
+      "path": "../../commons/accounting"
     },
     {
-      "path": "../../modules/d2c"
+      "path": "../../packages/tables"
+    },
+    {
+      "path": "../../commons/d2c"
+    },
+    {
+      "path": "../../services/commons"
     }
   ],
   "include": [

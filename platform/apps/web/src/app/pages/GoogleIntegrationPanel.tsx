@@ -219,7 +219,7 @@ export function GoogleIntegrationPanel() {
               <div className="mt-4 border border-[var(--color-border)] rounded-lg overflow-hidden">
                 <div className="px-4 py-2 bg-[var(--color-surface)]/60 text-xs font-semibold text-[var(--color-navy-mid)] flex items-center justify-between">
                   <span>Sourced {sync.sourced} from {sync.source} · {sync.proposals.length} proposals</span>
-                  <Link to="/approvals" className="text-[var(--color-steel)] hover:underline flex items-center gap-1">Review in Approvals <ArrowRight className="w-3 h-3" /></Link>
+                  <Link to="/task-manager" className="text-[var(--color-steel)] hover:underline flex items-center gap-1">Review in Task Manager <ArrowRight className="w-3 h-3" /></Link>
                 </div>
                 <div className="divide-y divide-[var(--color-border)]">
                   {sync.proposals.length === 0 && <div className="px-4 py-3 text-xs text-[var(--color-warm-gray)]">Nothing new — already intaken (idempotent).</div>}
@@ -238,7 +238,7 @@ export function GoogleIntegrationPanel() {
           {/* WRITE pipeline */}
           <Card title="Write · draft → approve → Gmail draft" icon={Send}>
             <p className="text-sm text-[var(--color-navy-mid)] mb-4">
-              Composing is safe. The proposal lands in <Link to="/approvals" className="text-[var(--color-steel)] hover:underline">Approvals</Link>;
+              Composing is safe. The proposal waits for your yes in <Link to="/task-manager" className="text-[var(--color-steel)] hover:underline">Task Manager</Link>;
               {' '}on your approval (≥ L2) Bridge writes a <span className="font-medium">Gmail draft</span> — it never auto-sends, you press Send in Gmail.
               {' '}Agents can never reach Gmail on their own.
             </p>

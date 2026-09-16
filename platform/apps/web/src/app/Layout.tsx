@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
-import { Link, Outlet, useLocation } from "react-router";
-import { Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles, ChevronRight } from "lucide-react";
-import { moduleNavTarget, moduleNavTargetFromSurface, buildModuleNavTree } from "@bridge/module-manifests";
+import { useEffect, useState, type ReactNode } from "react";
+import { Suspense } from "react";
+import { Link, Outlet, useLocation, useNavigate } from "react-router";
+import { MODULES_CHANGED_EVENT } from "./chat/useChat";
+import { Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles, ChevronRight, Building2 } from "lucide-react";
+import { moduleNavTarget, buildModuleNavTree } from "@bridge/module-manifests";
+import { moduleStructure } from "@bridge/core";
 import { trpc, PILOT_ORGANIZATION } from "./lib/trpc";
 import { useAppFocusCapture } from "./lib/app-focus-capture";
 import { useInputCaptureDrain } from "./lib/input-capture-drain";
@@ -23,15 +26,31 @@ import {
 } from "./components/shared/PanelControl";
 import { MAC_TRAFFIC_LIGHT_GUTTER, useIsMacDesktop } from "./components/shared/DesktopWindowChrome";
 import { useAuthSession } from "./auth/AuthSession";
+// TASK-081: the rail borrows the table header's menu geometry rather than
+// inventing a second one — same viewport clamp, same fixed panel, same
+// right-click gesture that opens StandardColumnMenu on a column header.
+import { clampMenuPosition, type MenuPosition } from "./components/shared/StandardColumnMenu";
+import { useDismiss } from "./lib/useDismiss";
+import {
+  applyRailPresentation,
+  canHideModule,
+  EMPTY_RAIL_PRESENTATION,
+  loadRailPresentation,
+  moveModuleInOrder,
+  railPresentationKey,
+  saveRailPresentation,
+  type RailPresentation,
+} from "./rail-module-presentation";
 
 /**
  * Shell IA v3 — TASK-001 / VOCAB6 (2026-07-16): installed Modules are
  * first-class left-nav items, sourced from modules.list (not hardcoded).
  * Each Module links to its PRIMARY data Page (ADR-152/AP-084 — the first
- * manifest Page, buttons-at-top), not the /module/:name capability inventory;
- * the inventory stays reachable via each data Page's Intelligence Section
- * ("Manage in Module Detail"); the duplicate 3-dots Control Panel entry was
- * dropped in ADR-180.
+ * manifest Page, buttons-at-top), not the /module/:name capability inventory —
+ * which is no loss, because that Page renders the same Intelligence and
+ * Governance Sections every data Page already carries. The link to it was
+ * dropped on 2026-09-06 (user directive), as was the duplicate 3-dots Control
+ * Panel entry in ADR-180.
  * Deprecated surfaces (Knowledge, Intelligence, standalone Tools,
  * Projects) are removed from primary nav. Settings moves to its own section.
  *
@@ -55,6 +74,10 @@ type NavModule = {
   icon: typeof Boxes;
   /** Set when this Module declares a nav parent (ADR-178) — it renders nested. */
   parentModule?: string | undefined;
+  /** Set for a manifest sub-module (TASK-100): a nav child grouping some of
+   *  its Module's Pages, keyed `<module>/<sub-module id>`, not an installation
+   *  of its own. These are its Page routes, for the active highlight. */
+  routes?: string[] | undefined;
 };
 
 // TaskManager is a default Module: it always appears under Home regardless of
@@ -83,9 +106,61 @@ function loadExpandedModules(): string[] {
   }
 }
 
+// TASK-081: hidden / renamed / reordered Modules, persisted per Organization
+// in the same `bridge.<org>.rail.*` family as EXPANDED_KEY above. Rail
+// PRESENTATION only — nothing here installs, uninstalls, re-scopes or
+// re-planes a Module, and nothing outside the rail reads it (ADR-178: a
+// re-arrangement is never a filter). See rail-module-presentation.ts.
+const PRESENTATION_KEY = railPresentationKey(PILOT_ORGANIZATION);
+
+/** Drag payload type for rail reordering. A private MIME type keeps a dragged
+ *  Module from being dropped into (or accepted from) anything else. */
+const RAIL_DRAG_TYPE = "application/x-bridge-rail-module";
+
+/** A rail Module carrying its presentation state. */
+type PresentedNavModule = NavModule & { hidden: boolean };
+
+/**
+ * The rail's context / View-options panel. Deliberately the SAME shape as
+ * `StandardColumnMenuPanel`: fixed, viewport-clamped, dismissed by Escape or an
+ * outside pointerdown. The gesture that opens a column menu on a table header
+ * is the gesture that opens this one on a rail Module.
+ */
+function RailMenuPanel({
+  position,
+  label,
+  onClose,
+  children,
+}: {
+  position: MenuPosition;
+  label: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  useDismiss(true, onClose);
+  return (
+    <div
+      role="menu"
+      aria-label={label}
+      className="fixed z-[80] max-h-[min(70dvh,420px)] w-56 overflow-auto rounded-xl border py-1 text-left shadow-xl"
+      style={{
+        left: position.x,
+        top: position.y,
+        borderColor: "var(--color-border)",
+        background: "var(--popover)",
+        color: "var(--popover-foreground)",
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      {children}
+    </div>
+  );
+}
+
 export default function Layout() {
   const auth = useAuthSession();
   const location = useLocation();
+  const navigate = useNavigate();
   const isMacDesktop = useIsMacDesktop();
   // K7 (TASK-051): desktop-only, consent-driven app-focus drain loop —
   // feature-detected no-op in browser deploys.
@@ -155,17 +230,39 @@ export default function Layout() {
   // TASK-001 VOCAB6: installed modules from modules.list (real API, not
   // hardcoded). Only `available` state modules appear in the nav.
   const [installedModules, setInstalledModules] = useState<
-    {
-      moduleName: string;
-      displayName: string;
-      parentModule?: string | undefined;
-      /** Landing/active-highlight routes taken from this Module's OWN manifest.
-       * A Module the owner authored is not in the built-in table, so the
-       * by-name lookup cannot resolve it. */
-      nav?: { landing: string; base: string } | undefined;
-    }[] | null
+    { moduleName: string; displayName: string; parentModule?: string | undefined; landing?: string | undefined; base?: string | undefined; routes?: string[] | undefined }[] | null
   >(null);
   const [expandedModules, setExpandedModules] = useState<string[]>(() => loadExpandedModules());
+
+  // TASK-081 rail presentation. Resolved synchronously so the rail paints in
+  // the user's own order/labels at first paint rather than reshuffling itself.
+  const [presentation, setPresentation] = useState<RailPresentation>(() =>
+    typeof window === "undefined"
+      ? EMPTY_RAIL_PRESENTATION
+      : loadRailPresentation(PRESENTATION_KEY, window.localStorage),
+  );
+  /** Open rail menu. `moduleName` undefined = opened on empty rail space, so
+   *  only the View-options list applies. */
+  const [railMenu, setRailMenu] = useState<{ position: MenuPosition; moduleName?: string } | null>(null);
+  /** The Module whose rail row is currently an inline rename input. */
+  const [renamingModule, setRenamingModule] = useState<string | null>(null);
+  /**
+   * The Module the user asked to delete, and what came back.
+   *
+   * Deleting is irreversible, so it is never one click: the rail's Delete
+   * opens this, and this asks which of the three things the user meant —
+   * remove the Module and keep what it collected, remove both, or only hide it
+   * (2026-09-07 user directive). `busy` disables the choices mid-flight so a
+   * second click cannot send a second delete.
+   */
+  const [deletingModule, setDeletingModule] = useState<
+    { moduleName: string; displayName: string; busy: boolean; error: string | null } | null
+  >(null);
+
+  function updatePresentation(next: RailPresentation) {
+    setPresentation(next);
+    if (typeof window !== "undefined") saveRailPresentation(PRESENTATION_KEY, next, window.localStorage);
+  }
 
   function toggleModuleExpanded(moduleName: string) {
     setExpandedModules((current) => {
@@ -181,10 +278,49 @@ export default function Layout() {
     });
   }
 
+  /**
+   * Delete the Module the confirmation is open on. `deleteData` is the user's
+   * own answer to "and what it collected?" — the server does one or the other,
+   * never guesses. On success the rail re-reads from the server rather than
+   * patching its own list, so what the user sees is what the server holds.
+   */
+  function confirmModuleDelete(deleteData: boolean) {
+    const target = deletingModule;
+    if (!target || target.busy) return;
+    setDeletingModule({ ...target, busy: true, error: null });
+    trpc.modules.uninstall
+      .mutate({ organizationId: PILOT_ORGANIZATION, moduleName: target.moduleName, deleteData })
+      .then(() => {
+        // Its rail presentation goes with it: a hidden-or-renamed entry for a
+        // Module that no longer exists would come back if it were reinstalled.
+        const names = { ...presentation.names };
+        delete names[target.moduleName];
+        updatePresentation({
+          ...presentation,
+          names,
+          hidden: presentation.hidden.filter((name) => name !== target.moduleName),
+          order: presentation.order.filter((name) => name !== target.moduleName),
+        });
+        setDeletingModule(null);
+        window.dispatchEvent(new Event(MODULES_CHANGED_EVENT));
+        // Standing on a page of the Module just deleted would render a surface
+        // whose Module is gone.
+        if (location.pathname.startsWith(`/module/${target.moduleName}`)) navigate("/");
+      })
+      .catch((failure) => {
+        // The server's own words. A delete refused because another Module
+        // depends on this one names that Module, and the user needs to read it.
+        setDeletingModule({ ...target, busy: false, error: String(failure).replace(/^TRPCClientError:\s*/, "") });
+      });
+  }
+
   // TASK-001 VOCAB6: load installed modules from modules.list for the nav.
-  // Only `available` state modules appear. Fetched once per mount.
+  // Only `available` state modules appear. Fetched on mount and again whenever
+  // something announces `bridge:modules-changed` — a chat turn that built and
+  // installed a Module, say — so the nav never claims less than the server
+  // has (BUGS 2026-09-05 "the chatbot claims academics is in my side bar").
   useEffect(() => {
-    trpc.modules.list
+    const loadInstalledModules = () => trpc.modules.list
       .query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
       .then((res) => {
         const available = res.items
@@ -195,14 +331,38 @@ export default function Layout() {
               p.manifest?.module !== undefined &&
               p.moduleAttachment === undefined,
           )
-          .map((p) => ({
-            moduleName: p.moduleName,
-            displayName: p.manifest?.module?.displayName ?? p.manifest?.name ?? p.moduleName,
-            parentModule: p.manifest?.module?.parentModule,
-            nav: p.manifest?.module
-              ? moduleNavTargetFromSurface(p.manifest.module)
-              : undefined,
-          }));
+          .flatMap((p) => {
+            // ADR 2026-09-04 / TASK-100: a Module outside the built-in catalog
+            // lands on its first ROOT Page in the standard shell, and each
+            // manifest sub-module is a nav child of it — the same disclosure a
+            // hand-written sub-module gets (ADR-178), keyed `<module>/<sub id>`.
+            const structure = moduleStructure(p.manifest);
+            const landingPage = structure.rootPages[0] ?? p.manifest?.module?.pages[0];
+            const parent = {
+              moduleName: p.moduleName,
+              // TASK-081: the Organization's own name for the Module wins. It is
+              // durable (module_installations.display_name_override) and moves the
+              // local Files folder with it, so it is the label on every machine —
+              // the localStorage copy below is only this browser's optimistic echo.
+              displayName: p.displayNameOverride
+                ?? p.manifest?.module?.displayName ?? p.manifest?.name ?? p.moduleName,
+              parentModule: p.manifest?.module?.parentModule,
+              landing: landingPage ? `/module/${p.moduleName}/${landingPage.id}` : undefined,
+              base: landingPage ? `/module/${p.moduleName}` : undefined,
+            };
+            const children = structure.subModules.map((sub) => {
+              const routes = sub.pages.map((page) => `/module/${p.moduleName}/${page.id}`);
+              return {
+                moduleName: `${p.moduleName}/${sub.id}`,
+                displayName: sub.name,
+                parentModule: p.moduleName,
+                landing: routes[0],
+                base: routes[0],
+                routes,
+              };
+            });
+            return [parent, ...children];
+          });
         setInstalledModules(available);
       })
       .catch((failure) => {
@@ -211,6 +371,9 @@ export default function Layout() {
         console.error("[nav] failed to load installed modules", failure);
         setInstalledModules([]);
       });
+    loadInstalledModules();
+    window.addEventListener(MODULES_CHANGED_EVENT, loadInstalledModules);
+    return () => window.removeEventListener(MODULES_CHANGED_EVENT, loadInstalledModules);
   }, []);
 
   useEffect(() => {
@@ -326,16 +489,15 @@ export default function Layout() {
   // was removed 2026-08-10 — a Module with no declared Page has nowhere of its
   // own to land, so it goes to Home rather than a dead `/module/:name` link.
   const apiModules: NavModule[] = (installedModules ?? []).map((mod) => {
-    // The Module's own manifest first — it is authoritative and covers
-    // authored Modules; the built-in table is the fallback.
-    const nav = mod.nav ?? moduleNavTarget(mod.moduleName);
+    const nav = moduleNavTarget(mod.moduleName);
     return {
       moduleName: mod.moduleName,
       displayName: mod.displayName,
-      to: nav?.landing ?? "/home",
-      base: nav?.base ?? "/home",
+      to: nav?.landing ?? mod.landing ?? "/home",
+      base: nav?.base ?? mod.base ?? "/home",
       icon: Boxes,
       parentModule: mod.parentModule,
+      routes: mod.routes,
     };
   });
   const navModules: NavModule[] = [
@@ -344,8 +506,82 @@ export default function Layout() {
       (mod) => !DEFAULT_MODULES.some((def) => def.moduleName === mod.moduleName),
     ),
   ];
+  // TASK-081: the user's own order and labels are applied BEFORE the tree is
+  // built (buildModuleNavTree preserves input order), and hiding is carried as
+  // a flag rather than a filter — every Module is still here, and still in
+  // Intelligence, search, and the Organization admin surface.
+  const presentedModules: PresentedNavModule[] = applyRailPresentation(navModules, presentation);
+  const presentedOrder = presentedModules.map((mod) => mod.moduleName);
+  // The Module the user is actually looking at, if any. The right panel binds
+  // its conversation to this, so opening a Module reopens that Module's own
+  // chat instead of whatever thread happened to be last (ADR-267e). Longest
+  // base wins so a sub-module's page does not resolve to its parent.
+  const activeModuleName: string | undefined = navModules
+    // A manifest sub-module is a grouping of its Module's Pages, not a Module
+    // with a chat of its own, so it never becomes the bound Module.
+    .filter((mod) => !mod.routes && isActive(mod.base))
+    .sort((left, right) => right.base.length - left.base.length)[0]?.moduleName;
   // ADR-178: roots first, sub-modules nested one level under their parent.
-  const navTree = buildModuleNavTree(navModules);
+  const navTree = buildModuleNavTree(presentedModules).filter((node) => !node.module.hidden);
+
+  function reorderModule(moved: string, target: string) {
+    // Seeded from what is on screen, so the first drag records a complete
+    // order instead of a two-name fragment the rest of the rail sorts around.
+    updatePresentation({ ...presentation, order: moveModuleInOrder(presentedOrder, moved, target) });
+  }
+
+  function setModuleHidden(moduleName: string, hidden: boolean) {
+    if (hidden && !canHideModule(presentedModules, presentation.hidden, moduleName)) return;
+    updatePresentation({
+      ...presentation,
+      hidden: hidden
+        ? [...presentation.hidden, moduleName]
+        : presentation.hidden.filter((name) => name !== moduleName),
+    });
+  }
+
+  /**
+   * A blank label removes the override, restoring the Module's own name.
+   *
+   * TASK-081: the rename is now durable AND moves the Module's local Files
+   * folder (`modules.rename`). The localStorage write stays as the optimistic
+   * echo so the rail relabels on the keystroke rather than on the round trip;
+   * the server's answer then becomes the label `modules.list` returns on every
+   * machine. A failed call is logged and the local echo left in place — the
+   * label is recoverable by renaming again, and dropping the user's typing to
+   * report a network error would lose more than it explains.
+   */
+  function commitModuleRename(moduleName: string, label: string) {
+    const trimmed = label.trim();
+    const names = { ...presentation.names };
+    if (trimmed) names[moduleName] = trimmed;
+    else delete names[moduleName];
+    updatePresentation({ ...presentation, names });
+    setRenamingModule(null);
+    // ponytail: a manifest sub-module (`<module>/<sub id>`) has no installation
+    // row to rename, so its label stays this browser's; a durable rename lands
+    // when the Builder can edit module.yaml from the rail.
+    if (moduleName.includes("/")) return;
+    trpc.modules.rename
+      .mutate({ organizationId: PILOT_ORGANIZATION, moduleName, displayName: trimmed || null })
+      .then((result) => {
+        setInstalledModules((current) => current?.map((mod) => (
+          mod.moduleName === moduleName ? { ...mod, displayName: result.displayName } : mod
+        )) ?? current);
+      })
+      .catch((failure) => {
+        console.error("[nav] failed to persist Module rename", failure);
+      });
+  }
+
+  function openRailMenu(event: { preventDefault: () => void; stopPropagation: () => void; clientX: number; clientY: number }, moduleName?: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    setRailMenu({
+      position: clampMenuPosition({ x: event.clientX, y: event.clientY }),
+      ...(moduleName ? { moduleName } : {}),
+    });
+  }
 
   // Rail nav item — TWO layouts sharing one active-state treatment.
   // Collapsed: icon + short label stacked/centered. Expanded: icon + full label in a row.
@@ -365,7 +601,9 @@ export default function Layout() {
   // Highlight for the Module's data Pages (base). Module Detail (/module/:name)
   // was removed 2026-08-10 — there is no separate overview route to also match.
   function moduleActive(mod: NavModule): boolean {
-    return isActive(mod.base);
+    // A manifest sub-module lights up on any of its Pages; its Pages share the
+    // Module's `/module/<name>` prefix, so a prefix test would light the whole rail.
+    return mod.routes ? mod.routes.some(isActive) : isActive(mod.base);
   }
 
   /** One rail entry. `disclosure` adds the sub-module expand/collapse control;
@@ -381,8 +619,52 @@ export default function Layout() {
     const Icon = mod.icon;
     const { active, nested, disclosure } = opts;
     const iconSize = nested ? "w-4 h-4" : "w-5 h-5";
+    if (renamingModule === mod.moduleName) {
+      // Rename happens in place, on the row itself — the same shape Notion and
+      // Finder use. Enter/blur commit, Escape abandons.
+      return (
+        <div key={mod.moduleName} className="relative flex items-center px-2.5 py-1">
+          <input
+            autoFocus
+            defaultValue={mod.displayName}
+            aria-label={`Rename ${mod.displayName}`}
+            className="w-full rounded-md border px-1.5 py-1 text-sm"
+            style={{ borderColor: "var(--color-steel)", backgroundColor: "var(--color-surface)", color: "var(--color-navy)" }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") commitModuleRename(mod.moduleName, event.currentTarget.value);
+              if (event.key === "Escape") setRenamingModule(null);
+            }}
+            onBlur={(event) => commitModuleRename(mod.moduleName, event.currentTarget.value)}
+          />
+        </div>
+      );
+    }
     return (
-      <div key={mod.moduleName} className="relative flex items-center">
+      <div
+        key={mod.moduleName}
+        className="relative flex items-center"
+        // Drag-reorder uses the browser's own drag-and-drop rather than a
+        // dependency: the rail is a short list of rows, which is exactly what
+        // the native API is for. Touch has no HTML5 drag, so the mobile drawer
+        // deliberately does not offer reordering.
+        draggable
+        onDragStart={(event) => {
+          event.dataTransfer.effectAllowed = "move";
+          // The dragged Module travels in the drag payload, NOT in React
+          // state: dragstart and drop can land in the same batch, and a
+          // useState written on dragstart is still null when drop reads it.
+          event.dataTransfer.setData(RAIL_DRAG_TYPE, mod.moduleName);
+        }}
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes(RAIL_DRAG_TYPE)) event.preventDefault();
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          const moved = event.dataTransfer.getData(RAIL_DRAG_TYPE);
+          if (moved) reorderModule(moved, mod.moduleName);
+        }}
+        onContextMenu={(event) => openRailMenu(event, mod.moduleName)}
+      >
         <Link
           to={mod.to}
           // The chevron sits ON the row, so reserve its width — otherwise a
@@ -417,13 +699,15 @@ export default function Layout() {
     );
   }
 
-  /** Mobile drawer entry — same hierarchy, indentation instead of disclosure. */
+  /** Mobile drawer entry — same hierarchy, indentation instead of disclosure.
+   *  Same right-click menu as the rail; no drag (touch has no HTML5 drag). */
   function renderMobileModuleLink(mod: NavModule, nested: boolean) {
     const Icon = mod.icon;
     return (
       <Link
         key={mod.moduleName}
         to={mod.to}
+        onContextMenu={(event) => openRailMenu(event, mod.moduleName)}
         onClick={() => setMobileModulesOpen(false)}
         className={`flex items-center gap-3 rounded-lg py-3 text-sm font-medium ${nested ? "pl-9 pr-3" : "px-3"}`}
         style={{ color: "var(--color-navy)" }}
@@ -582,6 +866,27 @@ export default function Layout() {
                   })}
                 </div>
 
+                {/* TASK-089: the Organization admin surface. ADR-180's closed
+                    left-nav scope grants exactly one slot outside Modules /
+                    Intelligence / Settings — the Organization control at the
+                    top of the rail — so Module mount state, scopes, versions
+                    and membership hang off THIS menu, scoped to the
+                    Organization. It is one Organization surface, never a
+                    per-Module page: Module Detail stays deleted (ADR-224/261). */}
+                <div className="border-t" style={{ borderColor: "var(--color-border)" }} />
+                <div className="p-1.5">
+                  <Link
+                    to="/organization/admin"
+                    role="menuitem"
+                    onClick={() => setOrgMenuOpen(false)}
+                    className="flex w-full items-center gap-3 px-3 py-2 rounded-lg text-left no-underline transition-colors hover:bg-[color-mix(in_srgb,var(--color-navy)_8%,transparent)]"
+                    title="Modules, scopes, versions and members for this Organization"
+                  >
+                    <Building2 className="h-4 w-4 shrink-0" style={{ color: "var(--color-warm-gray)" }} />
+                    <span className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>Manage Organization</span>
+                  </Link>
+                </div>
+
                 {/* Sign out lives at the bottom of the account menu (Notion
                     pattern), not as a standalone rail item. */}
                 {auth.configured && (
@@ -619,7 +924,12 @@ export default function Layout() {
             whole rail scroll — the user could scroll past Settings. With
             `min-h-0` the region takes exactly the leftover height, scrolls its
             own overflow, and the footer below stays fixed on screen (ADR-180). */}
-        <div className="min-h-0 flex-1 overflow-y-auto flex flex-col gap-0.5 px-1.5 pt-3">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto flex flex-col gap-0.5 px-1.5 pt-3"
+          // Right-clicking empty rail space opens View options, so a hidden
+          // Module is reachable even with no row left to right-click.
+          onContextMenu={(event) => openRailMenu(event)}
+        >
           <Link to="/" className={navItemClass(homeActive)} title="Home">
             {homeActive && <ActiveBar />}
             <Home className="w-5 h-5 shrink-0" style={{ color: homeActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
@@ -629,7 +939,10 @@ export default function Layout() {
           {/* Modules under Home — Task Manager (default) first, then installed
               Modules from modules.list. Always non-empty, so no "unavailable"
               or "no modules" state is ever rendered. */}
-          {navTree.map((node) => {
+          {navTree.map((rawNode) => {
+            // Hiding a parent hides the group it heads; a hidden child drops
+            // out on its own. Neither is removed from anywhere but the rail.
+            const node = { ...rawNode, children: rawNode.children.filter((child) => !child.hidden) };
             const parentActive = moduleActive(node.module);
             const anyChildActive = node.children.some(moduleActive);
             // An active sub-module forces its parent open — otherwise the rail
@@ -707,14 +1020,190 @@ export default function Layout() {
         </div>
       </nav>
 
+      {/* TASK-081: one panel carries both halves of the pairing the table
+          header already uses — Hide on the row, and the View options list that
+          brings a hidden Module back. Hiding is rail presentation: it never
+          uninstalls a Module, never touches a permission or a plane, and never
+          removes the Module from Intelligence, search, or the Organization
+          admin surface. */}
+      {railMenu && (
+        <RailMenuPanel
+          position={railMenu.position}
+          label="Module rail actions"
+          onClose={() => setRailMenu(null)}
+        >
+          {railMenu.moduleName && (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!canHideModule(presentedModules, presentation.hidden, railMenu.moduleName)}
+                title={
+                  canHideModule(presentedModules, presentation.hidden, railMenu.moduleName)
+                    ? "Hides this Module from the rail only — it stays installed"
+                    : "Unavailable: the rail always keeps at least one Module visible"
+                }
+                onClick={() => {
+                  setModuleHidden(railMenu.moduleName!, true);
+                  setRailMenu(null);
+                }}
+                className="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-45"
+              >
+                Hide
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setRenamingModule(railMenu.moduleName ?? null);
+                  setRailMenu(null);
+                }}
+                className="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                Rename
+              </button>
+              {/* Deleting is the one destructive thing on this menu, so it is
+                  last, it is separated, and it opens a question rather than
+                  doing anything (2026-09-07 user directive). */}
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  const target = presentedModules.find((mod) => mod.moduleName === railMenu.moduleName);
+                  setDeletingModule({
+                    moduleName: railMenu.moduleName!,
+                    displayName: target?.displayName ?? railMenu.moduleName!,
+                    busy: false,
+                    error: null,
+                  });
+                  setRailMenu(null);
+                }}
+                className="w-full px-3 py-1.5 text-left text-xs text-[var(--color-destructive)] hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                Delete…
+              </button>
+              <div className="my-1 border-t" style={{ borderColor: "var(--color-border)" }} />
+            </>
+          )}
+          <div className="flex items-center justify-between px-3 py-1.5 text-xs opacity-60">
+            <span>View options</span>
+            <span>{presentation.hidden.length} hidden</span>
+          </div>
+          {presentedModules.map((mod) => {
+            const blocked = !mod.hidden && !canHideModule(presentedModules, presentation.hidden, mod.moduleName);
+            return (
+              <label
+                key={mod.moduleName}
+                title={blocked ? "Unavailable: the rail always keeps at least one Module visible" : undefined}
+                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10 ${blocked ? "opacity-45" : ""}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={!mod.hidden}
+                  disabled={blocked}
+                  onChange={(event) => setModuleHidden(mod.moduleName, !event.target.checked)}
+                />
+                <span className="truncate">{mod.displayName}</span>
+              </label>
+            );
+          })}
+        </RailMenuPanel>
+      )}
+
+
+      {/* Three answers, because the user meant three different things by
+          "delete" (2026-09-07): the Module without its Records, the Module with
+          them, or neither — just take it off the rail. Each says its own
+          consequence in one line; none of them is preselected, and the
+          destructive pair is separated from the safe one. */}
+      {deletingModule && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-module-title"
+          onClick={(event) => {
+            if (event.target === event.currentTarget && !deletingModule.busy) setDeletingModule(null);
+          }}
+        >
+          <div
+            className="w-full max-w-sm rounded-lg border p-4 shadow-lg"
+            style={{ backgroundColor: "var(--color-surface)", borderColor: "var(--color-border)" }}
+          >
+            <h2 id="delete-module-title" className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>
+              Delete {deletingModule.displayName}?
+            </h2>
+            {deletingModule.error && (
+              <p className="mt-2 text-xs" style={{ color: "var(--color-destructive)" }} role="alert">
+                {deletingModule.error}
+              </p>
+            )}
+            <div className="mt-3 flex flex-col gap-2">
+              <button
+                type="button"
+                disabled={deletingModule.busy}
+                onClick={() => confirmModuleDelete(false)}
+                className="rounded-md border px-3 py-2 text-left text-xs hover:bg-black/5 disabled:opacity-45 dark:hover:bg-white/10"
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                <span className="block font-medium">Delete Module only</span>
+                <span className="block opacity-70">Everything it collected stays, and is there again if you reinstall it.</span>
+              </button>
+              <button
+                type="button"
+                disabled={deletingModule.busy}
+                onClick={() => confirmModuleDelete(true)}
+                className="rounded-md border px-3 py-2 text-left text-xs hover:bg-black/5 disabled:opacity-45 dark:hover:bg-white/10"
+                style={{ borderColor: "var(--color-destructive)", color: "var(--color-destructive)" }}
+              >
+                <span className="block font-medium">Delete Module and its data</span>
+                <span className="block opacity-70">Its Records, columns, Views and settings go too. This cannot be undone.</span>
+              </button>
+              <button
+                type="button"
+                disabled={deletingModule.busy || !canHideModule(presentedModules, presentation.hidden, deletingModule.moduleName)}
+                title={
+                  canHideModule(presentedModules, presentation.hidden, deletingModule.moduleName)
+                    ? undefined
+                    : "Unavailable: the rail always keeps at least one Module visible"
+                }
+                onClick={() => {
+                  setModuleHidden(deletingModule.moduleName, true);
+                  setDeletingModule(null);
+                }}
+                className="rounded-md border px-3 py-2 text-left text-xs hover:bg-black/5 disabled:opacity-45 dark:hover:bg-white/10"
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                <span className="block font-medium">Hide it instead</span>
+                <span className="block opacity-70">Nothing is deleted. It leaves the rail and comes back from View options.</span>
+              </button>
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                disabled={deletingModule.busy}
+                onClick={() => setDeletingModule(null)}
+                className="rounded-md px-3 py-1.5 text-xs hover:bg-black/5 disabled:opacity-45 dark:hover:bg-white/10"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="min-w-0 flex-1 overflow-auto pb-14 sm:pb-0 bg-background">
-        <Outlet />
+        {/* Module Pages are lazy chunks (Egg profile, ADR 2026-09-04): the shell
+            paints while a Page's chunk loads, so nothing here blocks on it. */}
+        <Suspense fallback={null}>
+          <Outlet />
+        </Suspense>
       </div>
 
       {/* Persistent AI chat — nav | content | AI chat (reference UI at bridge-ai-1ay.pages.dev).
           Hidden below sm: a 336px side panel doesn't fit alongside the mobile bottom tab bar. */}
       <div className="hidden sm:flex">
-        <AgentPanel />
+        <AgentPanel moduleName={activeModuleName} />
       </div>
       </div>
 
@@ -789,7 +1278,7 @@ export default function Layout() {
             onClick={() => setMobileChatOpen(false)}
           />
           <div className="relative z-10 h-full">
-            <AgentPanel mobile onClose={() => setMobileChatOpen(false)} />
+            <AgentPanel mobile moduleName={activeModuleName} onClose={() => setMobileChatOpen(false)} />
           </div>
         </div>
       )}

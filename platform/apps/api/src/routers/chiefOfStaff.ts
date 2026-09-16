@@ -1,8 +1,9 @@
 import { TRPCError } from "@trpc/server";
 import { join } from "node:path";
-import { classifyIntent, assertChainDepth, MAX_CHAIN_DEPTH, parseMention, parseSkillMention, invokeAgent, buildCommunicationsPersona, DIRECT_REPLY_OUTPUT_CONTRACT, COMMUNICATIONS_SKILL, findFoundationalAgent, buildChiefOfStaffPersona, profileFromRow, assembleRunContext, projectToSystemPrompt, type RetrievedMemorySnippet } from "@bridge/core";
+import { classifyIntent, assertChainDepth, MAX_CHAIN_DEPTH, parseMention, parseSkillMention, invokeAgent, buildCommunicationsPersona, DIRECT_REPLY_OUTPUT_CONTRACT, COMMUNICATIONS_SKILL, findFoundationalAgent, buildChiefOfStaffPersona, profileFromRow, type RunCtx, assembleRunContext, projectToSystemPrompt } from "@bridge/core";
+import type { RetrievedMemorySnippet } from "@bridge/core";
 import { fusedChatMemory } from "../retrieval-fusion.js";
-import { t, procedure, CHIEF_OF_STAFF_REGISTRY, resolveConfiguredModel, createGovernedModelProvider, chiefOfStaffConverseInput } from "../router-shared.js";
+import { CHIEF_OF_STAFF_REGISTRY, chiefOfStaffConverseInput, createGovernedModelProvider, organizationGuard, procedure, resolveConfiguredModel, t } from "../router-shared.js";
 
 export const chiefOfStaffRouter = t.router({
   /**
@@ -16,7 +17,7 @@ export const chiefOfStaffRouter = t.router({
    * `assertChainDepth` BEFORE attempting to route (falls back to a direct
    * reply, "best-so-far", once the cap is hit rather than erroring the turn).
    */
-  converse: procedure.input(chiefOfStaffConverseInput).mutation(async ({ input, ctx }) => {
+  converse: procedure.input(chiefOfStaffConverseInput).use(organizationGuard).mutation(async ({ input, ctx }) => {
     if (input.cloudModelEgress) {
       throw new TRPCError({
         code: "PRECONDITION_FAILED",

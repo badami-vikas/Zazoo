@@ -134,6 +134,59 @@ export function signCommonsArchetypeEntry(
   };
 }
 
+/**
+ * The publish token, resolved the way the signing key above is.
+ *
+ * Publication is the one privileged operation this service has, so the token
+ * stays a real secret — 48 random hex characters, written 0600, never a
+ * default anyone could guess. What changes is the FAILURE MODE: an absent
+ * token used to throw at boot, which made a local-first Commons unrunnable out
+ * of the box, and a registry that never runs is why a Module sitting in
+ * Commons could not be installed from the app at all. Generating and
+ * persisting one on first boot is exactly what the signing key already does,
+ * for the same reason.
+ *
+ * `COMMONS_PUBLISH_TOKEN` still wins when set. A deployment managing its own
+ * secret is unaffected, and a SHARED registry must set it — a generated token
+ * lives only on the machine that generated it, which is the whole point.
+ */
+export function resolveCommonsPublishToken(
+  env: NodeJS.ProcessEnv = process.env,
+  tokenFilePath?: string,
+): string {
+  const supplied = env.COMMONS_PUBLISH_TOKEN?.trim();
+  if (supplied) return supplied;
+  if (tokenFilePath) {
+    try {
+      const parsed = JSON.parse(readFileSync(tokenFilePath, "utf8")) as { publishToken?: unknown };
+      if (typeof parsed.publishToken !== "string" || parsed.publishToken.length < 32) {
+        throw new Error(`commons publish token file is malformed: ${tokenFilePath}`);
+      }
+      return parsed.publishToken;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  const generated = crypto.randomBytes(24).toString("hex");
+  if (tokenFilePath) {
+    mkdirSync(dirname(tokenFilePath), { recursive: true });
+    try {
+      writeFileSync(tokenFilePath, `${JSON.stringify({ publishToken: generated }, null, 2)}\n`, {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 0o600,
+      });
+    } catch (error) {
+      // Another process won the race; the token on disk is the real one.
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        return resolveCommonsPublishToken(env, tokenFilePath);
+      }
+      throw error;
+    }
+  }
+  return generated;
+}
+
 export const ed25519ManifestVerifier: SignatureVerifier = (data, sigB64, publicKeyPem) => {
   try {
     const publicKey = crypto.createPublicKey(publicKeyPem);

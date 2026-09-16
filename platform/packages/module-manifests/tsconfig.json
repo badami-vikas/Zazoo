@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "types": ["node"],
+    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+  },
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../commons/accounting" },
+    { "path": "../../commons/d2c" },
+    { "path": "../../commons/dealpilot" },
+    { "path": "../../commons/devpilot" },
+    { "path": "../../commons/jobpilot" },
+    { "path": "../../commons/whatsapp" }
+  ],
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

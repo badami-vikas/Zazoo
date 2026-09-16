@@ -17,12 +17,19 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dispatchCaptureEvent, setAvatarStatus } from "./avatar-store";
-import { tauriInvoke, tauriInvokeJob, tauriInvokeStrict } from "./tauri-internals";
+import { tauriInvoke, tauriInvokeJob, tauriInvokeStrict, tauriListen } from "./tauri-internals";
+import { readAllowControl } from "./DoRun";
 import { appendAskTurn } from "../chat/ask-history";
 import { ResearchRun } from "./ResearchRun";
+import { DoRun } from "./DoRun";
 
 export const AVATAR_SHARE_SCREEN_KEY = "bridge:avatar:share_screen";
 export const AVATAR_SPEAK_ANSWERS_KEY = "bridge:avatar:speak_answers";
+export const AVATAR_DICTATE_KEY = "bridge:avatar:dictate";
+
+function readDictate() {
+  try { return localStorage.getItem(AVATAR_DICTATE_KEY) === "true"; } catch { return false; }
+}
 
 export function readAvatarShareScreenPreference() {
   try { return localStorage.getItem(AVATAR_SHARE_SCREEN_KEY) === "true"; } catch { return false; }
@@ -36,6 +43,12 @@ function isExplicitResearch(text: string) {
   return t.startsWith("research ") || t.startsWith("deep research") || t.startsWith("deep dive");
 }
 
+/** "do …" / "click …" / "type …" are tasks for the hands, not questions. */
+export function isExplicitDo(text: string) {
+  const t = text.trim().toLowerCase();
+  return ["do ", "click ", "type ", "open ", "go to ", "press "].some((p) => t.startsWith(p));
+}
+
 interface CompanionCapabilities {
   cloudVision: boolean;
   visionModel: string;
@@ -43,6 +56,8 @@ interface CompanionCapabilities {
   cloudStt: boolean;
   tts: boolean;
   screenPermission: boolean;
+  /** macOS Accessibility granted — the hands (Do mode) need it. */
+  accessibility: boolean;
 }
 
 interface CompanionAnswer {
@@ -101,6 +116,7 @@ export function CompanionAsk({
   onAutoQuestionConsumed,
   onAnswered,
   onSpeechStopped,
+  onTaskDone,
 }: {
   name: string;
   /** True while the global push-to-talk shortcut is held. */
@@ -115,14 +131,28 @@ export function CompanionAsk({
   onAnswered?: (text: string, emotion?: string, spoke?: boolean) => void;
   /** Speech was cut short — the mouth has to stop with it. */
   onSpeechStopped?: () => void;
+  /** Dictation has been typed into the app the user was in — the request is
+   * carried out and the panel has nothing more to show. */
+  onTaskDone?: () => void;
 }) {
   const [capabilities, setCapabilities] = useState<CompanionCapabilities | null>(null);
   const [question, setQuestion] = useState("");
-  const [researchMode, setResearchMode] = useState(false);
+  const [mode, setMode] = useState<"ask" | "research" | "do">("ask");
+  const researchMode = mode === "research";
+  const setResearchMode = (on: boolean) => setMode(on ? "research" : "ask");
   // Shared with Settings → Avatar, but screen egress must also be visible and
   // controllable at the point where the user asks a question.
   const [shareScreen, setShareScreen] = useState(readAvatarShareScreenPreference);
   const [speakAnswers] = useState(readSpeakAnswers);
+  /** Dictation: what you say with the shortcut held is TYPED into the app
+   * you are in, instead of asked. Needs the same control consent as Do. */
+  const [dictate, setDictate] = useState(readDictate);
+  const dictateRef = useRef(dictate);
+  dictateRef.current = dictate;
+  const [dictationNote, setDictationNote] = useState<string | null>(null);
+  /** The area the user circled on screen for the next ask. */
+  const [focusRegion, setFocusRegion] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [circling, setCircling] = useState(false);
   const [busy, setBusy] = useState<"idle" | "capturing" | "thinking" | "transcribing">("idle");
   const [answer, setAnswer] = useState<CompanionAnswer | null>(null);
   const [error, setError] = useState<AskError | null>(null);
@@ -150,6 +180,19 @@ export function CompanionAsk({
     });
     return () => cancelAnimationFrame(frame);
   }, [answer, error]);
+
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    void tauriListen<{ x: number; y: number; width: number; height: number }>("bridge:scribble-region", (region) => {
+      setCircling(false);
+      if (region && Number.isFinite(region.width)) setFocusRegion(region);
+    }).then((unlisten) => { stop = unlisten; });
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") { setCircling(false); void tauriInvoke("annotate_scribble_cancel"); }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => { stop?.(); window.removeEventListener("keydown", onKey); };
+  }, []);
 
   useEffect(() => {
     void tauriInvoke("companion_capabilities").then((value) => {
@@ -208,6 +251,7 @@ export function CompanionAsk({
               shareScreenWithCloud: sharing,
               speak: speakAnswers && Boolean(capabilities?.tts),
               history: historyRef.current.slice(-10),
+              focusRegion: sharing ? focusRegion : null,
             },
           },
           { valueKey: "answer", timeoutMs: 120_000 },
@@ -236,6 +280,8 @@ export function CompanionAsk({
         onAnswered?.(result.text, result.emotion ?? undefined, result.spoke);
         setAnswer(result);
         setQuestion("");
+        setFocusRegion(null);
+        void tauriInvoke("annotate_scribble_cancel");
       } catch (raised) {
         setError(toAskError(raised));
       } finally {
@@ -244,7 +290,7 @@ export function CompanionAsk({
         setAvatarStatus("idle");
       }
     },
-    [capabilities, shareScreen, speakAnswers],
+    [capabilities, focusRegion, shareScreen, speakAnswers],
   );
 
   useEffect(() => {
@@ -315,7 +361,18 @@ export function CompanionAsk({
             })) as string;
             setBusy("idle");
             setAvatarStatus("idle");
-            if (transcript) {
+            if (transcript && dictateRef.current) {
+              // Dictation: the words go into the app you are in, not to a model.
+              try {
+                const app = (await tauriInvokeStrict("act_type_text", {
+                  request: { text: transcript, allowControl: readAllowControl() },
+                })) as string;
+                setDictationNote(`Typed into ${app}: “${transcript.slice(0, 80)}${transcript.length > 80 ? "…" : ""}”`);
+                onTaskDone?.();
+              } catch (raised) {
+                setError(toAskError(raised));
+              }
+            } else if (transcript) {
               setQuestion(transcript);
               await ask(transcript);
             }
@@ -397,6 +454,19 @@ export function CompanionAsk({
       >
         Research
       </button>
+      <button
+        type="button"
+        aria-pressed={mode === "do"}
+        disabled={busy !== "idle"}
+        onClick={() => setMode("do")}
+        className={`rounded-[var(--radius-button)] px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${
+          mode === "do"
+            ? "bg-[var(--color-navy)] text-[var(--color-background)]"
+            : "text-[var(--color-navy-mid)] hover:bg-[var(--color-surface)]"
+        }`}
+      >
+        Do
+      </button>
     </div>
   );
 
@@ -405,6 +475,21 @@ export function CompanionAsk({
       <div className="flex flex-col" style={{ minHeight: 0 }}>
         {modeControls}
         <ResearchRun />
+      </div>
+    );
+  }
+
+  if (mode === "do") {
+    return (
+      <div className="flex flex-col" style={{ minHeight: 0, overflowY: "auto" }}>
+        {modeControls}
+        <DoRun
+          name={name}
+          capabilities={capabilities}
+          initialTask={isExplicitDo(question) ? question : ""}
+          speak={speakAnswers && Boolean(capabilities?.tts)}
+          onSaid={(text, emotion) => onAnswered?.(text, emotion, false)}
+        />
       </div>
     );
   }
@@ -481,6 +566,8 @@ export function CompanionAsk({
             event.preventDefault();
             if (isExplicitResearch(question)) {
               setResearchMode(true);
+            } else if (isExplicitDo(question)) {
+              setMode("do");
             } else {
               void ask(question);
             }
@@ -500,16 +587,50 @@ export function CompanionAsk({
         className="w-full rounded-[var(--radius-button)] border border-border bg-background px-2 py-1.5 text-sm"
         style={{ resize: "none" }}
       />
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
-          {recording ? "● Recording" : "Hold Fn to talk"}
+          {recording ? "● Recording" : dictate ? "Hold Fn or ⌘⇧Space to dictate into your app" : "Hold Fn or ⌘⇧Space to talk"}
         </p>
+        <label className="flex items-center gap-1 text-xs text-[var(--color-navy-mid)]">
+          <input
+            type="checkbox"
+            checked={dictate}
+            disabled={busy !== "idle"}
+            onChange={(event) => {
+              setDictate(event.target.checked);
+              try { localStorage.setItem(AVATAR_DICTATE_KEY, event.target.checked ? "true" : "false"); } catch { /* per-device convenience */ }
+            }}
+            className="rounded"
+          />
+          Dictate into my app
+        </label>
+        <button
+          type="button"
+          disabled={busy !== "idle" || !shareScreen || !canSeeScreen}
+          aria-pressed={circling}
+          onClick={() => {
+            if (circling) {
+              setCircling(false);
+              void tauriInvoke("annotate_scribble_cancel");
+            } else {
+              setCircling(true);
+              setFocusRegion(null);
+              void tauriInvoke("annotate_scribble_begin");
+            }
+          }}
+          className="rounded-[var(--radius-button)] border border-border px-2 py-1 text-xs hover:bg-[var(--color-surface)] disabled:opacity-50"
+          style={{ color: "var(--color-navy)" }}
+        >
+          {circling ? "Cancel circling" : focusRegion ? "Re-circle an area" : "Circle an area"}
+        </button>
         <button
           type="button"
           disabled={busy !== "idle" || !question.trim()}
           onClick={() => {
             if (isExplicitResearch(question)) {
               setResearchMode(true);
+            } else if (isExplicitDo(question)) {
+              setMode("do");
             } else {
               void ask(question);
             }
@@ -519,6 +640,12 @@ export function CompanionAsk({
           Ask
         </button>
       </div>
+      {focusRegion && (
+        <p className="text-xs text-muted-foreground">
+          Focusing on the area you circled ({Math.round(focusRegion.width)}×{Math.round(focusRegion.height)}) for the next question.
+        </p>
+      )}
+      {dictationNote && <p role="status" className="text-xs text-muted-foreground">{dictationNote}</p>}
       {micNote && <p className="text-xs text-muted-foreground">{micNote}</p>}
       {historyNote && <p className="text-xs text-muted-foreground">{historyNote}</p>}
       {busyLabel && <p className="text-xs text-[var(--color-navy-mid)]">{busyLabel}</p>}

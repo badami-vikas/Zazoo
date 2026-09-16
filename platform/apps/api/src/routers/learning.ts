@@ -4,11 +4,13 @@ import { z } from "zod";
 import { parseAutomationSteps } from "@bridge/db";
 import { relationshipMutationPayloadSchema } from "../relationship-record-materializer.js";
 import { relationshipDateTimeSchema } from "../relationship-datetime.js";
-import { LEARNING_AGENT, ledgerSignalId, appFocusCaptureSignalId, browserCaptureSignalId, inputCaptureSignalId } from "../wiring.js";
-import { hashTaintValue, labelAtSource, acceptAutomationDraft, acceptSuggestion as acceptLearningSuggestion, detectAutomationDraftCandidates, digestSignals as digestLearningSignals, generalizeLearnedPreferences, listPromotionSuggestions, auditAcceptances, ClaimGateError, recordRejectionFingerprint, draftStepsFromEpisodes, episodesForSkill, rejectAutomationDraft, seedSuggestionsFromArchetypes, supportBandRank, listSuggestions as listLearningSuggestions, listSignalModuleIds, mineLedgerSignals, rejectSuggestion as rejectLearningSuggestion, retrieveLearnedPreferences, CAPTURE_SOURCES, acceptCommitmentSuggestion, browserCaptureVerdict, browserVisitCaptureSignal, captureAllowed, normalizeBrowserDomain, listCommitmentSuggestions, readCaptureConsent, recordSignal as recordCaptureSignal, rejectCommitmentSuggestion, withCapturePaused, withSourceConsent, distilKeystrokeBurst, inputCaptureSignal, withInputCaptureDenylist, type CaptureConsentState, type FieldRole, acceptClaimSuggestion, CLAIM_ENTITY_KINDS, listClaimSuggestions, PROPOSABLE_CLAIM_CLASSES, proposeClaimSuggestion, readClaimSuggestion, rejectClaimSuggestion, TAINT_SENSITIVITY, type ClaimProposal } from "@bridge/core";
+import { CAPABILITY_BUILDER_AGENT, LEARNING_AGENT, ledgerSignalId, appFocusCaptureSignalId, browserCaptureSignalId, inputCaptureSignalId } from "../wiring.js";
+import { hashTaintValue, labelAtSource } from "@bridge/core";
+import { acceptAutomationDraft, acceptSuggestion as acceptLearningSuggestion, detectAutomationDraftCandidates, digestSignals as digestLearningSignals, generalizeLearnedPreferences, listPromotionSuggestions, ClaimGateError, recordRejectionFingerprint, classifyClaimContent, draftStepsFromEpisodes, draftStructureFromClaims, episodesForSkill, rejectAutomationDraft, seedSuggestionsFromArchetypes, supportBandRank, listSuggestions as listLearningSuggestions, listSignalModuleIds, mineLedgerSignals, rejectSuggestion as rejectLearningSuggestion, retrieveLearnedPreferences, CAPTURE_SOURCES, acceptCommitmentSuggestion, browserCaptureVerdict, browserVisitCaptureSignal, captureAllowed, normalizeBrowserDomain, listCommitmentSuggestions, readCaptureConsent, recordSignal as recordCaptureSignal, rejectCommitmentSuggestion, withCapturePaused, withSourceConsent, distilKeystrokeBurst, inputCaptureSignal, withInputCaptureDenylist, type CaptureConsentState, type FieldRole, acceptClaimSuggestion, CLAIM_ENTITY_KINDS, listClaimSuggestions, PROPOSABLE_CLAIM_CLASSES, proposeClaimSuggestion, readClaimSuggestion, rejectClaimSuggestion, TAINT_SENSITIVITY, type ClaimProposal } from "@bridge/core";
+import { transition } from "@bridge/jobpilot";
 import { deterministicUuid } from "../deterministic-uuid.js";
 import { RETRIEVAL_EVAL_CAPABILITY_ID } from "../retrieval-eval.js";
-import { t, LEARNING_CAPTURE_CONSENT_NAMESPACE, readCaptureConsentState, LEARNING_INPUT_DENYLIST_NAMESPACE, readInputDenylistState, withRejectionEmbedder, isSuppressedByRejectionsAnyTier, LEARNING_BROWSER_POLICY_NAMESPACE, readBrowserPolicyState, procedure, proposeRelationshipMutation, assertLearningFlightEnabled, assertClaimFlightEnabled, assertHumanIdentity, assertRetrievalFlightEnabled, RETRIEVAL_EVAL_METRIC, RETRIEVAL_EVAL_METRIC_NOTE, assertArchetypesFlightEnabled, learningActionError } from "../router-shared.js";
+import { CAPABILITY_BUILDER_AUTOMATION_ID, LEARNING_BROWSER_POLICY_NAMESPACE, LEARNING_CAPTURE_CONSENT_NAMESPACE, LEARNING_INPUT_DENYLIST_NAMESPACE, RETRIEVAL_EVAL_METRIC, RETRIEVAL_EVAL_METRIC_NOTE, assertArchetypesFlightEnabled, assertClaimFlightEnabled, assertHumanIdentity, assertLearningFlightEnabled, assertRetrievalFlightEnabled, isSuppressedByRejectionsAnyTier, learningActionError, organizationGuard, procedure, proposeRelationshipMutation, readBrowserPolicyState, readCaptureConsentState, readInputDenylistState, runAsCapabilityBuilder, t, withRejectionEmbedder, type BuilderStepsLaneResult } from "../router-shared.js";
 
 /** TASK-032 — learning observation loop v1 behind the
  * `learningObservationEnabled` flight. Suggested-then-accepted is preserved
@@ -126,7 +128,7 @@ export const learningRouter = t.router({
        * Always answerable, like `capture.status`. */
       policy: procedure
         .input(z.object({ organizationId: z.string().min(1) }))
-        .query(async ({ input, ctx }) => {
+        .use(organizationGuard).query(async ({ input, ctx }) => {
           const consent = await readCaptureConsentState(ctx.wiring, input.organizationId);
           const policy = await readBrowserPolicyState(ctx.wiring, input.organizationId);
           return {
@@ -265,7 +267,7 @@ export const learningRouter = t.router({
        * answerable, like `capture.status`. */
       policy: procedure
         .input(z.object({ organizationId: z.string().min(1) }))
-        .query(async ({ input, ctx }) => {
+        .use(organizationGuard).query(async ({ input, ctx }) => {
           const consent = await readCaptureConsentState(ctx.wiring, input.organizationId);
           const denylist = await readInputDenylistState(ctx.wiring, input.organizationId);
           return {
@@ -447,7 +449,7 @@ export const learningRouter = t.router({
        * `capture.status`. */
       status: procedure
         .input(z.object({ organizationId: z.string().min(1) }))
-        .query(async ({ input, ctx }) => {
+        .use(organizationGuard).query(async ({ input, ctx }) => {
           const consent = await readCaptureConsentState(ctx.wiring, input.organizationId);
           return {
             enabled: ctx.wiring.learningObservationEnabled,
@@ -526,6 +528,47 @@ export const learningRouter = t.router({
    * which traverses the governed pipeline before the store materializes
    * anything. Red claim classes are structurally unproposable — the zod
    * enum mirrors the core's closed union, which does not contain them. */
+  /**
+   * TASK-094 — what has the Capability Builder actually done? Both Builder
+   * lanes now leave an Agent Run behind, and this is where you read them.
+   * Without it the attribution would exist only in a table nobody queries,
+   * which is the same as not existing: "the Builder acted" has to be
+   * answerable from outside the Builder.
+   *
+   * Not a Module Runs list (`modules.recentRuns` is keyed by a Module's own
+   * manifest Automations, and the Builder is not a Module) — this is the
+   * one Automation the Capability Builder acts under.
+   */
+  builderRuns: procedure
+    .input(z.object({
+      organizationId: z.string().min(1),
+      limit: z.number().int().min(1).max(50).default(10),
+    }))
+    .query(async ({ input, ctx }) => {
+      // Readable whenever EITHER Builder lane can run: rung 3 sits behind
+      // the learning flight and rung 4 behind the claim substrate, and a
+      // deployment with one of them on has Builder Runs to account for.
+      if (!ctx.wiring.learningObservationEnabled && !ctx.wiring.claimSubstrateEnabled) {
+        assertLearningFlightEnabled(ctx);
+      }
+      const runs = await ctx.wiring.automationRunRecorder.list(
+        input.organizationId,
+        [CAPABILITY_BUILDER_AUTOMATION_ID],
+        { limit: input.limit },
+      );
+      return {
+        agentId: CAPABILITY_BUILDER_AGENT,
+        runs: runs.map((run) => ({
+          runId: run.runId,
+          status: run.status,
+          startedAt: run.startedAt,
+          finishedAt: run.finishedAt ?? null,
+          taskId: run.taskId ?? null,
+          output: run.output,
+        })),
+      };
+    }),
+
   claims: t.router({
     /** Always answerable, like `learning.status`, so clients honestly hide
      * the surface instead of rendering dead controls. */
@@ -752,6 +795,67 @@ export const learningRouter = t.router({
           }),
         );
         return { suggestion };
+      }),
+
+    /**
+     * Capability Builder rung 4 (K9, TASK-053): what shape is this person's
+     * work already in? Reads the owner's live entities and claims and
+     * derives Databases from them - the rung-3 posture applied to the
+     * knowledge substrate instead of the ledger.
+     *
+     * A QUERY, not a mutation, and deliberately: rung 4 proposes a
+     * structure, it does not create one. Materializing a proposed Database
+     * is a schema change and belongs to the governed pipeline with its own
+     * approval, not to the derivation that suggested it.
+     *
+     * Owner-scoped like every other claims lane - `ctx.identity.id` is the
+     * only owner whose claims are read, so one member cannot derive a
+     * structure out of another's observations.
+     */
+    proposeStructure: procedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertClaimFlightEnabled(ctx);
+        const { result, runId } = await runAsCapabilityBuilder(
+          ctx,
+          input.organizationId,
+          "claims.proposeStructure",
+          async () => {
+            const [entities, claims] = await Promise.all([
+              ctx.wiring.claimStore.listEntities(input.organizationId, ctx.identity.id),
+              ctx.wiring.claimStore.liveClaims(input.organizationId, ctx.identity.id),
+            ]);
+            const derived = draftStructureFromClaims(
+              entities.map((entity) => ({ id: entity.id, kind: entity.kind, name: entity.name })),
+              claims.map((claim) => ({
+                id: claim.id,
+                entityId: claim.entityId,
+                field: claim.field,
+                value: claim.value,
+              })),
+              // The never-propose rule is enforced HERE as well as at
+              // proposal time: claims materialize through a gate, but a claim
+              // that predates a classifier change must not become a column
+              // because it once passed.
+              (field, value) => classifyClaimContent(field, value).tier === "red",
+            );
+            return {
+              result: derived,
+              // The Run says what the Builder READ and what it concluded —
+              // a refusal is as much a result as a proposal.
+              output: derived.proposed
+                ? {
+                    proposed: true,
+                    databases: derived.databases.map((database) => database.name),
+                    evidenceClaimIds: derived.databases.flatMap((database) =>
+                      database.columns.flatMap((column) => column.sampleClaimIds)),
+                    ...derived.evidence,
+                  }
+                : { proposed: false, reason: derived.reason },
+            };
+          },
+        );
+        return { ...result, runId };
       }),
 
     entities: procedure
@@ -1379,29 +1483,48 @@ export const learningRouter = t.router({
             });
           }
 
-          const { items } = await ctx.wiring.ledger.listHistory(input.organizationId, {
-            limit: 200,
-            offset: 0,
-          });
-          const episodes = episodesForSkill(items, backing.pattern.attributeValue);
-          const result = draftStepsFromEpisodes(backing.pattern, episodes, (skillId) =>
-            Boolean(ctx.wiring.skillRegistry.get(skillId)),
+          const drafted = await runAsCapabilityBuilder(
+            ctx,
+            input.organizationId,
+            "promotions.drafts.proposeSteps",
+            async (): Promise<{ result: BuilderStepsLaneResult; output: Record<string, unknown> }> => {
+              const { items } = await ctx.wiring.ledger.listHistory(input.organizationId, {
+                limit: 200,
+                offset: 0,
+              });
+              const episodes = episodesForSkill(items, backing.pattern.attributeValue);
+              const result = draftStepsFromEpisodes(backing.pattern, episodes, (skillId) =>
+                Boolean(ctx.wiring.skillRegistry.get(skillId)),
+              );
+              if (!result.proposed) {
+                return {
+                  result: { proposed: false as const, reason: result.reason, detail: result.detail },
+                  output: { proposed: false, reason: result.reason },
+                };
+              }
+              // The canonical write-boundary validation every registry write
+              // gets — the Builder does not bypass it just because it derived
+              // the steps itself.
+              const steps = parseAutomationSteps(result.steps);
+              await ctx.wiring.automationRegistry.save({ ...draft, steps, status: "draft" });
+              return {
+                result: {
+                  proposed: true as const,
+                  automationId: draft.id,
+                  steps,
+                  evidence: result.evidence,
+                  status: "draft" as const,
+                },
+                output: {
+                  proposed: true,
+                  automationId: draft.id,
+                  evidenceLedgerIds: result.evidence.episodeLedgerIds,
+                  episodeCount: result.evidence.episodeCount,
+                },
+              };
+            },
           );
-          if (!result.proposed) {
-            return { proposed: false as const, reason: result.reason, detail: result.detail };
-          }
-          // The canonical write-boundary validation every registry write
-          // gets — the Builder does not bypass it just because it derived
-          // the steps itself.
-          const steps = parseAutomationSteps(result.steps);
-          await ctx.wiring.automationRegistry.save({ ...draft, steps, status: "draft" });
-          return {
-            proposed: true as const,
-            automationId: draft.id,
-            steps,
-            evidence: result.evidence,
-            status: "draft" as const,
-          };
+          return { ...drafted.result, runId: drafted.runId };
         }),
 
       activate: procedure
@@ -1435,22 +1558,6 @@ export const learningRouter = t.router({
         }),
     }),
   }),
-
-  /** K10 E2 (TASK-043) — the bulk-accept audit. Every accepted suggestion
-   * across the three suggestion kinds, classified by its shown-text stamp:
-   * "reviewed" (client sent the exact rendered text and it matched the
-   * canonical suggestion text) vs "unverified" (no stamp, or a mismatch —
-   * e.g. a stale tab accepted after the suggestion was superseded). The
-   * stamp never blocks an acceptance; it makes rubber-stamping visible. */
-  acceptanceAudit: procedure
-    .input(z.object({ organizationId: z.string().min(1) }))
-    .query(async ({ input, ctx }) => {
-      assertLearningFlightEnabled(ctx);
-      return auditAcceptances(ctx.wiring.memoryStore, {
-        organizationId: input.organizationId,
-        userId: ctx.identity.id,
-      });
-    }),
 
   /** Retrieval quality read surface (ADR-174). `status` always answers so
    * clients hide the card honestly while the fusion flight is off; `evals`

@@ -391,6 +391,45 @@ export function moduleFilesRoot(
   return root;
 }
 
+/**
+ * Move a Module's Files folder when its Organization renames the Module
+ * (TASK-081). Same conservative shape as `adoptRenamedModuleFolder` above and
+ * for the same reason, with one addition: it reports whether it moved, because
+ * the caller writes a durable override and should be able to say what happened
+ * to the folder.
+ *
+ * It acts ONLY when the source is a real directory and the destination does
+ * not exist. So it never merges two directories, never overwrites, and is a
+ * no-op on re-run. Every other case returns a reason instead of throwing:
+ * a rename whose folder cannot follow must still rename the Module — refusing
+ * the rename because a directory is in the way would be the tail wagging the
+ * dog, and the label is recoverable while a merged directory is not.
+ */
+export type ModuleFolderRenameOutcome =
+  | "moved"
+  | "nothing-to-move"
+  | "destination-exists"
+  | "same-label";
+
+export async function renameModuleFolder(
+  organizationName: string,
+  previousLabel: string,
+  nextLabel: string,
+  bridgeRoot = defaultBridgeFilesRoot(),
+): Promise<ModuleFolderRenameOutcome> {
+  const organizationRoot = organizationFilesRoot(organizationName, bridgeRoot);
+  const source = resolve(organizationRoot, safePathSegment(previousLabel, "Module name"));
+  const target = resolve(organizationRoot, safePathSegment(nextLabel, "Module name"));
+  if (source === target) return "same-label";
+  assertDescendant(organizationRoot, source, "Module File root");
+  assertDescendant(organizationRoot, target, "Module File root");
+  if (await pathMetadata(target)) return "destination-exists";
+  const existing = await pathMetadata(source);
+  if (!existing?.isDirectory() || existing.isSymbolicLink()) return "nothing-to-move";
+  await rename(source, target);
+  return "moved";
+}
+
 async function pathMetadata(path: string) {
   try {
     return await lstat(path);

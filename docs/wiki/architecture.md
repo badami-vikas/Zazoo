@@ -36,4 +36,4 @@ Engine recovers bounded runtime faults. Governance remediates policy/control fai
 
 Legacy code/schema/API names remain only where tracked migration evidence requires them. Runtime taint RT0–RT4 is DONE (TASK-015): v1 label lattice + required RuntimeValue envelope, monotonic joins, registered source/sink edges, fail-closed unknowns, immutable declassification, prompt-free replay, and migration `0029`.
 
-2026-09-11 (ADR-258): API = `router-shared.ts` + `routers/<domain>.ts`; org guard is middleware. Still open: Module CRUD writes bypass the pipeline by decision (copy is honest); app-focus capture ledger in-memory (no durable impl); Automation scheduler tick not leased; hosted Local Plane is `/tmp`; Groq key mirrored plaintext to companion.json (BUGS 2026-09-11).
+2026-09-11 (ADR-281): API = `router-shared.ts` + `routers/<domain>.ts`; org guard is middleware. Still open: Module CRUD writes bypass the pipeline by decision (copy is honest); app-focus capture ledger in-memory (no durable impl); Automation scheduler tick not leased; hosted Local Plane is `/tmp`; Groq key mirrored plaintext to companion.json (BUGS 2026-09-11).

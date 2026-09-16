@@ -2,8 +2,8 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { classifyPatShape, maskPat } from "@bridge/integrations-github";
 import { reposTableSpec, pullsTableSpec, issuesTableSpec, pullsTriageBoardView, issuesUpdatedListView } from "@bridge/devpilot";
-import { DEVPILOT_GITHUB_POLL_AUTOMATION_ID, DEVPILOT_REVIEW_PR_AUTOMATION_ID, DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_ID, DEVPILOT_ANALYZE_ISSUE_AUTOMATION_ID } from "../built-in-modules.js";
-import { t, devpilotProcedure, withHumanInputTaint, assertDevpilotFlightEnabled, assertHumanIdentity } from "../router-shared.js";
+import { DEVPILOT_GITHUB_POLL_AUTOMATION_ID, DEVPILOT_REVIEW_PR_AUTOMATION_ID, DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_ID, DEVPILOT_ANALYZE_ISSUE_AUTOMATION_ID } from "@bridge/module-manifests";
+import { assertDevpilotFlightEnabled, assertHumanIdentity, devpilotProcedure, procedure, t, withHumanInputTaint } from "../router-shared.js";
 
 /**
  * DealPilot — the first Module on the generic manifest intake seam.

@@ -9,7 +9,7 @@ import type {
   AutomationStepDef,
   RunCtx,
 } from "@bridge/core";
-import { canonicalizeJson, cadenceLabel, parseAutomationTrigger } from "@bridge/core";
+import { canonicalizeJson, cadenceLabel, parseAutomationTrigger, RESOURCE_TYPES } from "@bridge/core";
 import {
   labelFromLegacyTrustOrigin,
   storedTaintLabelOrUnknown,
@@ -37,46 +37,12 @@ import { withOrganizationOnly } from "./organization-context.js";
  */
 const actionSchema = z.enum(["read", "write", "execute", "share", "archive", "approve"]);
 
-/**
- * Mirror of `@bridge/core`'s `ResourceType`. It is a hand-maintained copy (zod
- * needs a runtime value; the kernel type is compile-time only), and it had
- * DRIFTED: `relation`, `module_installation`, `organization_definition`,
- * `capability` and `claim` all existed as ResourceTypes with no way to name
- * them in an Automation step, so declaring an Automation over any of them
- * failed with "Invalid Automation skill_pipeline jsonb" — a validation error
- * that reads like a corrupt row rather than a missing enum member.
- *
- * Found by ADR-256's module-authoring Automation (`module_installation`); the
- * other four are restored in the same pass because the drift is the defect,
- * not the one member that happened to surface it.
- */
-const resourceTypeSchema = z.enum([
-  "person",
-  "community",
-  "relation",
-  "record",
-  "event",
-  "automation",
-  "module",
-  "module_installation",
-  "organization_definition",
-  "capability",
-  "claim",
-  "file",
-  "signal",
-  "policy",
-  "policy_param",
-  "skill",
-  "agent",
-  "role",
-  "permission",
-  "ledger",
-  "delegation",
-  "integration",
-  "network_graph:full",
-  "external:send",
-  "external:fetch",
-]);
+// Built FROM the kernel's own list, never retyped beside it. The hand-written
+// copy that used to live here drifted five members behind `ResourceType`
+// (2026-09-08), and an Automation step over a Relation, Module installation,
+// Organization definition, Capability or Claim failed as `invalid_enum_value` —
+// a message that reads like a corrupt jsonb row rather than a stale enum.
+const resourceTypeSchema = z.enum(RESOURCE_TYPES);
 
 const dataScopeSchema = z.enum(["all", "public", "private"]);
 
@@ -289,7 +255,13 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
   }
 
   async start(
-    run: { runId: string; automationId: string; organizationId: string; agentId: string },
+    run: {
+      runId: string;
+      automationId: string;
+      organizationId: string;
+      agentId: string;
+      taskId?: string;
+    },
     ctx: RunCtx,
   ): Promise<void> {
     await withOrganizationOnly(this.#db, run.organizationId, async (tx) => {
@@ -299,6 +271,7 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
       automationId: run.automationId,
       agentId: run.agentId,
       runId: run.runId,
+      ...(run.taskId ? { taskId: run.taskId } : {}),
       status: "running",
       taintLabel:
         ctx.taintLabel ??
@@ -409,6 +382,7 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
           status: automationRuns.status,
           startedAt: automationRuns.startedAt,
           finishedAt: automationRuns.finishedAt,
+          taskId: automationRuns.taskId,
           taintLabel: automationRuns.taintLabel,
           output: automationRuns.output,
         })
@@ -431,6 +405,7 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
           status: row.status,
           startedAt: row.startedAt.toISOString(),
           ...(row.finishedAt ? { finishedAt: row.finishedAt.toISOString() } : {}),
+          ...(row.taskId ? { taskId: row.taskId } : {}),
           taintLabel: storedTaintLabelOrUnknown(row.taintLabel).label,
           output: row.output,
         };
@@ -453,6 +428,7 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
          status: automationRuns.status,
          startedAt: automationRuns.startedAt,
          finishedAt: automationRuns.finishedAt,
+         taskId: automationRuns.taskId,
          taintLabel: automationRuns.taintLabel,
          output: automationRuns.output,
        })
@@ -480,6 +456,7 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
        status: row.status,
        startedAt: row.startedAt.toISOString(),
        ...(row.finishedAt ? { finishedAt: row.finishedAt.toISOString() } : {}),
+       ...(row.taskId ? { taskId: row.taskId } : {}),
        taintLabel: storedTaintLabelOrUnknown(row.taintLabel).label,
        output: row.output,
      };

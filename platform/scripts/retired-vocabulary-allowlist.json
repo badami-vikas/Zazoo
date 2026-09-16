@@ -1,254 +1,314 @@
 {
-  "version": 1,
-  "_comment": [
-    "Reviewed exemptions from check:vocabulary (ADR-171, AP-096).",
-    "",
-    "The gate's failure message has always told the reader to 'add a reviewed",
-    "compatibility adapter to the explicit allowlist'. That allowlist did not",
-    "exist until 2026-08-04, so the ONLY way to get a green gate was to",
-    "regenerate the whole baseline — which silently forgives every genuine",
-    "regression at the same time. This file is that missing mechanism.",
-    "",
-    "An entry exempts one retired-vocabulary FAMILY under one path prefix, and",
-    "must say why the word is not the retired product noun in that location.",
-    "Exempt only where the term is a foreign contract Bridge does not own",
-    "(a model's tool-calling JSON, a third-party API field, a spec keyword).",
-    "Never exempt Bridge's own vocabulary: rename that instead."
-  ],
-  "entries": [
-    {
-      "family": "package",
-      "pathPrefix": "modules/accounting/src/import/pdf.ts",
-      "reason": "npm's own filename and noun, not the retired Bridge product package. The line is `require.resolve(\"pdfjs-dist/package.json\")` — resolving pdf.js's shipped standard-fonts directory on disk so the importer works offline — plus a comment about the installed npm package around it. `package.json` is a literal filename in a third-party module layout; renaming it would break resolution rather than migrate a Bridge identifier.",
-      "reviewed": "AP-162 · 2026-08-16 · TASK-074 (ADR-246 import from Avilo)"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "packages/research/",
-      "reason": "LLM tool-calling, not the retired Bridge product noun. The research planner prompts a model for {\"tool\":\"search\"|\"read\",\"argument\":...} and parses that response; `tool` here is the model provider's own function-calling vocabulary, shared with every LLM API. Renaming it would break the contract with the model rather than migrate a Bridge identifier — the word is not ours to rename.",
-      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "packages/core/src/research-run.ts",
-      "reason": "The persisted research step shape carries the model's chosen tool name (search/read). It is the same LLM tool-calling contract as packages/research, just durable — renaming the field would rename the model's vocabulary, not a Bridge identifier.",
-      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "packages/db/test/research-run-store.test.ts",
-      "reason": "Test fixtures for the persisted research step shape above; they assert the model's tool-calling field names and must match the contract exactly.",
-      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "apps/api/test/research-runs.test.ts",
-      "reason": "Same LLM tool-calling contract asserted at the API boundary — the fixtures mirror the model response shape the research planner parses.",
-      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
-    },
-    {
-      "family": "element",
-      "pathPrefix": "apps/desktop/src-tauri/vendor/",
-      "reason": "Vendored third-party bundle (wppconnect-wa.js). Not Bridge source: it is copied upstream code that must stay byte-identical to what was reviewed, so its identifiers are not ours to migrate.",
-      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
-    },
-    {
-      "family": "element",
-      "pathPrefix": "apps/web/src/app/pages/whatsapp/",
-      "reason": "DOM API vocabulary — HTMLElement, element.getBoundingClientRect(), observer.observe(element). This is the browser's own noun for a node in the document, unrelated to the retired Bridge product element; renaming it would fight the platform API.",
-      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
-    },
-    {
-      "family": "element",
-      "pathPrefix": "packages/research/",
-      "reason": "HTML/DOM vocabulary: http-reader strips <script>/<nav> ELEMENTS from fetched pages by tag name, and the screen locator returns a located on-screen element with x/y. Both are the web platform's own noun for a document node, not the retired Bridge product element.",
-      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "packages/db/src/research-run-store.ts",
-      "reason": "The persistence half of the LLM tool-calling contract already exempted for packages/core/src/research-run.ts. AP-096 exempted the type and its test fixtures but missed the store that actually writes the column, so the same reviewed decision stopped one layer short of its own data path. `tool` here is the model's chosen function name, not a Bridge noun.",
-      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "packages/db/src/schema.ts",
-      "reason": "The `research_run_steps.tool` column and its CHECK constraint ('search','read','find','click','type','note') are the durable form of the model's function-calling vocabulary. Renaming the column would rename the model's contract, not a Bridge identifier — the same reasoning AP-096 already applied to the type that maps onto this column.",
-      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "apps/api/src/routers/agentOrchestration.ts",
-      "reason": "The research-run API boundary validates the model's step shape with z.enum(RESEARCH_STEP_TOOLS). It is the same LLM tool-calling contract AP-096 exempted, expressed as request validation; the enum must match the model vocabulary exactly or valid steps would be rejected. Re-pathed 2026-09-11 when router.ts was split into router-shared.ts + routers/*.ts and packaged Modules took ownership of their catalog entries (modules/<x>/src/module.ts); the occurrences are byte-identical to the ones reviewed.",
-      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "apps/api/src/router-shared.ts",
-      "reason": "The research-run API boundary validates the model's step shape with z.enum(RESEARCH_STEP_TOOLS). It is the same LLM tool-calling contract AP-096 exempted, expressed as request validation; the enum must match the model vocabulary exactly or valid steps would be rejected. Re-pathed 2026-09-11 when router.ts was split into router-shared.ts + routers/*.ts and packaged Modules took ownership of their catalog entries (modules/<x>/src/module.ts); the occurrences are byte-identical to the ones reviewed.",
-      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "apps/web/src/app/pages/ResearchRunsPage.tsx",
-      "reason": "Renders the research step timeline, keying an icon off the model's tool name. Display of a foreign contract's value, not a Bridge product noun — the page has no Tool concept of its own to rename.",
-      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "apps/web/src/app/avatar/ResearchRun.tsx",
-      "reason": "The overlay's research step readout, same model tool-calling vocabulary as ResearchRunsPage — it displays the model's chosen function name.",
-      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "apps/web/src/app/chat/SessionHistoryView.tsx",
-      "reason": "The Chat panel's read-only research session transcript, rendering the same persisted step shape ResearchRunsPage and ResearchRun.tsx already display — `step.tool` is the model's own function-calling value carried through from packages/core/src/research-run.ts, not a Bridge product noun this surface could rename.",
-      "reviewed": "AP-158 · 2026-08-16 · TASK-058"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "packages/db/test/rls.test.ts",
-      "reason": "Inserts a research_run_steps fixture row, so it must supply the `tool` column value the CHECK constraint requires. Asserting RLS behaviour, not Bridge Tool vocabulary.",
-      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "packages/core/test/research-run.test.ts",
-      "reason": "Test fixtures for the research step type already exempted at packages/core/src/research-run.ts; they assert the model's tool-calling field names and must match that contract exactly.",
-      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "apps/web/test/module-detail.test.mjs",
-      "reason": "A NEGATIVE assertion — assert.doesNotMatch(routes, /path: \"tools\"/) — that proves VOCAB6 deleted the standalone Tools hub. The gate was flagging the test that enforces the gate's own goal; the word can only appear here as the thing being forbidden.",
-      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
-    },
-    {
-      "family": "element",
-      "pathPrefix": "apps/website/src/alternative-home/",
-      "reason": "DOM Element, not the retired Bridge 'element' primitive: a local `const element = ref.current` for getBoundingClientRect and a `ref={(element) => ...}` callback parameter. isAllowedTechnicalUse already exempts HTML*Element/getElementById/createElement, but not a bare local named `element`.",
-      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
-    },
-    {
-      "family": "element",
-      "pathPrefix": "apps/web/src/app/avatar/zazoo/RigInspector.tsx",
-      "reason": "`(ev.target as Element).setPointerCapture(...)` — the DOM Element interface from lib.dom.d.ts, a TypeScript built-in Bridge does not own and cannot rename.",
-      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
-    },
-    {
-      "family": "project",
-      "pathPrefix": "packages/core/test/learning-retrieval.test.ts",
-      "reason": "The English VERB in the test title 'fused candidates project into memory snippets'. The script already exempts the verb form in three sibling core tests via a /\\bproject(?:s|ToPrompt)\\b/ pattern; this file was simply not in that list.",
-      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
-    },
-    {
-      "family": "element",
-      "pathPrefix": "apps/web/src/app/dataviews/views/grid-theme.ts",
-      "reason": "`document.documentElement` — the DOM's own name for the root <html> node, read to resolve computed CSS custom properties for the grid theme. It is the browser platform's API, not Bridge's retired Element primitive; renaming it would break the call rather than migrate an identifier, and the word is not ours to rename.",
-      "reviewed": "AP-127 · 2026-08-08 · TASK-021"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "apps/web/src/app/onboarding/questions.ts",
-      "reason": "Generic English noun in user-facing onboarding copy: 'A ticketing tool' / 'A pipeline tool'. The retired Bridge 'Tool' was a product-noun for standalone Skills outside any Module; these strings describe third-party product categories (CRMs, ticketing systems) in plain English. Bridge does not own this usage.",
-      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "modules/whatsapp/src/tools.ts",
-      "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). The WhatsApp Module's 'Tools' tab is a module-scoped sub-page listing WhatsApp-specific capability panels (Contact Extractor, Annotations, etc.). Structurally different from the retired global Bridge Tools surface (a top-level nav entry hosting standalone Skills outside any Module); 'tool' here is scoped entirely within the WhatsApp Module manifest.",
-      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "modules/manifests/src/index.ts",
-      "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). WhatsApp Module manifest capability IDs (whatsapp.tool.* and whatsapp.page.tools) and the 'Tools' page display name. Same scope as modules/whatsapp/src/tools.ts — module-contained, not the retired global Tools surface. Renaming governed capability IDs during active branch work would require rebasing three WhatsApp branches simultaneously.",
-      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "modules/whatsapp/src/module.ts",
-      "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). WhatsApp Module manifest capability IDs (whatsapp.tool.* and whatsapp.page.tools) and the 'Tools' page display name. Same scope as modules/whatsapp/src/tools.ts — module-contained, not the retired global Tools surface. Renaming governed capability IDs during active branch work would require rebasing three WhatsApp branches simultaneously. Re-pathed 2026-09-11 when router.ts was split into router-shared.ts + routers/*.ts and packaged Modules took ownership of their catalog entries (modules/<x>/src/module.ts); the occurrences are byte-identical to the ones reviewed.",
-      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "modules/whatsapp/test/",
-      "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). Test fixtures for the WhatsApp Tools registry — they assert capability IDs and manifest entries already exempted at modules/manifests/src/index.ts and modules/whatsapp/src/tools.ts.",
-      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "apps/web/src/app/pages/WhatsAppPage.tsx",
-      "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). Web surface for the WhatsApp Tools tab — renders the WHATSAPP_TOOLS registry and uses the tab label 'Tools'. Same exemption rationale as modules/whatsapp/src/tools.ts.",
-      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "apps/web/src/app/routes.tsx",
-      "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). The route path 'module/whatsapp/tools' for the WhatsApp Tools page. Route is tied to the same WhatsApp-scoped capability registry already exempted at modules/manifests/src/index.ts.",
-      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "apps/web/src/app/pages/whatsapp/",
-      "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). WhatsApp-scoped UI panels referencing the WhatsApp Tools capability by name (e.g. 'Automation Rules Tool'). Same module-scoped exemption rationale as modules/whatsapp/src/tools.ts.",
-      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "modules/manifests/test/",
-      "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). Test fixtures for the WhatsApp Module manifest catalog — they assert the whatsapp.tool.* capability IDs and page names already exempted at modules/manifests/src/index.ts.",
-      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
-    },
-    {
-      "family": "tool",
-      "pathPrefix": "modules/whatsapp/src/index.ts",
-      "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). Re-exports everything from tools.ts; the `tool` family reaches this path only because the export barrel re-surfaces the identifiers already exempted at modules/whatsapp/src/tools.ts.",
-      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
-    },
-    {
-      "family": "element",
-      "pathPrefix": "apps/web/src/app/dataviews/views/TableView.tsx",
-      "reason": "DOM and library API names, not the retired Bridge product noun. The occurrences are `HTMLDivElement`/`HTMLElement`/`HTMLInputElement`/`HTMLSelectElement` (TypeScript's built-in DOM lib types) and `getScrollElement` (the option key `@tanstack/react-virtual` requires on its options object, ADR-194). Renaming either would break the contract with TypeScript's DOM typings or with the virtualizer rather than migrate a Bridge identifier — the word is not ours to rename here.",
-      "reviewed": "AP-114 · 2026-08-06 · ADR-194"
-    },
-    {
-      "family": "element",
-      "pathPrefix": "apps/desktop/src-tauri/src/providers/accessibility.rs",
-      "reason": "Apple Accessibility C ABI, not the retired Bridge product noun. The K7 focused-window-title read links against ApplicationServices' own exported symbols (AXUIElementCreateApplication, AXUIElementCopyAttributeValue) and their documented parameter names; renaming a foreign framework's linker symbols is impossible — the word is not ours to rename.",
-      "reviewed": "AP-148 · 2026-08-13 · TASK-051"
-    },
-    {
-      "family": "project",
-      "pathPrefix": "apps/api/src/routers/academics.ts",
-      "reason": "Academic domain Record label, not the retired Bridge product noun. The two occurrences are the assignment-type enum literal in the Academics procedures' zod schemas — z.enum([\"problem_set\", \"essay\", \"project\", \"exam\", \"lab\"]) — where 'project' names a kind of school assignment alongside essays and labs. Domain Record labels never become kernel primitives (CLAUDE.md), and renaming the academic concept would misname the domain to dodge a product-vocabulary rule about a different noun. Found as a pre-existing main breakage by TASK-042's verify (the Academics merge landed without the gate re-running); absorbed per the TASK-036 blocker convention. Re-pathed 2026-09-11 when router.ts was split into router-shared.ts + routers/*.ts and packaged Modules took ownership of their catalog entries (modules/<x>/src/module.ts); the occurrences are byte-identical to the ones reviewed.",
-      "reviewed": "AP-155 · 2026-08-14 · TASK-036"
-    },
-    {
-      "family": "project",
-      "pathPrefix": "apps/web/src/app/pages/AcademicsPage.tsx",
-      "reason": "Same academic assignment-type domain label as the router.ts entry above — the page's options array for the assignment form mirrors the API enum and must match it exactly.",
-      "reviewed": "AP-155 · 2026-08-14 · TASK-036"
-    },
-    {
-      "family": "element",
-      "pathPrefix": "apps/desktop/src-tauri/src/providers/input_tap.rs",
-      "reason": "Apple Accessibility C ABI, not the retired Bridge product noun — the same case AP-148 already reviewed for the sibling accessibility.rs. The K11 keystroke tap reads the focused element's role by linking against ApplicationServices' own exported symbols (AXUIElementCreateSystemWide, AXUIElementCopyAttributeValue, AXUIElementSetMessagingTimeout) and by passing Apple's documented attribute-key string \"AXFocusedUIElement\"; a linker symbol and a framework's attribute key are not ours to rename. Every identifier that WAS ours was renamed off the retired noun first (the shared parameter is `node`, not `element`), so this entry covers only the foreign contract.",
-      "reviewed": "AP-157 · 2026-08-17 · TASK-054 (precedent: AP-148 · accessibility.rs)"
-    },
-    {
-      "family": "element",
-      "pathPrefix": "modules/dealpilot/src/listing-extract.ts",
-      "reason": "schema.org's `itemListElement`, not the retired Bridge product noun. The extractor reads JSON-LD that broker sites publish for machines; the key name is defined by schema.org and appears verbatim in their markup. Renaming it would stop the parser matching real pages rather than migrate a Bridge identifier — the word is not ours to rename.",
-      "reviewed": "AP-164 · 2026-08-17 · TASK-075"
-    },
-    {
-      "family": "element",
-      "pathPrefix": "modules/dealpilot/test/listing-extract.test.ts",
-      "reason": "Same schema.org `itemListElement` key, appearing in the JSON-LD fixtures the extractor is tested against. The fixtures mirror what these sites actually serve; changing the key would make them fixtures of nothing.",
-      "reviewed": "AP-164 · 2026-08-17 · TASK-075"
-    }
-  ]
+ "version": 1,
+ "_comment": [
+  "Reviewed exemptions from check:vocabulary (ADR-171, AP-096).",
+  "",
+  "The gate's failure message has always told the reader to 'add a reviewed",
+  "compatibility adapter to the explicit allowlist'. That allowlist did not",
+  "exist until 2026-08-04, so the ONLY way to get a green gate was to",
+  "regenerate the whole baseline — which silently forgives every genuine",
+  "regression at the same time. This file is that missing mechanism.",
+  "",
+  "An entry exempts one retired-vocabulary FAMILY under one path prefix, and",
+  "must say why the word is not the retired product noun in that location.",
+  "Exempt only where the term is a foreign contract Bridge does not own",
+  "(a model's tool-calling JSON, a third-party API field, a spec keyword).",
+  "Never exempt Bridge's own vocabulary: rename that instead."
+ ],
+ "entries": [
+  {
+   "family": "package",
+   "pathPrefix": "commons/accounting/src/import/pdf.ts",
+   "reason": "npm's own filename and noun, not the retired Bridge product package. The line is `require.resolve(\"pdfjs-dist/package.json\")` — resolving pdf.js's shipped standard-fonts directory on disk so the importer works offline — plus a comment about the installed npm package around it. `package.json` is a literal filename in a third-party module layout; renaming it would break resolution rather than migrate a Bridge identifier.",
+   "reviewed": "AP-162 · 2026-08-16 · TASK-074 (ADR-246 import from Avilo)"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "packages/research/",
+   "reason": "LLM tool-calling, not the retired Bridge product noun. The research planner prompts a model for {\"tool\":\"search\"|\"read\",\"argument\":...} and parses that response; `tool` here is the model provider's own function-calling vocabulary, shared with every LLM API. Renaming it would break the contract with the model rather than migrate a Bridge identifier — the word is not ours to rename.",
+   "reviewed": "AP-096 · 2026-08-04 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "packages/core/src/research-run.ts",
+   "reason": "The persisted research step shape carries the model's chosen tool name (search/read). It is the same LLM tool-calling contract as packages/research, just durable — renaming the field would rename the model's vocabulary, not a Bridge identifier.",
+   "reviewed": "AP-096 · 2026-08-04 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "packages/db/test/research-run-store.test.ts",
+   "reason": "Test fixtures for the persisted research step shape above; they assert the model's tool-calling field names and must match the contract exactly.",
+   "reviewed": "AP-096 · 2026-08-04 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "apps/api/test/research-runs.test.ts",
+   "reason": "Same LLM tool-calling contract asserted at the API boundary — the fixtures mirror the model response shape the research planner parses.",
+   "reviewed": "AP-096 · 2026-08-04 · TASK-036"
+  },
+  {
+   "family": "element",
+   "pathPrefix": "apps/desktop/src-tauri/vendor/",
+   "reason": "Vendored third-party bundle (wppconnect-wa.js). Not Bridge source: it is copied upstream code that must stay byte-identical to what was reviewed, so its identifiers are not ours to migrate.",
+   "reviewed": "AP-096 · 2026-08-04 · TASK-036"
+  },
+  {
+   "family": "element",
+   "pathPrefix": "apps/web/src/app/pages/whatsapp/",
+   "reason": "DOM API vocabulary — HTMLElement, element.getBoundingClientRect(), observer.observe(element). This is the browser's own noun for a node in the document, unrelated to the retired Bridge product element; renaming it would fight the platform API.",
+   "reviewed": "AP-096 · 2026-08-04 · TASK-036"
+  },
+  {
+   "family": "element",
+   "pathPrefix": "packages/research/",
+   "reason": "HTML/DOM vocabulary: http-reader strips <script>/<nav> ELEMENTS from fetched pages by tag name, and the screen locator returns a located on-screen element with x/y. Both are the web platform's own noun for a document node, not the retired Bridge product element.",
+   "reviewed": "AP-096 · 2026-08-04 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "packages/db/src/research-run-store.ts",
+   "reason": "The persistence half of the LLM tool-calling contract already exempted for packages/core/src/research-run.ts. AP-096 exempted the type and its test fixtures but missed the store that actually writes the column, so the same reviewed decision stopped one layer short of its own data path. `tool` here is the model's chosen function name, not a Bridge noun.",
+   "reviewed": "AP-106 · 2026-08-05 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "packages/db/src/schema.ts",
+   "reason": "The `research_run_steps.tool` column and its CHECK constraint ('search','read','find','click','type','note') are the durable form of the model's function-calling vocabulary. Renaming the column would rename the model's contract, not a Bridge identifier — the same reasoning AP-096 already applied to the type that maps onto this column.",
+   "reviewed": "AP-106 · 2026-08-05 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "apps/api/src/routers/agentOrchestration.ts",
+   "reason": "(Path moved from router.ts by the 2026-09-03 router split, TASK-031.) The research-run API boundary validates the model's step shape with z.enum(RESEARCH_STEP_TOOLS). It is the same LLM tool-calling contract AP-096 exempted, expressed as request validation; the enum must match the model vocabulary exactly or valid steps would be rejected.",
+   "reviewed": "AP-106 · 2026-08-05 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "apps/api/src/router-shared.ts",
+   "reason": "recordResearchStep (shared by research.recordStep and research.execute after the 2026-09-04 merge of PR #75) carries the model step shape through to the store; same LLM tool-calling contract as the agentOrchestration.ts entry above.",
+   "reviewed": "AP-106 · 2026-08-05 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "apps/web/src/app/pages/ResearchRunsPage.tsx",
+   "reason": "Renders the research step timeline, keying an icon off the model's tool name. Display of a foreign contract's value, not a Bridge product noun — the page has no Tool concept of its own to rename.",
+   "reviewed": "AP-106 · 2026-08-05 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "apps/web/src/app/avatar/ResearchRun.tsx",
+   "reason": "The overlay's research step readout, same model tool-calling vocabulary as ResearchRunsPage — it displays the model's chosen function name.",
+   "reviewed": "AP-106 · 2026-08-05 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "apps/web/src/app/chat/SessionHistoryView.tsx",
+   "reason": "The Chat panel's read-only research session transcript, rendering the same persisted step shape ResearchRunsPage and ResearchRun.tsx already display — `step.tool` is the model's own function-calling value carried through from packages/core/src/research-run.ts, not a Bridge product noun this surface could rename.",
+   "reviewed": "AP-158 · 2026-08-16 · TASK-058"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "packages/db/test/rls.test.ts",
+   "reason": "Inserts a research_run_steps fixture row, so it must supply the `tool` column value the CHECK constraint requires. Asserting RLS behaviour, not Bridge Tool vocabulary.",
+   "reviewed": "AP-106 · 2026-08-05 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "packages/core/test/research-run.test.ts",
+   "reason": "Test fixtures for the research step type already exempted at packages/core/src/research-run.ts; they assert the model's tool-calling field names and must match that contract exactly.",
+   "reviewed": "AP-106 · 2026-08-05 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "apps/web/test/module-detail.test.mjs",
+   "reason": "A NEGATIVE assertion — assert.doesNotMatch(routes, /path: \"tools\"/) — that proves VOCAB6 deleted the standalone Tools hub. The gate was flagging the test that enforces the gate's own goal; the word can only appear here as the thing being forbidden.",
+   "reviewed": "AP-106 · 2026-08-05 · TASK-036"
+  },
+  {
+   "family": "element",
+   "pathPrefix": "apps/website/src/alternative-home/",
+   "reason": "DOM Element, not the retired Bridge 'element' primitive: a local `const element = ref.current` for getBoundingClientRect and a `ref={(element) => ...}` callback parameter. isAllowedTechnicalUse already exempts HTML*Element/getElementById/createElement, but not a bare local named `element`.",
+   "reviewed": "AP-106 · 2026-08-05 · TASK-036"
+  },
+  {
+   "family": "element",
+   "pathPrefix": "apps/web/src/app/avatar/zazoo/RigInspector.tsx",
+   "reason": "`(ev.target as Element).setPointerCapture(...)` — the DOM Element interface from lib.dom.d.ts, a TypeScript built-in Bridge does not own and cannot rename.",
+   "reviewed": "AP-106 · 2026-08-05 · TASK-036"
+  },
+  {
+   "family": "project",
+   "pathPrefix": "packages/core/test/learning-retrieval.test.ts",
+   "reason": "The English VERB in the test title 'fused candidates project into memory snippets'. The script already exempts the verb form in three sibling core tests via a /\\bproject(?:s|ToPrompt)\\b/ pattern; this file was simply not in that list.",
+   "reviewed": "AP-106 · 2026-08-05 · TASK-036"
+  },
+  {
+   "family": "element",
+   "pathPrefix": "apps/web/src/app/dataviews/views/grid-theme.ts",
+   "reason": "`document.documentElement` — the DOM's own name for the root <html> node, read to resolve computed CSS custom properties for the grid theme. It is the browser platform's API, not Bridge's retired Element primitive; renaming it would break the call rather than migrate an identifier, and the word is not ours to rename.",
+   "reviewed": "AP-127 · 2026-08-08 · TASK-021"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "apps/web/src/app/onboarding/questions.ts",
+   "reason": "Generic English noun in user-facing onboarding copy: 'A ticketing tool' / 'A pipeline tool'. The retired Bridge 'Tool' was a product-noun for standalone Skills outside any Module; these strings describe third-party product categories (CRMs, ticketing systems) in plain English. Bridge does not own this usage.",
+   "reviewed": "AP-135 · 2026-08-09 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "commons/whatsapp/src/tools.ts",
+   "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). The WhatsApp Module's 'Tools' tab is a module-scoped sub-page listing WhatsApp-specific capability panels (Contact Extractor, Annotations, etc.). Structurally different from the retired global Bridge Tools surface (a top-level nav entry hosting standalone Skills outside any Module); 'tool' here is scoped entirely within the WhatsApp Module manifest.",
+   "reviewed": "AP-135 · 2026-08-09 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "packages/module-manifests/src/index.ts",
+   "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). WhatsApp Module manifest capability IDs (whatsapp.tool.* and whatsapp.page.tools) and the 'Tools' page display name. Same scope as modules/whatsapp/src/tools.ts — module-contained, not the retired global Tools surface. Renaming governed capability IDs during active branch work would require rebasing three WhatsApp branches simultaneously.",
+   "reviewed": "AP-135 · 2026-08-09 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "commons/whatsapp/test/",
+   "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). Test fixtures for the WhatsApp Tools registry — they assert capability IDs and manifest entries already exempted at modules/manifests/src/index.ts and modules/whatsapp/src/tools.ts.",
+   "reviewed": "AP-135 · 2026-08-09 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "apps/web/src/app/pages/WhatsAppPage.tsx",
+   "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). Web surface for the WhatsApp Tools tab — renders the WHATSAPP_TOOLS registry and uses the tab label 'Tools'. Same exemption rationale as modules/whatsapp/src/tools.ts.",
+   "reviewed": "AP-135 · 2026-08-09 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "apps/web/src/app/routes.tsx",
+   "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). The route path 'module/whatsapp/tools' for the WhatsApp Tools page. Route is tied to the same WhatsApp-scoped capability registry already exempted at modules/manifests/src/index.ts.",
+   "reviewed": "AP-135 · 2026-08-09 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "apps/web/src/app/pages/whatsapp/",
+   "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). WhatsApp-scoped UI panels referencing the WhatsApp Tools capability by name (e.g. 'Automation Rules Tool'). Same module-scoped exemption rationale as modules/whatsapp/src/tools.ts.",
+   "reviewed": "AP-135 · 2026-08-09 · TASK-036"
+  },
+  {
+   "family": "avatar_lifecycle",
+   "pathPrefix": "packages/module-manifests/src/index.ts",
+   "reason": "The Egg = the installable kernel (egg-commons roadmap, ADR 2026-09-04 \"The Egg ships the kernel; Modules live in Commons\"), the user's own term for the bare install — not the retired Avatar lifecycle state this family retires. EGG_MODULES / BRIDGE_PROFILE=egg name that install profile.",
+   "reviewed": "AP-183 · 2026-09-04 · TASK-096"
+  },
+  {
+   "family": "avatar_lifecycle",
+   "pathPrefix": "apps/api/src/router.ts",
+   "reason": "eggRouter: the kernel-only composition BRIDGE_PROFILE=egg mounts (ADR 2026-09-04). Kernel-install sense, not the Avatar lifecycle.",
+   "reviewed": "AP-183 · 2026-09-04 · TASK-096"
+  },
+  {
+   "family": "avatar_lifecycle",
+   "pathPrefix": "apps/api/src/server.ts",
+   "reason": "Mounts eggRouter under BRIDGE_PROFILE=egg (ADR 2026-09-04). Kernel-install sense.",
+   "reviewed": "AP-183 · 2026-09-04 · TASK-096"
+  },
+  {
+   "family": "avatar_lifecycle",
+   "pathPrefix": "apps/api/src/wiring.ts",
+   "reason": "Reads BRIDGE_PROFILE=egg and seeds EGG_MODULES (ADR 2026-09-04). Kernel-install sense.",
+   "reviewed": "AP-183 · 2026-09-04 · TASK-096"
+  },
+  {
+   "family": "avatar_lifecycle",
+   "pathPrefix": "apps/api/test/egg-profile.test.ts",
+   "reason": "Proves the Egg profile (ADR 2026-09-04): what it seeds, serves, and tells the Builder. Kernel-install sense.",
+   "reviewed": "AP-183 · 2026-09-04 · TASK-096"
+  },
+  {
+   "family": "avatar_lifecycle",
+   "pathPrefix": "apps/api/test/egg-boot.test.ts",
+   "reason": "Boots a bare Egg (ADR 2026-09-04) and proves its primary Agents, chat, Research, and a Builder-made Module work. Kernel-install sense.",
+   "reviewed": "AP-183 · 2026-09-04 · TASK-096"
+  },
+  {
+   "family": "avatar_lifecycle",
+   "pathPrefix": "apps/api/test/academics-module.test.ts",
+   "reason": "Boots the Egg profile (ADR 2026-09-04) and installs Academics from its Commons manifest. Kernel-install sense.",
+   "reviewed": "AP-183 · 2026-09-04 · TASK-069"
+  },
+  {
+   "family": "avatar_lifecycle",
+   "pathPrefix": "packages/module-manifests/test/catalog.test.ts",
+   "reason": "Asserts Academics is absent from EGG_MODULES (ADR 2026-09-04). Kernel-install sense.",
+   "reviewed": "AP-183 · 2026-09-04 · TASK-069"
+  },
+  {
+   "family": "avatar_lifecycle",
+   "pathPrefix": "apps/web/src/app/routes.tsx",
+   "reason": "VITE_BRIDGE_PROFILE=egg drops Commons Module Pages from the build (ADR 2026-09-04). Kernel-install sense.",
+   "reviewed": "AP-183 · 2026-09-04 · TASK-096"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "packages/module-manifests/test/",
+   "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). Test fixtures for the WhatsApp Module manifest catalog — they assert the whatsapp.tool.* capability IDs and page names already exempted at modules/manifests/src/index.ts.",
+   "reviewed": "AP-135 · 2026-08-09 · TASK-036"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "commons/whatsapp/src/index.ts",
+   "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). Re-exports everything from tools.ts; the `tool` family reaches this path only because the export barrel re-surfaces the identifiers already exempted at modules/whatsapp/src/tools.ts.",
+   "reviewed": "AP-135 · 2026-08-09 · TASK-036"
+  },
+  {
+   "family": "element",
+   "pathPrefix": "apps/web/src/app/dataviews/views/TableView.tsx",
+   "reason": "DOM and library API names, not the retired Bridge product noun. The occurrences are `HTMLDivElement`/`HTMLElement`/`HTMLInputElement`/`HTMLSelectElement` (TypeScript's built-in DOM lib types) and `getScrollElement` (the option key `@tanstack/react-virtual` requires on its options object, ADR-194). Renaming either would break the contract with TypeScript's DOM typings or with the virtualizer rather than migrate a Bridge identifier — the word is not ours to rename here.",
+   "reviewed": "AP-114 · 2026-08-06 · ADR-194"
+  },
+  {
+   "family": "element",
+   "pathPrefix": "apps/desktop/src-tauri/src/providers/accessibility.rs",
+   "reason": "Apple Accessibility C ABI, not the retired Bridge product noun. The K7 focused-window-title read links against ApplicationServices' own exported symbols (AXUIElementCreateApplication, AXUIElementCopyAttributeValue) and their documented parameter names; renaming a foreign framework's linker symbols is impossible — the word is not ours to rename.",
+   "reviewed": "AP-148 · 2026-08-13 · TASK-051"
+  },
+  {
+   "family": "project",
+   "pathPrefix": "apps/api/src/routers/academics.ts",
+   "reason": "(Path moved from router.ts by the 2026-09-03 router split, TASK-031.) Academic domain Record label, not the retired Bridge product noun. The two occurrences are the assignment-type enum literal in the Academics procedures' zod schemas — z.enum([\"problem_set\", \"essay\", \"project\", \"exam\", \"lab\"]) — where 'project' names a kind of school assignment alongside essays and labs. Domain Record labels never become kernel primitives (CLAUDE.md), and renaming the academic concept would misname the domain to dodge a product-vocabulary rule about a different noun. Found as a pre-existing main breakage by TASK-042's verify (the Academics merge landed without the gate re-running); absorbed per the TASK-036 blocker convention.",
+   "reviewed": "AP-155 · 2026-08-14 · TASK-036"
+  },
+  {
+   "family": "element",
+   "pathPrefix": "apps/desktop/src-tauri/src/providers/input_tap.rs",
+   "reason": "Apple Accessibility C ABI, not the retired Bridge product noun — the same case AP-148 already reviewed for the sibling accessibility.rs. The K11 keystroke tap reads the focused element's role by linking against ApplicationServices' own exported symbols (AXUIElementCreateSystemWide, AXUIElementCopyAttributeValue, AXUIElementSetMessagingTimeout) and by passing Apple's documented attribute-key string \"AXFocusedUIElement\"; a linker symbol and a framework's attribute key are not ours to rename. Every identifier that WAS ours was renamed off the retired noun first (the shared parameter is `node`, not `element`), so this entry covers only the foreign contract.",
+   "reviewed": "AP-157 · 2026-08-17 · TASK-054 (precedent: AP-148 · accessibility.rs)"
+  },
+  {
+   "family": "element",
+   "pathPrefix": "commons/dealpilot/src/listing-extract.ts",
+   "reason": "schema.org's `itemListElement`, not the retired Bridge product noun. The extractor reads JSON-LD that broker sites publish for machines; the key name is defined by schema.org and appears verbatim in their markup. Renaming it would stop the parser matching real pages rather than migrate a Bridge identifier — the word is not ours to rename.",
+   "reviewed": "AP-164 · 2026-08-17 · TASK-075"
+  },
+  {
+   "family": "element",
+   "pathPrefix": "commons/dealpilot/test/listing-extract.test.ts",
+   "reason": "Same schema.org `itemListElement` key, appearing in the JSON-LD fixtures the extractor is tested against. The fixtures mirror what these sites actually serve; changing the key would make them fixtures of nothing.",
+   "reviewed": "AP-164 · 2026-08-17 · TASK-075"
+  },
+  {
+   "family": "artifact",
+   "pathPrefix": "apps/desktop/scripts/build-tauri.mjs",
+   "reason": "Tauri's own bundler schema key `createUpdaterArtifacts`, not the retired Bridge product noun. TASK-079 disables updater-bundle creation on local builds by passing the config override object `{ bundle: { createUpdaterArtifacts: false } }` to `tauri build --config`; the key name is Tauri v2's config contract and is not ours to rename. Every Bridge-owned name around it was renamed instead (updaterBundleConfig, reworded log/test copy).",
+   "reviewed": "AP-167 · 2026-08-27 · TASK-079"
+  },
+  {
+   "family": "artifact",
+   "pathPrefix": "apps/desktop/scripts/prepare-bundle.test.mjs",
+   "reason": "Tauri's own bundler schema key `createUpdaterArtifacts`, not the retired Bridge product noun. TASK-079 disables updater-bundle creation on local builds by passing the deepEqual assertions pinning that same override object to `tauri build --config`; the key name is Tauri v2's config contract and is not ours to rename. Every Bridge-owned name around it was renamed instead (updaterBundleConfig, reworded log/test copy).",
+   "reviewed": "AP-167 · 2026-08-27 · TASK-079"
+  },
+  {
+   "family": "tool",
+   "pathPrefix": "apps/api/test/research-executor.test.ts",
+   "reason": "LLM tool-calling, not the retired Bridge product noun. These fixtures drive the research planner's {\"tool\":\"search\"|\"read\"} contract and assert the tool field on persisted step evidence — the same model-owned vocabulary already exempted for packages/research and packages/core/src/research-run.ts. Renaming it would rename the model's own function-calling field, not a Bridge identifier.",
+   "reviewed": "AP-096 · 2026-09-03 · TASK-028 (kernel-executor bridge)"
+  }
+ ]
 }

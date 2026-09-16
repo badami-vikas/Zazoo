@@ -3,8 +3,8 @@ import { z } from "zod";
 import { PILOT_ORGANIZATION } from "../wiring.js";
 import { hashTaintValue, labelAtSource, type Proposal } from "@bridge/core";
 import { CredentialAccessError, SourceDiscoveryGateError, dealPilotModuleManifest, proposeThesisSourceDiscovery, scoreThesisFit, runSourceDiscovery, type SourceRecord, type ThesisProfile } from "@bridge/dealpilot";
-import { DEALPILOT_SOURCE_AUTOMATION_ID } from "../built-in-modules.js";
-import { t, stableDealPilotCaptureProposalId, isDealPilotCaptureProposal, assertPilotOrganization, dealpilotProcedure, withHumanInputTaint } from "../router-shared.js";
+import { DEALPILOT_SOURCE_AUTOMATION_ID } from "@bridge/module-manifests";
+import { dealpilotProcedure, isDealPilotCaptureProposal, stableDealPilotCaptureProposalId, t, withHumanInputTaint } from "../router-shared.js";
 
 export const dealpilotRouter = t.router({
   module: dealpilotProcedure
@@ -41,7 +41,6 @@ export const dealpilotRouter = t.router({
         .default({}),
     )
     .query(async ({ input, ctx }) => {
-      if (input.organizationId) assertPilotOrganization(input.organizationId);
       const organizationId = input.organizationId ?? PILOT_ORGANIZATION;
       const records = await ctx.wiring.dealpilot.store.list("deals", organizationId, {
         limit: input.limit,

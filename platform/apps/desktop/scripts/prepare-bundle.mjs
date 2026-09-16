@@ -24,10 +24,27 @@ const apiTarget = join(generatedRoot, "api");
 const licensesTarget = join(generatedRoot, "licenses");
 const nativeTarget = join(generatedRoot, "native");
 const llamaTarget = join(generatedRoot, "llama");
+
+/**
+ * Ship the local model runtime? OFF by default (user directive 2026-09-11:
+ * "why are we shipping llama, drop local models for now").
+ *
+ * The llama.cpp runtime is 49MB of the bundle. No model WEIGHTS were ever
+ * bundled — `qwen3-4b` is a separate, user-triggered download — so this is the
+ * whole local-inference cost at install time. What it buys is the capture and
+ * sensor lane, which `wiring.ts` binds to local models with no cloud fallback
+ * by design; without the runtime that lane reports itself unavailable rather
+ * than quietly sending raw capture to a cloud provider.
+ *
+ * A flag rather than a deletion: turning local inference back on is
+ * `BRIDGE_BUNDLE_LOCAL_MODELS=1`, not a revert of this commit.
+ */
+const BUNDLE_LOCAL_MODELS = process.env.BRIDGE_BUNDLE_LOCAL_MODELS === "1";
 const binariesTarget = join(tauriRoot, "binaries");
 const modelRuntimeManifestPath = join(desktopRoot, "model-runtime-manifest.json");
 const apiEntry = join(apiTarget, "dist", "src", "server.js");
 const nativeKeyringTarget = join(nativeTarget, "bridge-keyring.dylib");
+const nativeSqliteTarget = join(nativeTarget, "bridge-sqlite3.dylib");
 export const MAC_NATIVE_KEYRING_LOADER = `"use strict";
 const nativePath = process.env.BRIDGE_KEYRING_NATIVE_LIBRARY;
 if (!nativePath) {
@@ -36,6 +53,32 @@ if (!nativePath) {
 const binding = { exports: {} };
 process.dlopen(binding, nativePath);
 module.exports = binding.exports;
+`;
+
+/** Replaces better-sqlite3's stock lib/binding.js in the DEPLOYED api copy
+ * only (the repo's node_modules keeps the upstream prebuild resolution for dev
+ * and tests). The darwin prebuild ships as the signed
+ * Frameworks/bridge-sqlite3.dylib — same reviewed pattern as bridge-keyring —
+ * because macOS native addons must not ride in Resources. The file keeps
+ * better-sqlite3's exact `require("./binding").getBinding` contract. */
+export const MAC_NATIVE_SQLITE_LOADER = `"use strict";
+let DEFAULT_ADDON;
+function getBinding(nativeBinding) {
+  if (nativeBinding !== null && nativeBinding !== undefined) {
+    throw new Error("nativeBinding is not supported in the packaged desktop API");
+  }
+  if (DEFAULT_ADDON) return DEFAULT_ADDON;
+  const nativePath = process.env.BRIDGE_SQLITE3_NATIVE_LIBRARY;
+  if (!nativePath) {
+    throw new Error("BRIDGE_SQLITE3_NATIVE_LIBRARY is required");
+  }
+  const binding = { exports: {} };
+  process.dlopen(binding, nativePath);
+  DEFAULT_ADDON = binding.exports;
+  return DEFAULT_ADDON;
+}
+exports.getBinding = getBinding;
+exports.getPrebuildPath = () => null;
 `;
 
 export function unsupportedInstallerReason(platform = process.platform) {
@@ -365,6 +408,12 @@ async function expectedInputs() {
             "bridge-loader.cjs",
           )
         : null,
+    nativeSqliteTarget:
+      process.platform === "darwin" ? nativeSqliteTarget : null,
+    nativeSqliteLoader:
+      process.platform === "darwin"
+        ? join(apiTarget, "node_modules", "better-sqlite3", "lib", "binding.js")
+        : null,
     llamaRuntimeManifest: join(llamaTarget, "bridge-llama-runtime.json"),
     llamaServer: join(
       llamaTarget,
@@ -379,6 +428,8 @@ async function verifyInputs() {
   const manifest = JSON.parse(await readFile(expected.manifestPath, "utf8"));
   const expectedNativeKeyring =
     process.platform === "darwin" ? "Frameworks/bridge-keyring.dylib" : null;
+  const expectedNativeSqlite =
+    process.platform === "darwin" ? "Frameworks/bridge-sqlite3.dylib" : null;
   if (
     manifest.target !== expected.target ||
     manifest.nodeVersion !== process.version ||
@@ -386,21 +437,35 @@ async function verifyInputs() {
     manifest.dependencyLayout !== "hoisted" ||
     manifest.platform !== process.platform ||
     manifest.architecture !== process.arch ||
-    manifest.nativeKeyring !== expectedNativeKeyring
+    manifest.nativeKeyring !== expectedNativeKeyring ||
+    manifest.nativeSqlite !== expectedNativeSqlite
   ) {
     throw new Error("desktop bundle inputs are stale for this Node/Rust target");
   }
   const requiredPaths = [
     apiEntry,
+    // The accounting store runs drizzle's file-based migrator at API startup;
+    // a bundle without its migrations folder boots an API that dies before
+    // reporting a port (found live 2026-08-27 — apps/api's `files` whitelist
+    // had excluded it from `pnpm deploy`). Since 2026-09-11 the folder is the
+    // Accounting Module's own (`@bridge/accounting/migrations`, hoisted into
+    // the deployed node_modules). Fail the build, not the launch.
+    join(apiTarget, "node_modules", "@bridge", "accounting", "migrations", "meta", "_journal.json"),
     expected.nodeTarget,
     expected.licensePath,
-    expected.llamaRuntimeManifest,
-    expected.llamaServer,
-    expected.llamaLicense,
     modelRuntimeManifestPath,
   ];
+  if (BUNDLE_LOCAL_MODELS) {
+    requiredPaths.push(
+      expected.llamaRuntimeManifest,
+      expected.llamaServer,
+      expected.llamaLicense,
+    );
+  }
   if (expected.nativeKeyringTarget) requiredPaths.push(expected.nativeKeyringTarget);
   if (expected.nativeKeyringLoader) requiredPaths.push(expected.nativeKeyringLoader);
+  if (expected.nativeSqliteTarget) requiredPaths.push(expected.nativeSqliteTarget);
+  if (expected.nativeSqliteLoader) requiredPaths.push(expected.nativeSqliteLoader);
   await Promise.all(requiredPaths.map((path) => access(path, constants.R_OK)));
   if (
     expected.nativeKeyringLoader &&
@@ -409,10 +474,18 @@ async function verifyInputs() {
   ) {
     throw new Error("desktop keyring loader does not match the reviewed bridge");
   }
+  if (
+    expected.nativeSqliteLoader &&
+    (await readFile(expected.nativeSqliteLoader, "utf8")) !==
+      MAC_NATIVE_SQLITE_LOADER
+  ) {
+    throw new Error("desktop sqlite loader does not match the reviewed bridge");
+  }
   await assertNoSensitiveRuntimeFiles(apiTarget);
   if (process.platform === "darwin") {
     await assertNoMacNativeAddonsInResources(apiTarget);
   }
+  if (!BUNDLE_LOCAL_MODELS) return;
   const llamaManifest = JSON.parse(
     await readFile(expected.llamaRuntimeManifest, "utf8"),
   );
@@ -476,6 +549,51 @@ async function extractMacNativeKeyring() {
   ]);
 }
 
+/** better-sqlite3 (accounting/d2c Module stores) ships prebuilds/*.node inside
+ * its npm package. On macOS the darwin prebuild moves into the signed
+ * Frameworks directory and every prebuild is stripped from Resources; the
+ * loader written over lib/binding.js dlopens the Framework via
+ * BRIDGE_SQLITE3_NATIVE_LIBRARY (set by the desktop shell, next to the
+ * keyring's identical wiring). */
+async function extractMacNativeSqlite() {
+  if (process.platform !== "darwin") return;
+  const architecture = process.arch === "arm64" ? "arm64" : "x64";
+  const dependencyRoot = join(apiTarget, "node_modules", "better-sqlite3");
+  const source = join(dependencyRoot, "prebuilds", `darwin-${architecture}.node`);
+  const bindingPath = join(dependencyRoot, "lib", "binding.js");
+  await access(source, constants.R_OK);
+  await access(bindingPath, constants.R_OK);
+  await copyFile(source, nativeSqliteTarget);
+  await rm(join(dependencyRoot, "prebuilds"), { recursive: true, force: true });
+  await writeFile(bindingPath, MAC_NATIVE_SQLITE_LOADER);
+}
+
+/** pdfjs-dist lists @napi-rs/canvas as an OPTIONAL dependency and the
+ * accounting Module reads only text positions — never a rendered glyph (its
+ * pdf.ts shims DOMMatrix/Path2D before import for exactly this reason). The
+ * canvas addon therefore has no sanctioned macOS load path and is pruned from
+ * the bundle rather than promoted to a Framework nothing uses. */
+async function pruneMacOptionalCanvas() {
+  if (process.platform !== "darwin") return;
+  const napiRoot = join(apiTarget, "node_modules", "@napi-rs");
+  let entries;
+  try {
+    entries = await readdir(napiRoot, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  await Promise.all(
+    entries
+      .filter(
+        (entry) =>
+          entry.name === "canvas" || entry.name.startsWith("canvas-"),
+      )
+      .map((entry) =>
+        rm(join(napiRoot, entry.name), { recursive: true, force: true }),
+      ),
+  );
+}
+
 async function prepare() {
   const expected = await expectedInputs();
   run(pnpm, [
@@ -515,12 +633,24 @@ async function prepare() {
     recursive: true,
     force: true,
   });
+  // `@trpc/server` declares `typescript` as a PEER dependency, and pnpm
+  // installs peers automatically — so `--prod` still dragged the 23MB
+  // TypeScript compiler into a bundle that only ever runs compiled JS. It is
+  // a types-only peer: a grep of the whole deployed tree for a runtime
+  // `require("typescript")` / `from "typescript"` across .js/.mjs/.cjs
+  // returned nothing (2026-09-11), which is why this is safe to drop.
+  await rm(join(apiTarget, "node_modules", "typescript"), {
+    recursive: true,
+    force: true,
+  });
   if ((await lstat(join(apiTarget, "node_modules", "fastify"))).isSymbolicLink()) {
     throw new Error("the portable API dependency tree must not use symlinks");
   }
   await extractMacNativeKeyring();
+  await extractMacNativeSqlite();
+  await pruneMacOptionalCanvas();
   await assertNoSensitiveRuntimeFiles(apiTarget);
-  await prepareLlamaRuntime(expected.target);
+  if (BUNDLE_LOCAL_MODELS) await prepareLlamaRuntime(expected.target);
 
   await copyFile(process.execPath, expected.nodeTarget);
   if (process.platform !== "win32") await chmod(expected.nodeTarget, 0o755);
@@ -546,6 +676,10 @@ async function prepare() {
         nativeKeyring:
           process.platform === "darwin"
             ? "Frameworks/bridge-keyring.dylib"
+            : null,
+        nativeSqlite:
+          process.platform === "darwin"
+            ? "Frameworks/bridge-sqlite3.dylib"
             : null,
       },
       null,

@@ -4,18 +4,18 @@ import { UnknownOrganizationError, OrganizationRenameRollbackError, databaseUuid
 import { PILOT_ORGANIZATION } from "../wiring.js";
 import { compileBlueprint, BlueprintCompileError } from "@bridge/core";
 import { ModuleFilesPathError, OrganizationFilesConflictError, OrganizationFilesRecoveryError } from "../module-files.js";
-import { t, procedure, BLUEPRINT_NODE_TYPE_REGISTRY, BLUEPRINT_RELATIONSHIP_NODE_TYPES, toOrganizationBlueprint, organizationBlueprintInput } from "../router-shared.js";
-
-const blueprintProposeInput = z.object({
-  organizationId: databaseUuidSchema,
-  blueprint: organizationBlueprintInput,
-});
-
-const blueprintGetInput = z.object({ organizationId: databaseUuidSchema });
+import { BLUEPRINT_NODE_TYPE_REGISTRY, BLUEPRINT_RELATIONSHIP_NODE_TYPES, authenticatedProcedure, organizationBlueprintInput, organizationGuard, procedure, t, toOrganizationBlueprint } from "../router-shared.js";
 
 const blueprintGetByIdInput = z.object({
   organizationId: databaseUuidSchema,
   definitionId: databaseUuidSchema,
+});
+
+const blueprintGetInput = z.object({ organizationId: databaseUuidSchema });
+
+const blueprintProposeInput = z.object({
+  organizationId: databaseUuidSchema,
+  blueprint: organizationBlueprintInput,
 });
 
 const blueprintActivateInput = z.object({
@@ -24,7 +24,7 @@ const blueprintActivateInput = z.object({
 });
 
 export const organizationRouter = t.router({
-  activateSession: procedure.mutation(async ({ ctx }) => {
+  activateSession: authenticatedProcedure.mutation(async ({ ctx }) => {
     if (ctx.identity.id !== ctx.wiring.pilotUserId) {
       throw new TRPCError({
         code: "FORBIDDEN",
@@ -54,7 +54,7 @@ export const organizationRouter = t.router({
 
   rename: procedure
     .input(z.object({ organizationId: z.string().min(1), name: z.string().trim().min(1).max(120) }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       try {
         return await ctx.wiring.organizationStore.renameOrganization(
           input.organizationId,
@@ -90,13 +90,13 @@ export const organizationRouter = t.router({
 
   inviteMember: procedure
     .input(z.object({ organizationId: z.string().min(1), email: z.string().email() }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       return ctx.wiring.organizationStore.inviteMember(input.organizationId, input.email);
     }),
 
   listMembers: procedure
     .input(z.object({ organizationId: z.string().min(1) }))
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       return ctx.wiring.organizationStore.listMembers(input.organizationId);
     }),
 
@@ -116,7 +116,7 @@ export const organizationRouter = t.router({
    * "only one active row" is enforced).
    */
   blueprint: t.router({
-    get: procedure.input(blueprintGetInput).query(async ({ input, ctx }) => {
+    get: procedure.input(blueprintGetInput).use(organizationGuard).query(async ({ input, ctx }) => {
       const active = await ctx.wiring.organizationDefinitionStore.getActive(input.organizationId);
       return { definition: active };
     }),
@@ -131,7 +131,7 @@ export const organizationRouter = t.router({
      * `organizationId`, so a definitionId from another organization 404s rather
      * than leaking cross-organization data.
      */
-    getById: procedure.input(blueprintGetByIdInput).query(async ({ input, ctx }) => {
+    getById: procedure.input(blueprintGetByIdInput).use(organizationGuard).query(async ({ input, ctx }) => {
       const definition = await ctx.wiring.organizationDefinitionStore.get(input.definitionId);
       if (!definition || definition.organizationId !== input.organizationId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "unknown organization_definition" });

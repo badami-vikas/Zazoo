@@ -1,8 +1,8 @@
+import { PILOT_ORGANIZATION } from "../wiring.js";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { uuidv7 } from "@bridge/core";
-import { PILOT_ORGANIZATION } from "../wiring.js";
-import { t, procedure, parseLearningMemory, isRedFlagContent, isPreferenceAdjustmentContent, type LegacyOnboardingMemoryContent, isLegacyOnboardingContent, proposeRoleModelRecommendation } from "../router-shared.js";
+import { authenticatedProcedure, isLegacyOnboardingContent, isPreferenceAdjustmentContent, isRedFlagContent, organizationGuard, parseLearningMemory, procedure, proposeRoleModelRecommendation, t, type LegacyOnboardingMemoryContent } from "../router-shared.js";
 
 export const onboardingRouter = t.router({
   getProfile: procedure
@@ -95,9 +95,9 @@ export const onboardingRouter = t.router({
    * `LearningSection`, which never reads anything else from this query) —
    * a red-flag correction or its synthesized preference adjustment must
    * only ever be read through the owner-scoped `redFlag.*` surface. */
-  learningState: procedure
+  learningState: authenticatedProcedure
       .input(z.object({ organizationId: z.string().min(1) }))
-      .query(async ({ input, ctx }) => {
+      .use(organizationGuard).query(async ({ input, ctx }) => {
         const rows = await ctx.wiring.memoryStore.retrieve(
           { limit: 100 },
           { organizationId: input.organizationId, userId: ctx.identity.id },
@@ -147,7 +147,7 @@ export const onboardingRouter = t.router({
           admiredFor: z.string().trim().min(2).max(500),
         }),
       )
-      .mutation(async ({ input, ctx }) => {
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
         return proposeRoleModelRecommendation(
           ctx.wiring,
           ctx.run,
@@ -180,9 +180,9 @@ export const onboardingRouter = t.router({
    * proposal BEFORE deleting — a bare `memoryStore.forget` here would
    * delete the evidence while leaving an approvable/appliable proposal
    * referencing nothing. */
-  forgetMemory: procedure
+  forgetMemory: authenticatedProcedure
       .input(z.object({ organizationId: z.string().min(1), memoryId: z.string().uuid() }))
-      .mutation(async ({ input, ctx }) => {
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
         const auth = { organizationId: input.organizationId, userId: ctx.identity.id };
         const current = await ctx.wiring.memoryStore.get(input.memoryId, auth);
         const value = current && parseLearningMemory(current.content);

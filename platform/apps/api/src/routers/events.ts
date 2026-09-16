@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { t, procedure, paginatedInput } from "../router-shared.js";
+import { paginatedInput, procedure, t } from "../router-shared.js";
 
 /**
  * Events — NetworkManager's Events sub-module (TASK-068, ADR-231). Plain

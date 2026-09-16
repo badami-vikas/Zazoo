@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { listSuggestions as listLearningSuggestions, listCommitmentSuggestions, listClaimSuggestions } from "@bridge/core";
-import { t, procedure } from "../router-shared.js";
+import { authenticatedProcedure, organizationGuard, t } from "../router-shared.js";
+import { pendingProposalTask } from "./action.js";
+import { describeProposal } from "./proposal-copy.js";
+import { compareApprovalImportance, rankPendingProposal } from "./approval-importance.js";
 
 /**
  * Organization + team-member management — plain authenticated CRUD (direct DB
@@ -24,7 +27,7 @@ import { t, procedure } from "../router-shared.js";
  * regardless of the learning flight (they are governed data the owner
  * already holds); only the learning-loop sections gate on it. */
 export const briefRouter = t.router({
-  morning: procedure
+  morning: authenticatedProcedure
     .input(
       z.object({
         organizationId: z.string().uuid(),
@@ -32,7 +35,7 @@ export const briefRouter = t.router({
         snapshotAt: z.string().datetime({ offset: true }).optional(),
       }),
     )
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const now = input.snapshotAt ?? ctx.run.clock.nowISO();
       const nowDate = new Date(now);
       const sameLocalDay = (a: Date, b: Date) =>
@@ -98,10 +101,22 @@ export const briefRouter = t.router({
         ? await listClaimSuggestions(ctx.wiring.memoryStore, scope, "proposed")
         : [];
 
+      // TASK-097: Home shows the five that matter most, not the five newest —
+      // rank a window of the queue, then keep five. ponytail: the window is
+      // 50; page the whole queue if a Local Plane ever holds more undecided
+      // rows than that after the scheduler's duplicate sweep.
       const pendingApprovals = await ctx.wiring.pipeline.listPending(input.organizationId, {
-        limit: 5, offset: 0, privateOwnerUserId: ctx.identity.id,
+        limit: 50, offset: 0, privateOwnerUserId: ctx.identity.id,
       });
-      const approvalNudges = pendingApprovals.items.map((item) => {
+      const rankedApprovals = pendingApprovals.items
+        .map((item) => ({ ...item, importance: rankPendingProposal(item) }))
+        .sort(compareApprovalImportance)
+        .slice(0, 5);
+      const approvalTasks = await Promise.all(
+        rankedApprovals.map((item) => pendingProposalTask(ctx.wiring, item)),
+      );
+      const approvalNudges = rankedApprovals.map((item, index) => {
+        const task = approvalTasks[index] ?? null;
         const inputs = item.request.inputs;
         const display =
           typeof inputs === "object" && inputs !== null && !Array.isArray(inputs) &&
@@ -114,6 +129,15 @@ export const briefRouter = t.router({
           resourceType: item.request.resourceType,
           resource: typeof display?.resource === "string" ? display.resource : null,
           createdAt: item.createdAt,
+          // ADR 2026-09-04 "Approvals belong to Tasks": Home names the Task an
+          // approval waits under and links there, never to Settings.
+          skill: item.request.skill ?? null,
+          action: item.request.action,
+          task,
+          /** Plain words for the row (directive 2026-09-05); ids stay above. */
+          copy: describeProposal(item.request),
+          /** TASK-097: tier + trust + rank, so Home orders and labels from data. */
+          importance: item.importance,
         };
       });
 

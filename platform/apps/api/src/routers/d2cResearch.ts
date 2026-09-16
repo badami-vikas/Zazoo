@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { d2cSchema } from "../d2c-store.js";
-import { t, procedure, D2C_RESEARCH_SPEC } from "../router-shared.js";
+import { D2C_RESEARCH_SPEC, procedure, t } from "../router-shared.js";
 
 /**
  * D2C Research — Plant Records (TASK-074 sub-module, `d2c-research`

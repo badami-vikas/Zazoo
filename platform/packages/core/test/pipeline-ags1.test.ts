@@ -148,7 +148,13 @@ function req(partial: Partial<ActionRequest>): ActionRequest {
   };
 }
 
-test("AGS1: a Human actor directly invoking a governed skill fails closed", async () => {
+/** AP-182: the Agent-only rule and the Goal/Task ceremony are FLAGS. The Run
+ * proceeds; the ledger row carries a `governance.flag` policy result. */
+function governanceFlags(p: { policyResults: Array<{ policyId: string; reason: string }> }): string[] {
+  return p.policyResults.filter((r) => r.policyId === "governance.flag").map((r) => r.reason);
+}
+
+test("AGS1/AP-182: a Human actor directly invoking a governed skill is flagged, not refused", async () => {
   const h = harness();
   authorizePrincipal(h, "user", "human-1");
   const { task } = await seedGoalTask(h, "internal_strategist");
@@ -156,13 +162,14 @@ test("AGS1: a Human actor directly invoking a governed skill fails closed", asyn
     req({ actor: { type: "user", id: "human-1" }, goalTaskRef: { goalId: task.goalId, taskId: task.id } }),
     freshCtx(),
   );
-  assert.equal(p.status, "rejected");
-  assert.match(p.rejectionReason ?? "", /may only be invoked by an eligible Agent Run/);
-  // Still audited (append-only), even a rejected direct-invocation attempt.
+  assert.equal(p.status, "applied");
+  assert.match(governanceFlags(p).join("\n"), /invoked directly by a user actor/);
+  // Audited: one ledger row, carrying the flag.
   assert.equal(h.ledger.entries.length, 1);
+  assert.ok(h.ledger.entries[0]!.policyResults.some((r) => r.policyId === "governance.flag"));
 });
 
-test("AGS1: a Team actor (Automation-shaped) directly invoking a governed skill fails closed", async () => {
+test("AGS1/AP-182: a Team actor (Automation-shaped) directly invoking a governed skill is flagged", async () => {
   const h = harness();
   authorizePrincipal(h, "team", "automation-1");
   const { task } = await seedGoalTask(h, "internal_strategist");
@@ -170,16 +177,47 @@ test("AGS1: a Team actor (Automation-shaped) directly invoking a governed skill 
     req({ actor: { type: "team", id: "automation-1" }, goalTaskRef: { goalId: task.goalId, taskId: task.id } }),
     freshCtx(),
   );
-  assert.equal(p.status, "rejected");
-  assert.match(p.rejectionReason ?? "", /may only be invoked by an eligible Agent Run/);
+  assert.notEqual(p.status, "rejected");
+  assert.match(governanceFlags(p).join("\n"), /invoked directly by a team actor/);
 });
 
-test("AGS1: an Agent invoking a governed skill with no goalTaskRef fails closed", async () => {
+test("AGS1/AP-182: an Agent invoking a governed skill with no goalTaskRef is flagged and still drafts (advisory band)", async () => {
   const h = harness();
   authorizeAgent(h, "internal_strategist");
   const p = await h.pipeline.propose(req({}), freshCtx());
+  assert.equal(p.status, "pending_review");
+  assert.match(governanceFlags(p).join("\n"), /without a Goal\/Task assignment/);
+});
+
+test("AGS1/AP-182: an informational-band governed skill auto-applies for an Agent, audited", async () => {
+  const h = harness();
+  authorizeAgent(h, "internal_strategist");
+  h.skillManifests.register({ ...GOVERNED_MANIFEST, version: "1.1.0", riskBand: "informational" });
+  const { task } = await seedGoalTask(h, "internal_strategist");
+  const p = await h.pipeline.propose(
+    req({ goalTaskRef: { goalId: task.goalId, taskId: task.id } }),
+    freshCtx(),
+  );
+  assert.equal(p.status, "applied");
+  assert.ok(p.policyResults.some((r) => r.policyId === "governance.auto-apply" && /informational/.test(r.reason)));
+  assert.equal(h.ledger.entries.at(-1)!.userDecision, "auto");
+});
+
+test("AGS1/AP-182: an unknown or mismatched Goal/Task is flagged, not refused", async () => {
+  const h = harness();
+  authorizeAgent(h, "internal_strategist");
+  const p = await h.pipeline.propose(req({ goalTaskRef: { goalId: "no-such-goal", taskId: "no-such-task" } }), freshCtx());
+  assert.notEqual(p.status, "rejected");
+  assert.match(governanceFlags(p).join("\n"), /unknown or mismatched Goal\/Task/);
+});
+
+test("AGS1/AP-182: an inactive Agent is still refused without a Task (the kill switch is a gate, not a flag)", async () => {
+  const h = harness();
+  authorizeAgent(h, "internal_strategist");
+  h.agents.statuses.delete("internal_strategist");
+  const p = await h.pipeline.propose(req({}), freshCtx());
   assert.equal(p.status, "rejected");
-  assert.match(p.rejectionReason ?? "", /requires a resolved Goal\/Task assignment/);
+  assert.match(p.rejectionReason ?? "", /agent-inactive/);
 });
 
 test("AGS1: an Agent not assigned the Task fails closed even though it holds capability scope", async () => {
@@ -194,7 +232,7 @@ test("AGS1: an Agent not assigned the Task fails closed even though it holds cap
   assert.match(p.rejectionReason ?? "", /resolution failed: not-assigned-agent/);
 });
 
-test("AGS1: an eligible assigned Agent resolves the governed skill and drafts (still agent-always-approves)", async () => {
+test("AGS1: an eligible assigned Agent resolves the governed skill and drafts (advisory proposals are the product)", async () => {
   const h = harness();
   authorizeAgent(h, "internal_strategist");
   const { task } = await seedGoalTask(h, "internal_strategist");
@@ -202,8 +240,21 @@ test("AGS1: an eligible assigned Agent resolves the governed skill and drafts (s
     req({ goalTaskRef: { goalId: task.goalId, taskId: task.id } }),
     freshCtx(),
   );
-  assert.equal(p.status, "pending_review"); // agents always draft — existing invariant unaffected
+  assert.equal(p.status, "pending_review");
+  assert.deepEqual(governanceFlags(p), []);
   assert.equal(h.events.events.length, 0);
+});
+
+test("AGS1/AP-182: an operational-band governed skill still drafts for an Agent", async () => {
+  const h = harness();
+  authorizeAgent(h, "internal_strategist");
+  h.skillManifests.register({ ...GOVERNED_MANIFEST, version: "1.1.0", riskBand: "operational" });
+  const { task } = await seedGoalTask(h, "internal_strategist");
+  const p = await h.pipeline.propose(
+    req({ goalTaskRef: { goalId: task.goalId, taskId: task.id } }),
+    freshCtx(),
+  );
+  assert.equal(p.status, "pending_review");
 });
 
 test("AGS1: an assigned Agent without explicit active status fails closed", async () => {
@@ -216,7 +267,7 @@ test("AGS1: an assigned Agent without explicit active status fails closed", asyn
     freshCtx(),
   );
   assert.equal(proposal.status, "rejected");
-  assert.match(proposal.rejectionReason ?? "", /resolution failed: agent-inactive/);
+  assert.match(proposal.rejectionReason ?? "", /agent-inactive/); // the kill switch fires before resolution (AP-182)
 });
 
 test("AGS1: a non-default eligible Agent (assigned but not in defaultAgents) can still resolve the same governed skill", async () => {
@@ -316,10 +367,10 @@ test("Automation integration: a step whose declared Agent is eligible for its Ta
     freshCtx(),
   );
   assert.equal(result.status, "completed");
-  assert.equal(result.proposals[0]!.status, "pending_review"); // agents always draft
+  assert.equal(result.proposals[0]!.status, "pending_review"); // advisory drafts; only informational auto-applies (AP-182)
 });
 
-test("Automation integration: a step targeting a governed Skill with no Goal/Task reference halts", async () => {
+test("Automation integration/AP-182: a step targeting a governed Skill with no Goal/Task reference proceeds, flagged", async () => {
   const h = harness();
   authorizeAgent(h, "internal_strategist");
   const automationRegistry = new InMemoryAutomationRegistry();
@@ -338,6 +389,6 @@ test("Automation integration: a step targeting a governed Skill with no Goal/Tas
     { organizationId: WS, automationId: "automation-2" },
     freshCtx(),
   );
-  assert.equal(result.status, "halted");
-  assert.match(result.proposals[0]!.rejectionReason ?? "", /requires a resolved Goal\/Task assignment/);
+  assert.equal(result.status, "completed");
+  assert.match(governanceFlags(result.proposals[0]!).join("\n"), /without a Goal\/Task assignment/);
 });

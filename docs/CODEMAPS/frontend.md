@@ -46,4 +46,4 @@ preferences still use browser persistence where explicitly implemented; do not t
 authoritative domain state. Runtime surfaces must render connected data or honest empty states.
 
 See also: [architecture.md](architecture.md), [backend.md](backend.md),
-[../wiki/ui-architecture.md](../wiki/ui-architecture.md).
+[../raw/ui-rulebook.md](../raw/ui-rulebook.md).

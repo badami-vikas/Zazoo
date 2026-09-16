@@ -26,20 +26,9 @@ import {
 } from "@bridge/core";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
+import { makeCaller } from "./caller.js";
 
 const ORG = PILOT_ORGANIZATION;
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(43);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(wiring: Wiring) {
-  return appRouter.createCaller({
-    wiring, run: makeRun(), identity: { type: "user", id: PILOT_USER }, authenticated: true, verifying: false,
-  });
-}
 
 /** Local-plane capture double — records every completion request so tests can
  * assert what actually reached the model's system prompt. */
@@ -136,6 +125,7 @@ test("fusion flight OFF: the same runs carry NO retrieval — influence is fligh
   const model = new CaptureLocalModel();
   const wiring = await buildWiring({
     claimSubstrateEnabled: true,
+    retrievalFusionEnabled: false, // the default is ON since AP-182
     modelProviders: [model],
   });
   try {

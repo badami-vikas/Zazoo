@@ -16,7 +16,7 @@ const dbRoot = resolve(here, "../..");
 const migrationsFolder = resolve(dbRoot, "migrations");
 const drizzleKitBin = resolve(dbRoot, "node_modules/drizzle-kit/bin.cjs");
 
-test("Drizzle metadata is rebased through 0045 and generate is a deterministic no-op", () => {
+test("Drizzle metadata is rebased through 0052 and generate is a deterministic no-op", () => {
   const probe = mkdtempSync(resolve(dbRoot, ".drizzle-noop-"));
   const probeMigrations = join(probe, "migrations");
   try {
@@ -28,10 +28,10 @@ test("Drizzle metadata is rebased through 0045 and generate is a deterministic n
     };
     const last = journal.entries.at(-1);
     assert.deepEqual(last, {
-      idx: 45,
+      idx: 52,
       version: "7",
       when: 1789000000000,
-      tag: "0045_job_leases_rate_limits",
+      tag: "0052_job_leases_rate_limits",
       breakpoints: true,
     });
     assert.ok(
@@ -91,8 +91,32 @@ test("Drizzle metadata is rebased through 0045 and generate is a deterministic n
       "JobPilot onboarding snapshot must be tracked (TASK-076)",
     );
     assert.ok(
+      readdirSync(join(probeMigrations, "meta")).includes("0044_snapshot.json"),
+      "Chat backend snapshot must be tracked (TASK-090)",
+    );
+    assert.ok(
       readdirSync(join(probeMigrations, "meta")).includes("0045_snapshot.json"),
-      "job-lease/rate-limit snapshot must be tracked (0044 authored modules + 0045 infra tables; regenerated 2026-09-11 after drizzle-kit reproduced both hand-written migrations byte-for-byte)",
+      "Module-session snapshot must be tracked (TASK-093)",
+    );
+    assert.ok(
+      readdirSync(join(probeMigrations, "meta")).includes("0046_snapshot.json"),
+      "Run Task-anchor + Task estimate + Module display-name snapshot must be tracked (ADR-269/272, TASK-081)",
+    );
+    assert.ok(
+      readdirSync(join(probeMigrations, "meta")).includes("0047_snapshot.json"),
+      "saved-View snapshot must be tracked (TASK-062)",
+    );
+    assert.ok(
+      readdirSync(join(probeMigrations, "meta")).includes("0048_snapshot.json"),
+      "share-grant snapshot must be tracked (TASK-064)",
+    );
+    assert.ok(
+      readdirSync(join(probeMigrations, "meta")).includes("0052_snapshot.json"),
+      "chat addressed_agent ref-kind snapshot must be tracked (TASK-101)",
+    );
+    assert.ok(
+      readdirSync(join(probeMigrations, "meta")).includes("0051_snapshot.json"),
+      "saved-List default-flag snapshot must be tracked (TASK-110)",
     );
 
     const generated = spawnSync(
@@ -121,16 +145,27 @@ test("Drizzle metadata is rebased through 0045 and generate is a deterministic n
     assert.match(output, /No schema changes, nothing to migrate/);
     assert.equal(readFileSync(journalPath, "utf8"), journalBefore);
     assert.ok(
-      // The NEXT index after the current head (0045). If `generate` allocates
+      // The NEXT index after the current head (0052). 0049 only widens the
+      // `ledger_user_decision_check` CHECK (adds `superseded`, 2026-09-05); like
+      // 0038 it changes no Drizzle-visible shape, so it has no snapshot; 0050
+      // widens `chat_turn_refs_kind_check` (TASK-101) and, being in schema.ts,
+      // carries one. If `generate` allocates
       // this, schema.ts and the committed migrations have drifted apart.
       // 0038 is a pure DATA migration (capability_type 'view' -> 'database'),
       // so it has no snapshot and cannot make generate produce one — the
       // schema shape is byte-identical either side of it. 0041 adds
       // `devpilot_repos`/`devpilot_pulls`/`devpilot_issues` (TASK-068); 0042
       // adds the Academics/Events tables (TASK-069/070); 0043 adds
-      // `jobpilot_candidate_profiles` (TASK-076); 0044 adds the authored-Module
-      // tables; 0045 adds job_leases/rate_limit_buckets — all real shape changes.
-      !readdirSync(probeMigrations).some((name) => /^0046_.*\.sql$/.test(name)),
+      // `jobpilot_candidate_profiles` (TASK-076); 0044 adds `chat_threads`'
+      // backend columns (TASK-090); 0045 adds its
+      // Module-session columns (TASK-093); 0046 adds `automation_runs.task_id`
+      // (ADR-269), `tasks.estimate` (ADR-272) and
+      // `module_installations.display_name_override` (TASK-081); 0047 adds
+      // `view_configs` (TASK-062); 0048 adds `share_grants` (TASK-064); 0051 adds `view_configs.is_default` (TASK-110); 0052 adds `job_leases` and `rate_limit_buckets` (ADR-281) — all real shape changes. 0046's composite FK to `tasks` is deliberately NOT in
+      // schema.ts (LAYER 4 is defined before LAYER 8, so naming `tasks` there
+      // is a TDZ crash) and so is absent from its snapshot too — which is why
+      // generate stays a no-op.
+      !readdirSync(probeMigrations).some((name) => /^0053_.*\.sql$/.test(name)),
       "no-op generation must not allocate another migration",
     );
   } finally {

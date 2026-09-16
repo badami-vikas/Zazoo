@@ -1,11 +1,12 @@
 import { TRPCError } from "@trpc/server";
-import { type Action, type DataScope, type ResourceType, validateAutomationWithinAgents } from "@bridge/core";
-import { isModuleRuntimeAutomationId, resolveModuleAgentRuntimeId, resolveModuleAutomationRuntimeId } from "../built-in-modules.js";
-import { t, procedure, resolveClientOnBehalfOf, automationRunByIdInput, automationCreateInput, withHumanInputTaint } from "../router-shared.js";
+import type { Action, DataScope, ResourceType } from "@bridge/core";
+import { validateAutomationWithinAgents } from "@bridge/core";
+import { isModuleRuntimeAutomationId, resolveModuleAgentRuntimeId, resolveModuleAutomationRuntimeId } from "@bridge/module-manifests";
+import { automationCreateInput, automationRunByIdInput, organizationGuard, procedure, resolveClientOnBehalfOf, t, withHumanInputTaint } from "../router-shared.js";
 
 export const automationRouter = t.router({
   /** Create an Automation only when every Skill step fits its owning Agent. */
-  create: procedure.input(automationCreateInput).mutation(async ({ input, ctx }) => {
+  create: procedure.input(automationCreateInput).use(organizationGuard).mutation(async ({ input, ctx }) => {
     const [agentOrganizationId, agentActive, agentScope, agentDataScope] =
       await Promise.all([
         ctx.wiring.agents.organizationId(input.agentId),
@@ -56,7 +57,7 @@ export const automationRouter = t.router({
   }),
 
   /** Start the stored owning Agent's Run; callers cannot provide an actor or steps. */
-  runById: procedure.input(automationRunByIdInput).mutation(async ({ input, ctx }) => {
+  runById: procedure.input(automationRunByIdInput).use(organizationGuard).mutation(async ({ input, ctx }) => {
     const onBehalfOf = resolveClientOnBehalfOf(ctx.identity, input.onBehalfOf);
     if (isModuleRuntimeAutomationId(input.automationId)) {
       throw new TRPCError({

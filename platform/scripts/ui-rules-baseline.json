@@ -1,0 +1,65 @@
+{
+  "sub-12px-type": {
+    "apps/web/src/app/Layout.tsx": 1,
+    "apps/web/src/app/avatar/AvatarOverlay.tsx": 1,
+    "apps/web/src/app/components/shared/DashboardRow.tsx": 2,
+    "apps/web/src/app/components/shared/ModuleFilesSection.tsx": 3,
+    "apps/web/src/app/components/shared/ModuleGovernanceSection.tsx": 2,
+    "apps/web/src/app/components/shared/ModuleIntelligenceSection.tsx": 1,
+    "apps/web/src/app/components/shared/RedFlagControl.tsx": 2,
+    "apps/web/src/app/dataviews/views/FormView.tsx": 4,
+    "apps/web/src/app/dataviews/views/TableView.tsx": 3,
+    "apps/web/src/app/pages/GoogleIntegrationPanel.tsx": 2,
+    "apps/web/src/app/pages/JobPilotPage.tsx": 2,
+    "apps/web/src/app/pages/SettingsPage.tsx": 2
+  },
+  "absolute-menu": {
+    "apps/web/src/app/Layout.tsx": 1,
+    "apps/web/src/app/components/shared/StandardDropdown.tsx": 1
+  },
+  "hardcoded-hex": {
+    "apps/web/src/app/avatar/AnnotateApp.tsx": 1,
+    "apps/web/src/app/avatar/CompanionComposer.tsx": 1,
+    "apps/web/src/app/avatar/NotchHome.tsx": 1,
+    "apps/web/src/app/avatar/zazoo/RigInspector.tsx": 5,
+    "apps/web/src/app/avatar/zazoo/ZazooAvatar.tsx": 58,
+    "apps/web/src/app/avatar/zazoo/ZazooCompact.tsx": 18,
+    "apps/web/src/app/avatar/zazoo/ZazooLab.tsx": 44,
+    "apps/web/src/app/avatar/zazoo/ZazooWorld.tsx": 47,
+    "apps/web/src/app/avatar/zazoo/species.ts": 90,
+    "apps/web/src/app/components/CommonsCapabilityPanel.tsx": 1,
+    "apps/web/src/app/dataviews/graph-palette.ts": 13,
+    "apps/web/src/app/dataviews/views/GraphView.tsx": 8,
+    "apps/web/src/app/dataviews/views/MapView.tsx": 15,
+    "apps/web/src/app/pages/AgentDetailPage.tsx": 1,
+    "apps/web/src/app/pages/IntelligencePage.tsx": 1,
+    "apps/web/src/app/pages/ResearchRunsPage.tsx": 7,
+    "apps/web/src/app/pages/SettingsPage.tsx": 1,
+    "apps/web/src/app/pages/whatsapp/AgentAssignmentPanel.tsx": 2,
+    "apps/web/src/app/pages/whatsapp/AnnotationsPanel.tsx": 2,
+    "apps/web/src/app/pages/whatsapp/AuditLogPanel.tsx": 2,
+    "apps/web/src/app/pages/whatsapp/AutomationRulesPanel.tsx": 2,
+    "apps/web/src/app/pages/whatsapp/ChatAnnotations.tsx": 2,
+    "apps/web/src/app/pages/whatsapp/ChatsSurface.tsx": 3,
+    "apps/web/src/app/pages/whatsapp/ContactExtractorRun.tsx": 1,
+    "apps/web/src/app/pages/whatsapp/ScheduledActionsPanel.tsx": 2,
+    "apps/web/src/app/pages/whatsapp/ThreadComposer.tsx": 3
+  },
+  "native-dialog": {
+    "apps/web/src/app/components/NewModuleDialog.tsx": 1,
+    "apps/web/src/app/pages/DealPilotPage.tsx": 1,
+    "apps/web/src/app/pages/RelationshipPage.tsx": 7,
+    "apps/web/src/app/pages/SettingsPage.tsx": 8
+  },
+  "vh-not-dvh": {
+    "apps/web/src/app/components/shared/StandardColumnMenu.tsx": 1,
+    "apps/web/src/app/dataviews/views/BoardView.tsx": 1,
+    "apps/web/src/app/dataviews/views/GraphView.tsx": 1
+  },
+  "overscroll-contain": {
+    "apps/web/src/app/onboarding/OnboardingDialog.tsx": 1
+  },
+  "bare-select": {
+    "apps/web/src/app/pages/RelationshipPage.tsx": 2
+  }
+}

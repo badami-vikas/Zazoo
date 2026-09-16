@@ -1,16 +1,123 @@
 import { TRPCError } from "@trpc/server";
+import { mkdir } from "node:fs/promises";
 import { z } from "zod";
-import { INTERNAL_STRATEGIST_AGENT, CHIEF_OF_STAFF_AGENT, chatCaptureSignalId } from "../wiring.js";
-import { ChatCloudGrantError, ChatStoreConflictError, captureAllowed, chatTurnCaptureSignal, detectCommitmentCandidates, proposeCommitmentSuggestions, recordSignal as recordCaptureSignal } from "@bridge/core";
-import { MANAGED_LLAMA_PROVIDER_ID } from "@bridge/models";
+import { INTERNAL_STRATEGIST_AGENT, chatCaptureSignalId } from "../wiring.js";
+import { ChatCloudGrantError, ChatStoreConflictError, ChatStoreScopeError, CHAT_BACKEND_IDS, FOUNDATIONAL_AGENTS, type ChatBackendTurn, type ModuleInstallationRow, type FoundationalAgentId } from "@bridge/core";
+import { createModelRouter, MANAGED_LLAMA_PROVIDER_ID } from "@bridge/models";
+import { captureAllowed, chatTurnCaptureSignal, detectCommitmentCandidates, proposeCommitmentSuggestions, recordSignal as recordCaptureSignal } from "@bridge/core";
+import { MAX_TRANSCRIPTION_AUDIO_BYTES, transcribeAudio, VoiceTranscriptionError } from "../voice-transcription.js";
+import { organizationFilesRoot } from "../module-files.js";
+import { relative, sep } from "node:path";
+import { BUILDER_AGENT_RUNTIME_ID, BUILT_IN_MODULES, CHIEF_OF_STAFF_AGENT_RUNTIME_ID, GOVERNANCE_AGENT_RUNTIME_ID, INTERNAL_STRATEGIST_AGENT_RUNTIME_ID, LEARNING_AGENT_RUNTIME_ID, resolveModuleAgentRuntimeId } from "@bridge/module-manifests";
+import { commonsInstallRequest, commonsPriorArt, installedModulesForBriefing, integrationsForBriefing, MANIFEST_REPAIR_ROUNDS, manifestRepairPrompt, moduleBuildBriefing, moduleOnboardingNeeds, moduleOnboardingPrompt, organizationFoldersForBriefing } from "../builder/run.js";
+import { modulesRouter } from "./modules.js";
+import { commonsRouter } from "./commons.js";
+import { actionRouter } from "./action.js";
+import { readModuleManifestFile, registerModuleManifest } from "../module-register.js";
+import { ClaudeSignInRequiredError } from "../chat/claude-code-backend.js";
 import { deterministicUuid } from "../deterministic-uuid.js";
-import { t, readCaptureConsentState, procedure, type PublicCloudModelEgress, createGovernedModelProvider, chatAssistantEnvelopeSchema, chatSendInput, idempotentUuid, CHAT_MODULE_SKILL_ID, CHAT_MODEL_TIER, chatTurnAbortControllers, chatTurnProposalStaging, chatOwnerScope, chatHumanTaint, resolveChatModel, assembleChatCompletion, parseChatAssistantEnvelope, addChatTurnRef, appendChatRoutingDecision, stageChatTaskProposal, stageChatModuleProposal, resolveChatRetryPair, loadChatThreadView, chatLedgerEntryIsProposal } from "../router-shared.js";
+import type { ApiContext } from "../context.js";
+import { CHAT_MODEL_TIER, addChatTurnRef, appendChatBackendChangedFiles, appendChatRoutingDecision, assembleChatCompletion, authenticatedProcedure, chatAssistantEnvelopeSchema, chatHumanTaint, chatLedgerEntryIsProposal, chatOwnerScope, chatSendInput, chatTurnAbortControllers, chatTurnProposalStaging, composerCapability, createGovernedModelProvider, idempotentUuid, loadChatThreadView, organizationGuard, parseChatAssistantEnvelope, priorTurnsTranscript, readCaptureConsentState, requireOrganizationNameForFiles, resolveChatModel, resolveChatRetryPair, stageChatTaskProposal, t, transcriptionApiKey, type PublicCloudModelEgress } from "../router-shared.js";
+
+/** The four foundational Agents' chat-routing ids joined to their runtime
+ * identities — two registries that share a display name (see wiring.ts on
+ * `INTERNAL_STRATEGIST_AGENT`). Used only to borrow the one-line mission. */
+const FOUNDATIONAL_RUNTIME_IDS: Readonly<Record<FoundationalAgentId, string>> = {
+  learning: LEARNING_AGENT_RUNTIME_ID,
+  internal_strategist: INTERNAL_STRATEGIST_AGENT_RUNTIME_ID,
+  governance: GOVERNANCE_AGENT_RUNTIME_ID,
+  capability_builder: BUILDER_AGENT_RUNTIME_ID,
+};
+
+/**
+ * Put one registered Module installation through governance and make it
+ * visible — the three steps the Modules page runs, in the order it runs them.
+ *
+ * Extracted so the Builder's just-built Module and a Module installed straight
+ * from Commons take the SAME route. A second install path is how the two would
+ * drift, and the governed proposal is the thing that must not be bypassed:
+ * `install` raises it, and an install the pipeline holds is reported as
+ * waiting, never as done.
+ *
+ * "Installed" is not "visible" — install leaves the row `promoted`, and every
+ * surface lists only `available`, so promotion is part of the job (BUGS
+ * 2026-09-05 "the chatbot claims academics is in my side bar"). The caller is
+ * handed the row it can check, never an assumption.
+ */
+async function installThroughGovernance(
+  wiring: ApiContext["wiring"],
+  routerCtx: ApiContext,
+  organizationId: string,
+  installationId: string,
+): Promise<{ installed: boolean; visible: boolean; state: string | undefined }> {
+  const result = await modulesRouter.createCaller(routerCtx).install({
+    organizationId,
+    installationId,
+    todayKey: new Date().toISOString().slice(0, 10),
+  });
+  let installed = result.installed;
+  if (!installed && result.decision.requirement === "user_pref" && result.proposal) {
+    // A Module that writes its own private Records is banded transformational,
+    // whose base ask is the USER's preference. The user raised this from their
+    // own chat turn, so that same user answers it here as a recorded Human
+    // decision through the ordinary decide path (AP-182: only the critical
+    // four block). `governance` and `explicit_human` still wait under Tasks.
+    await actionRouter.createCaller(routerCtx).decide({
+      proposalId: result.proposal.id,
+      decision: "approve",
+      reason: "Approved in chat: the user asked for this Module by name.",
+    });
+    installed = true;
+  }
+  if (installed) {
+    const afterInstall = await wiring.moduleStore.get(installationId);
+    if (afterInstall?.state === "promoted") {
+      await modulesRouter.createCaller(routerCtx).promote({ organizationId, installationId });
+    }
+  }
+  const finalRow = await wiring.moduleStore.get(installationId);
+  return {
+    installed,
+    visible: finalRow?.status === "installed" && finalRow.state === "available",
+    state: finalRow?.state,
+  };
+}
 
 export const chatRouter = t.router({
-  model: t.router({
-    status: procedure
+  agents: t.router({
+    /**
+     * The Agents a person can address by typing `@` in the composer
+     * (2026-09-05). Chief of Staff is the one user-facing Agent and is who the
+     * conversation is already with, so it is never offered. A real read, not a
+     * registry: the Agents the Organization's installed Modules declare,
+     * resolved to runtime identities and kept only while ACTIVE here. The
+     * one-line role is the foundational mission where one exists, else the
+     * declaring Module.
+     */
+    list: authenticatedProcedure
       .input(z.object({ organizationId: z.string().uuid() }).strict())
-      .query(async ({ input, ctx }) => {
+      .use(organizationGuard).query(async ({ input, ctx }) => {
+        const { items } = await ctx.wiring.moduleStore.list(input.organizationId, { limit: 10_000, offset: 0 });
+        const agents = new Map<string, { id: string; name: string; role: string }>();
+        for (const row of items) {
+          if (row.moduleAttachment !== undefined || row.state !== "available" || row.status !== "installed") continue;
+          const moduleLabel = row.displayNameOverride ?? row.manifest.module?.displayName ?? row.moduleName;
+          for (const declared of row.manifest.module?.agents ?? []) {
+            const id = resolveModuleAgentRuntimeId(row.moduleName, declared.id);
+            if (!id || id === CHIEF_OF_STAFF_AGENT_RUNTIME_ID || agents.has(id)) continue;
+            if ((await ctx.wiring.agents.organizationId(id)) !== input.organizationId) continue;
+            if (!(await ctx.wiring.agents.isActive(id))) continue;
+            const foundational = FOUNDATIONAL_AGENTS.find((entry) => FOUNDATIONAL_RUNTIME_IDS[entry.id] === id);
+            agents.set(id, { id, name: declared.name, role: foundational?.mission ?? `Agent of ${moduleLabel}` });
+          }
+        }
+        return [...agents.values()];
+      }),
+  }),
+  model: t.router({
+    status: authenticatedProcedure
+      .input(z.object({ organizationId: z.string().uuid() }).strict())
+      .use(organizationGuard).query(async ({ input, ctx }) => {
         const local = await ctx.wiring.managedModel.status();
         const cloud = resolveChatModel(ctx.wiring, "cloud");
         // Reuse ModelProviderKeyStore.list's own configured/active bits
@@ -24,8 +131,27 @@ export const chatRouter = t.router({
         });
         const cloudKey = keyStatuses.find((status) => status.providerId === "groq");
         const cloudKeySaved = Boolean(cloudKey?.configured || cloudKey?.fromEnvironment);
+        // Agentic backends the composer may offer. Readiness is asked of the
+        // backend itself rather than inferred here, so "needs sign-in" comes
+        // from the thing that would actually fail.
+        const backends = await Promise.all(
+          ctx.wiring.chatBackends.list().map(async (backend) => ({
+            id: backend.id,
+            label: backend.label,
+            plane: backend.plane,
+            agentic: backend.agentic,
+            ...(await backend.readiness(input.organizationId)),
+          })),
+        );
         return {
           local,
+          backends,
+          // TASK-082: the same key read, reused a third time, to say whether
+          // the composer's paperclip and mic can actually act here.
+          composer: composerCapability({
+            publicCloudOnly: ctx.wiring.publicCloudOnly,
+            groqKeySaved: cloudKeySaved,
+          }),
           cloud: cloud
             ? {
                 available: true as const,
@@ -48,60 +174,227 @@ export const chatRouter = t.router({
               },
         };
       }),
-    install: procedure
+    install: authenticatedProcedure
       .input(z.object({ organizationId: z.string().uuid() }).strict())
-      .mutation(async ({ input, ctx }) => {
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
         return ctx.wiring.managedModel.install();
       }),
-    cancelInstall: procedure
+    /**
+     * Claude sign-in for the agentic backend — the browser does the
+     * authenticating and Bridge never sees a password. `begin` returns the
+     * URL to open; the Claude callback page shows a `code#state` string the
+     * user pastes into `complete`. Tokens land in the Local Plane vault, so
+     * these three procedures never return or accept a secret Bridge could
+     * leak: an authorization code is single-use and useless without the
+     * PKCE verifier held in this process.
+     */
+    claudeSignIn: t.router({
+      status: authenticatedProcedure
+        .input(z.object({ organizationId: z.string().uuid() }).strict())
+        .use(organizationGuard).query(async ({ input, ctx }) => {
+          return ctx.wiring.claudeOAuth.status(input.organizationId);
+        }),
+      begin: authenticatedProcedure
+        .input(z.object({ organizationId: z.string().uuid() }).strict())
+        .use(organizationGuard).mutation(async ({ input, ctx }) => {
+          return { url: ctx.wiring.claudeOAuth.beginLogin(input.organizationId) };
+        }),
+      complete: authenticatedProcedure
+        .input(z.object({
+          organizationId: z.string().uuid(),
+          code: z.string().trim().min(1).max(2_000),
+        }).strict())
+        .use(organizationGuard).mutation(async ({ input, ctx }) => {
+          await ctx.wiring.claudeOAuth.finishLogin(input.organizationId, input.code);
+          return ctx.wiring.claudeOAuth.status(input.organizationId);
+        }),
+      signOut: authenticatedProcedure
+        .input(z.object({ organizationId: z.string().uuid() }).strict())
+        .use(organizationGuard).mutation(async ({ input, ctx }) => {
+          await ctx.wiring.claudeOAuth.signOut(input.organizationId);
+          return ctx.wiring.claudeOAuth.status(input.organizationId);
+        }),
+    }),
+    cancelInstall: authenticatedProcedure
       .input(z.object({ organizationId: z.string().uuid() }).strict())
-      .mutation(async ({ input, ctx }) => {
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
         return ctx.wiring.managedModel.cancelInstall();
       }),
-    start: procedure
+    start: authenticatedProcedure
       .input(z.object({ organizationId: z.string().uuid() }).strict())
-      .mutation(async ({ input, ctx }) => {
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
         await ctx.wiring.managedModel.requestStart();
         return ctx.wiring.managedModel.status();
       }),
-    stop: procedure
+    stop: authenticatedProcedure
       .input(z.object({ organizationId: z.string().uuid() }).strict())
-      .mutation(async ({ input, ctx }) => {
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
         await ctx.wiring.managedModel.requestStop();
         return ctx.wiring.managedModel.status();
       }),
   }),
 
   thread: t.router({
-    create: procedure
+    create: authenticatedProcedure
       .input(z.object({
         organizationId: z.string().uuid(),
         plane: z.enum(["local", "cloud"]).optional(),
+        backend: z.enum(CHAT_BACKEND_IDS).optional(),
         title: z.string().trim().min(1).max(200).optional(),
         clientRequestId: z.string().trim().min(1).max(200).optional(),
       }).strict())
-      .mutation(async ({ input, ctx }) => {
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
         if (ctx.wiring.publicCloudOnly && input.plane === "local") {
           throw new TRPCError({
             code: "FORBIDDEN",
             message: "The hosted web deployment cannot create Local Plane Chat threads",
           });
         }
-        const plane = ctx.wiring.publicCloudOnly ? "cloud" : input.plane ?? "local";
+        const backend = input.backend ?? "bridge";
+        // An agentic backend declares its own residency (it ships file
+        // contents to a hosted model), so the thread's plane follows the
+        // BACKEND rather than the caller's plane hint. Getting this wrong in
+        // the permissive direction would file cloud egress under a Local
+        // Plane thread, which is the one mislabelling the residency model
+        // cannot absorb.
+        const registered = backend === "bridge" ? null : ctx.wiring.chatBackends.get(backend);
+        if (backend !== "bridge" && !registered) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `The ${backend} backend is not available in this deployment`,
+          });
+        }
+        const plane = registered
+          ? registered.plane
+          : ctx.wiring.publicCloudOnly
+            ? "cloud"
+            : input.plane ?? "local";
         const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
         const thread = await ctx.wiring.chatStore.createThread(scope, {
           id: input.clientRequestId
             ? idempotentUuid(
-                `${input.organizationId}:${ctx.identity.id}:chat-thread:${plane}:${input.clientRequestId}`,
+                `${input.organizationId}:${ctx.identity.id}:chat-thread:${plane}:${backend}:${input.clientRequestId}`,
               )
             : ctx.run.ids.next(),
           plane,
           dataScope: plane === "local" ? "private" : "public",
+          backend,
           ...(input.title ? { title: input.title } : {}),
         });
         return loadChatThreadView(ctx.wiring, scope, thread.id, ctx.run);
       }),
-    list: procedure
+    /**
+     * Change which engine answers a LIVE thread, keeping every turn. The
+     * conversation is Bridge's; the model is a setting on it, not a reason to
+     * start over (user directive, 2026-09-02: "the chat should remain
+     * consistent since Bridge is managing context and should direct the chat
+     * to a given model").
+     *
+     * The plane follows the backend, so switching a private Local thread onto
+     * a cloud backend relabels its stored turns — a declassification the
+     * store records. The user directed that this happen without a prompt;
+     * `chatBackendDeclassification` writes the ledger row regardless, so the
+     * export is auditable even though it is not interrupted.
+     */
+    setBackend: authenticatedProcedure
+      .input(z.object({
+        organizationId: z.string().uuid(),
+        threadId: z.string().uuid(),
+        backend: z.enum(CHAT_BACKEND_IDS),
+        plane: z.enum(["local", "cloud"]).optional(),
+      }).strict())
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
+        const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
+        const thread = await ctx.wiring.chatStore.getThread(scope, input.threadId);
+        if (!thread) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Chat thread not found" });
+        }
+        if (thread.backend === input.backend) {
+          return loadChatThreadView(ctx.wiring, scope, thread.id, ctx.run);
+        }
+        const registered =
+          input.backend === "bridge" ? null : ctx.wiring.chatBackends.get(input.backend);
+        if (input.backend !== "bridge" && !registered) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `The ${input.backend} backend is not available in this deployment`,
+          });
+        }
+        const plane = registered
+          ? registered.plane
+          : ctx.wiring.publicCloudOnly
+            ? "cloud"
+            : input.plane ?? thread.plane;
+        try {
+          await ctx.wiring.chatStore.setThreadBackend(scope, {
+            threadId: thread.id,
+            backend: input.backend,
+            plane,
+            dataScope: plane === "local" ? "private" : "public",
+          });
+        } catch (error) {
+          if (error instanceof ChatStoreScopeError) {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+          }
+          throw error;
+        }
+        return loadChatThreadView(ctx.wiring, scope, thread.id, ctx.run);
+      }),
+    /**
+     * The Module's live conversation — reopened, not restarted. Opening a
+     * Module resumes its most recent active thread with full history; the
+     * first visit creates it. A Module that has never been talked to gets a
+     * fresh thread bound to it, so the next visit resumes THAT.
+     */
+    forModule: authenticatedProcedure
+      .input(z.object({
+        organizationId: z.string().uuid(),
+        moduleName: z.string().trim().min(1).max(120),
+        backend: z.enum(CHAT_BACKEND_IDS).optional(),
+      }).strict())
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
+        const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
+        const existing = await ctx.wiring.chatStore.liveModuleThread(scope, input.moduleName);
+        if (existing) {
+          return loadChatThreadView(ctx.wiring, scope, existing.id, ctx.run);
+        }
+        const backend = input.backend ?? "bridge";
+        const registered =
+          backend === "bridge" ? null : ctx.wiring.chatBackends.get(backend);
+        if (backend !== "bridge" && !registered) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `The ${backend} backend is not available in this deployment`,
+          });
+        }
+        const plane = registered
+          ? registered.plane
+          : ctx.wiring.publicCloudOnly
+            ? "cloud"
+            : "local";
+        const created = await ctx.wiring.chatStore.createThread(scope, {
+          id: ctx.run.ids.next(),
+          plane,
+          dataScope: plane === "local" ? "private" : "public",
+          backend,
+          moduleName: input.moduleName,
+        });
+        return loadChatThreadView(ctx.wiring, scope, created.id, ctx.run);
+      }),
+    /** Pull a second Module into this same conversation — one session, several
+     * Modules, the way a coding session can hold more than one project. */
+    attachModule: authenticatedProcedure
+      .input(z.object({
+        organizationId: z.string().uuid(),
+        threadId: z.string().uuid(),
+        moduleName: z.string().trim().min(1).max(120),
+      }).strict())
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
+        const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
+        await ctx.wiring.chatStore.attachModule(scope, input.threadId, input.moduleName);
+        return loadChatThreadView(ctx.wiring, scope, input.threadId, ctx.run);
+      }),
+    list: authenticatedProcedure
       .input(z.object({
         organizationId: z.string().uuid(),
         status: z.enum(["active", "archived"]).optional(),
@@ -111,7 +404,7 @@ export const chatRouter = t.router({
         }).strict().optional(),
         limit: z.number().int().min(1).max(100).optional(),
       }).strict())
-      .query(async ({ input, ctx }) => {
+      .use(organizationGuard).query(async ({ input, ctx }) => {
         return ctx.wiring.chatStore.listThreads(
           chatOwnerScope(input.organizationId, ctx.identity.id),
           {
@@ -121,7 +414,7 @@ export const chatRouter = t.router({
           },
         );
       }),
-    get: procedure
+    get: authenticatedProcedure
       .input(z.object({
         organizationId: z.string().uuid(),
         threadId: z.string().uuid(),
@@ -129,7 +422,7 @@ export const chatRouter = t.router({
           sequence: z.number().int().positive(),
         }).strict().optional(),
       }).strict())
-      .query(async ({ input, ctx }) => {
+      .use(organizationGuard).query(async ({ input, ctx }) => {
         return loadChatThreadView(
           ctx.wiring,
           chatOwnerScope(input.organizationId, ctx.identity.id),
@@ -138,12 +431,12 @@ export const chatRouter = t.router({
           input.cursor,
         );
       }),
-    archive: procedure
+    archive: authenticatedProcedure
       .input(z.object({
         organizationId: z.string().uuid(),
         threadId: z.string().uuid(),
       }).strict())
-      .mutation(async ({ input, ctx }) => {
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
         const archived = await ctx.wiring.chatStore.archiveThread(
           chatOwnerScope(input.organizationId, ctx.identity.id),
           input.threadId,
@@ -153,12 +446,12 @@ export const chatRouter = t.router({
         }
         return archived;
       }),
-    delete: procedure
+    delete: authenticatedProcedure
       .input(z.object({
         organizationId: z.string().uuid(),
         threadId: z.string().uuid(),
       }).strict())
-      .mutation(async ({ input, ctx }) => {
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
         const deleted = await ctx.wiring.chatStore.deleteThread(
           chatOwnerScope(input.organizationId, ctx.identity.id),
           input.threadId,
@@ -171,9 +464,9 @@ export const chatRouter = t.router({
   }),
 
   turn: t.router({
-    prepareCloud: procedure
+    prepareCloud: authenticatedProcedure
       .input(chatSendInput.omit({ clientRequestId: true, cloudGrantId: true }))
-      .mutation(async ({ input, ctx }) => {
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
         const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
         const thread = await ctx.wiring.chatStore.getThread(scope, input.threadId);
         if (!thread) {
@@ -236,13 +529,30 @@ export const chatRouter = t.router({
         };
       }),
 
-    send: procedure
+    send: authenticatedProcedure
       .input(chatSendInput)
-      .mutation(async ({ input, ctx }) => {
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
         const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
         const thread = await ctx.wiring.chatStore.getThread(scope, input.threadId);
         if (!thread) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Chat thread not found" });
+        }
+        // `@` mentions (2026-09-05): each must be an ACTIVE Agent of this
+        // Organization, refused before any turn is written. They are recorded
+        // on the assistant turn as `addressed_agent` refs below; who ANSWERS
+        // is unchanged — Chief of Staff still takes the turn (the per-Agent
+        // lane handoff is NOT LANDED, see TASK-101).
+        const mentions = [...new Set(input.mentions ?? [])];
+        for (const agentId of mentions) {
+          if (
+            (await ctx.wiring.agents.organizationId(agentId)) !== input.organizationId ||
+            !(await ctx.wiring.agents.isActive(agentId))
+          ) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `${agentId} is not an active Agent of this Organization`,
+            });
+          }
         }
         const userTurnId = idempotentUuid(
           `${thread.id}:${input.clientRequestId}:user`,
@@ -350,6 +660,9 @@ export const chatRouter = t.router({
           clientRequestId: `${input.clientRequestId}:assistant`,
           taintLabel,
         });
+        for (const agentId of mentions) {
+          await addChatTurnRef(ctx.wiring, scope, thread.id, assistantTurnId, "addressed_agent", agentId);
+        }
         const loadSendResponse = () =>
           loadChatThreadView(
             ctx.wiring,
@@ -390,6 +703,317 @@ export const chatRouter = t.router({
         const controller = new AbortController();
         chatTurnAbortControllers.set(assistantTurnId, controller);
         try {
+          // Agentic backend (Claude Code and, later, Codex/Cursor): the
+          // backend runs its OWN tool loop in a subprocess against the
+          // user's Bridge documents and returns prose. There is no prompt to
+          // assemble, no envelope to parse, and no cloud grant to consume —
+          // the backend never saw Bridge's response schema, and the exact
+          // context it sends is chosen by that agent rather than by this
+          // router, so recording an exact-context consent here would be a
+          // false disclosure. What this path DOES keep is the rest of the
+          // governed shape: the same turn lifecycle, the same
+          // routing-decision ledger row, the same taint label, the same
+          // cancellation path.
+          if (thread.backend !== "bridge") {
+            const backend = ctx.wiring.chatBackends.get(thread.backend);
+            if (!backend) {
+              throw new TRPCError({
+                code: "PRECONDITION_FAILED",
+                message: `The ${thread.backend} backend is not available in this deployment`,
+              });
+            }
+            const organizationName = await requireOrganizationNameForFiles(
+              ctx.wiring,
+              thread.organizationId,
+              ctx.identity.id,
+            );
+            const workingDirectory = organizationFilesRoot(
+              organizationName,
+              ctx.wiring.moduleFilesBridgeRoot,
+            );
+            await mkdir(workingDirectory, { recursive: true });
+
+            // Bridge owns the conversation; the backend only owns its own
+            // session. When an engine takes over a thread mid-conversation
+            // — a model switch, or its first turn after a restart that lost
+            // the handle — it has no session to resume, so Bridge hands it
+            // what was already said. Without this the user would watch a
+            // "continued" chat answer as if the previous turns never
+            // happened, which is worse than clearing the thread outright.
+            // ASKED FOR A MODULE THAT ALREADY EXISTS (user report 2026-09-08:
+            // "install dealpilot" → an offer to design a Deal Manager). The
+            // briefing has always told the agent to "offer installing a
+            // matching Module before building a new one", and the agent did —
+            // with no mechanism behind the offer, so the only thing it could
+            // actually DO was write a fresh manifest for a Module sitting
+            // signed in the registry. This is that mechanism, and it runs
+            // before the build so the work is never done twice.
+            const catalog = await ctx.wiring.commonsRegistry
+              .listAvailable({ kind: "organization_definition", limit: 100 })
+              .then((page) => page.items, () => []);
+            const requested = commonsInstallRequest(input.message, catalog);
+            if (requested !== null) {
+              const { reauthenticatedAt, ...baseCtx } = ctx;
+              const routerCtx = reauthenticatedAt === undefined ? baseCtx : { ...baseCtx, reauthenticatedAt };
+              let note: string;
+              try {
+                const existing = await ctx.wiring.moduleStore.getAvailable(thread.organizationId, requested);
+                if (existing) {
+                  // Already theirs. Saying so is the whole answer — "already
+                  // configured is not a refusal", and re-installing would be a
+                  // worse one.
+                  const label = existing.displayNameOverride
+                    ?? existing.manifest.module?.displayName ?? requested;
+                  note = `"${label}" is already installed — it is in your sidebar.`;
+                } else {
+                  const proposed = await commonsRouter.createCaller(routerCtx).installPropose({
+                    organizationId: thread.organizationId,
+                    name: requested,
+                  });
+                  const outcome = await installThroughGovernance(
+                    ctx.wiring,
+                    routerCtx,
+                    thread.organizationId,
+                    proposed.installation.id,
+                  );
+                  const label = proposed.installation.manifest.module?.displayName ?? requested;
+                  note = outcome.visible
+                    ? `Installed "${label}" from Commons — it is in your sidebar now.`
+                    : outcome.installed
+                      ? `Installed "${label}", but it is not showing yet (state "${outcome.state ?? "unknown"}").`
+                      : `"${label}" waits for your yes under Tasks before it goes live.`;
+                }
+              } catch (error) {
+                note = `I could not install "${requested}": ${error instanceof Error ? error.message : String(error)}`;
+              }
+              const routingId = await appendChatRoutingDecision(ctx, thread, assistantTurnId, { kind: "direct_answer" });
+              await addChatTurnRef(ctx.wiring, scope, thread.id, assistantTurnId, "routing_decision", routingId);
+              await ctx.wiring.chatStore.updateTurn(scope, {
+                threadId: thread.id,
+                turnId: assistantTurnId,
+                expectedState: "processing",
+                state: "completed",
+                content: note,
+              });
+              return loadSendResponse();
+            }
+
+            const carriedContext =
+              thread.backendSessionId
+                ? null
+                : await priorTurnsTranscript(ctx.wiring, scope, thread.id);
+            const backendPrompt = carriedContext
+              ? `${carriedContext}\n\n---\nContinue that conversation. The user now says:\n${input.message}`
+              : input.message;
+
+            // The agent gets Bridge's own briefing — what a Module is and how one
+            // is built — not just a folder and a sentence (TASK-098). Prior art
+            // from Commons rides along as data; an unreachable registry is noted.
+            const attachedModule = thread.moduleName ?? null;
+            const isNewModule =
+              attachedModule !== null &&
+              !BUILT_IN_MODULES.some((entry) => entry.manifest.name === attachedModule) &&
+              (await ctx.wiring.moduleStore.listVersions(thread.organizationId, attachedModule)).length === 0;
+            // What already exists rides along as data too (ADR-247): the
+            // Organization's Modules from the store and its folders from disk,
+            // each section saying "unavailable" when its read fails.
+            const [priorArt, installedModules, folders] = await Promise.all([
+              commonsPriorArt(ctx.wiring.commonsRegistry, attachedModule ?? "", input.message),
+              installedModulesForBriefing(ctx.wiring.moduleStore, thread.organizationId),
+              organizationFoldersForBriefing(workingDirectory),
+            ]);
+            const system = moduleBuildBriefing({
+              organizationRoot: workingDirectory,
+              moduleName: attachedModule,
+              isNewModule,
+              priorArt: priorArt.items,
+              priorArtUnavailable: priorArt.unavailable,
+              installedModules,
+              folders,
+              // What Bridge can connect today, from the manifests — so the agent
+              // asks about the user's software instead of designing blind.
+              integrations: integrationsForBriefing(),
+            });
+
+            let backendTurn: ChatBackendTurn;
+            try {
+              backendTurn = await backend.send({
+                text: backendPrompt,
+                backendSessionId: thread.backendSessionId ?? null,
+                workingDirectory,
+                organizationId: thread.organizationId,
+                signal: controller.signal,
+                system,
+              });
+            } catch (error) {
+              if (error instanceof ClaudeSignInRequiredError) {
+                throw new TRPCError({
+                  code: "UNAUTHORIZED",
+                  message: "Claude needs sign-in — open Settings → Claude to sign in",
+                });
+              }
+              throw error;
+            }
+
+            // A module.yaml the agent wrote for a Module Bridge does not know yet
+            // enters the governed lifecycle here (ADR 2026-09-04) and, since
+            // 2026-09-05, FINISHES here: a definition Bridge rejects goes back to
+            // the agent to repair (bounded), and an accepted one is installed
+            // through `modules.install` — the same governed proposal the Modules
+            // page runs — so the user never has to find and press anything. The
+            // notes speak to a person, not to a developer.
+            const registrationNotes: string[] = [];
+            let repairsLeft = MANIFEST_REPAIR_ROUNDS;
+            for (const changed of [...(backendTurn.changedPaths ?? [])]) {
+              const rel = relative(workingDirectory, changed).split(sep);
+              const [moduleName, file] = rel;
+              if (rel.length !== 2 || file !== "module.yaml" || !moduleName || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(moduleName)) continue;
+              if (BUILT_IN_MODULES.some((entry) => entry.manifest.name === moduleName)) continue;
+              if ((await ctx.wiring.moduleStore.listVersions(thread.organizationId, moduleName)).length > 0) continue;
+              let installation: ModuleInstallationRow | null = null;
+              let missing = false;
+              let lastError = "";
+              while (installation === null && !missing) {
+                try {
+                  const raw = await readModuleManifestFile(ctx.wiring, organizationName, moduleName);
+                  if (raw === null) {
+                    missing = true;
+                    break;
+                  }
+                  installation = await registerModuleManifest(ctx.wiring, thread.organizationId, raw);
+                } catch (error) {
+                  lastError = error instanceof Error ? error.message : String(error);
+                  if (repairsLeft <= 0) break;
+                  repairsLeft -= 1;
+                  const repaired = await backend.send({
+                    text: manifestRepairPrompt(moduleName, lastError),
+                    backendSessionId: backendTurn.backendSessionId ?? thread.backendSessionId ?? null,
+                    workingDirectory,
+                    organizationId: thread.organizationId,
+                    signal: controller.signal,
+                    system,
+                  });
+                  backendTurn = {
+                    ...backendTurn,
+                    backendSessionId: repaired.backendSessionId ?? backendTurn.backendSessionId,
+                    changedPaths: [...new Set([...(backendTurn.changedPaths ?? []), ...(repaired.changedPaths ?? [])])],
+                  };
+                }
+              }
+              if (missing) continue;
+              if (installation === null) {
+                registrationNotes.push(
+                  `I built "${moduleName}" but Bridge could not accept its definition after ${MANIFEST_REPAIR_ROUNDS} repair attempts. Say "fix it" and I will try again.\nDetails for support: ${lastError}`,
+                );
+                continue;
+              }
+              const label = installation.manifest.module?.displayName ?? moduleName;
+              try {
+                // exactOptionalPropertyTypes: the guarded ctx types `reauthenticatedAt` as
+                // `number | undefined`; ApiContext wants it present or absent.
+                const { reauthenticatedAt, ...baseCtx } = ctx;
+                const routerCtx = reauthenticatedAt === undefined ? baseCtx : { ...baseCtx, reauthenticatedAt };
+                const { installed, visible, state } = await installThroughGovernance(
+                  ctx.wiring,
+                  routerCtx,
+                  thread.organizationId,
+                  installation.id,
+                );
+                // A live Module that needs outside software connected, or a
+                // first Record the user has to supply, is not finished landing:
+                // the agent runs one onboarding turn on its own session rather
+                // than leaving the person to discover the gap (user directive
+                // 2026-09-06: "Every time a new module is created, it should
+                // have an onboarding process if it involves any integrations or
+                // requires user input"). Best-effort: a failed onboarding turn
+                // never unsays the install that did happen.
+                let onboarding = "";
+                const needs = moduleOnboardingNeeds(installation.manifest);
+                if (visible && (needs.integrations.length > 0 || needs.inputs.length > 0)) {
+                  try {
+                    const turn = await backend.send({
+                      text: moduleOnboardingPrompt(label, needs),
+                      backendSessionId: backendTurn.backendSessionId ?? thread.backendSessionId ?? null,
+                      workingDirectory,
+                      organizationId: thread.organizationId,
+                      signal: controller.signal,
+                      system,
+                    });
+                    backendTurn = {
+                      ...backendTurn,
+                      backendSessionId: turn.backendSessionId ?? backendTurn.backendSessionId,
+                    };
+                    onboarding = turn.reply.trim() ? `\n\n${turn.reply.trim()}` : "";
+                  } catch {
+                    onboarding = needs.integrations.length > 0
+                      ? `\n\nIt can connect to ${needs.integrations.join(", ")} when you want — say the word.`
+                      : "";
+                  }
+                }
+                registrationNotes.push(
+                  visible
+                    ? `Built and installed "${label}" — it is in your sidebar now.${onboarding}`
+                    : installed
+                      ? `Built and installed "${label}", but it is not showing yet (state "${state ?? "unknown"}"). Say "fix it" and I will try again.`
+                      : `Built "${label}". It waits for your yes under Tasks before it goes live.`,
+                );
+              } catch (error) {
+                registrationNotes.push(
+                  `Built "${label}", but Bridge could not switch it on. Say "fix it" and I will try again.\nDetails for support: ${error instanceof Error ? error.message : String(error)}`,
+                );
+              }
+            }
+            if (registrationNotes.length > 0) {
+              backendTurn = { ...backendTurn, reply: `${backendTurn.reply}\n\n${registrationNotes.join("\n")}` };
+            }
+
+            if (backendTurn.backendSessionId) {
+              await ctx.wiring.chatStore.setThreadBackendSession(
+                scope,
+                thread.id,
+                backendTurn.backendSessionId,
+              );
+            }
+            const backendRoutingId = await appendChatRoutingDecision(
+              ctx,
+              thread,
+              assistantTurnId,
+              { kind: "direct_answer" },
+            );
+            await addChatTurnRef(
+              ctx.wiring,
+              scope,
+              thread.id,
+              assistantTurnId,
+              "routing_decision",
+              backendRoutingId,
+            );
+            if (backendTurn.changedPaths && backendTurn.changedPaths.length > 0) {
+              const changedFilesId = await appendChatBackendChangedFiles(
+                ctx,
+                thread,
+                assistantTurnId,
+                backendTurn.changedPaths,
+              );
+              await addChatTurnRef(
+                ctx.wiring,
+                scope,
+                thread.id,
+                assistantTurnId,
+                "result",
+                changedFilesId,
+              );
+            }
+            await ctx.wiring.chatStore.updateTurn(scope, {
+              threadId: thread.id,
+              turnId: assistantTurnId,
+              expectedState: "processing",
+              state: "completed",
+              content: backendTurn.reply.slice(0, 8_000),
+            });
+            return loadSendResponse();
+          }
+
           const provider = resolveChatModel(ctx.wiring, thread.plane);
           if (!provider) {
             throw new TRPCError({
@@ -497,55 +1121,7 @@ export const chatRouter = t.router({
             envelope = parseChatAssistantEnvelope(repaired.text);
           }
 
-          if (envelope.kind === "create_module") {
-            if (!prepared.canAuthorModule) {
-              throw new Error("The model selected a capability that was not disclosed");
-            }
-            chatTurnProposalStaging.add(assistantTurnId);
-            let stagedModule: Awaited<ReturnType<typeof stageChatModuleProposal>>;
-            try {
-              stagedModule = await stageChatModuleProposal(
-                ctx,
-                thread,
-                assistantTurnId,
-                envelope,
-              );
-            } finally {
-              chatTurnProposalStaging.delete(assistantTurnId);
-            }
-            if (stagedModule.proposal.status !== "pending_review") {
-              // Carry the pipeline's own reason. "did not stop for review"
-              // alone says a gate refused and nothing about which one.
-              throw new Error(
-                `The governed Module proposal did not stop for Human review (${stagedModule.proposal.status}: ${stagedModule.proposal.rejectionReason ?? "no reason given"})`,
-              );
-            }
-            const routingId = await appendChatRoutingDecision(
-              ctx,
-              thread,
-              assistantTurnId,
-              {
-                kind: "skill",
-                selectedSkillId: CHAT_MODULE_SKILL_ID,
-                selectedAgentId: CHIEF_OF_STAFF_AGENT,
-              },
-            );
-            await addChatTurnRef(
-              ctx.wiring,
-              scope,
-              thread.id,
-              assistantTurnId,
-              "routing_decision",
-              routingId,
-            );
-            await ctx.wiring.chatStore.updateTurn(scope, {
-              threadId: thread.id,
-              turnId: assistantTurnId,
-              expectedState: "processing",
-              state: "awaiting_decision",
-              content: envelope.text,
-            });
-          } else if (envelope.kind === "create_task") {
+          if (envelope.kind === "create_task") {
             if (!prepared.canCreateTask) {
               throw new Error("The model selected a capability that was not disclosed");
             }
@@ -707,13 +1283,13 @@ export const chatRouter = t.router({
         }
       }),
 
-    cancel: procedure
+    cancel: authenticatedProcedure
       .input(z.object({
         organizationId: z.string().uuid(),
         threadId: z.string().uuid(),
         turnId: z.string().uuid(),
       }).strict())
-      .mutation(async ({ input, ctx }) => {
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
         const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
         const turn = await ctx.wiring.chatStore.getTurn(
           scope,
@@ -778,6 +1354,60 @@ export const chatRouter = t.router({
           input.threadId,
           ctx.run,
         );
+      }),
+  }),
+
+  /**
+   * TASK-082 — dictation for every surface.
+   *
+   * The Chat mic used to call `companion_transcribe`, a Tauri command, so it
+   * only existed inside the desktop shell and honestly disabled itself in a
+   * browser. This is the same Groq Whisper call from the API process, which
+   * every surface already talks to, so web and mobile get the identical
+   * behaviour instead of a permanently-disabled control.
+   *
+   * LOCAL PLANE (see `deployment-boundary.ts`): the recording is raw capture.
+   * It is decoded, forwarded once, and never persisted. A public-cloud shell
+   * refuses — `chat.model.status.composer.voice` says so before the user
+   * records anything.
+   *
+   * The transcript is RETURNED, never sent. The caller puts it in the
+   * composer for the human to review, because a Chat turn can start governed
+   * Task proposals (AP-168 explicitly did not approve auto-send here).
+   */
+  voice: t.router({
+    transcribe: authenticatedProcedure
+      .input(
+        z.object({
+          organizationId: z.string().uuid(),
+          audioBase64: z.string().min(1).max(
+            Math.ceil(MAX_TRANSCRIPTION_AUDIO_BYTES * 4 / 3) + 4,
+          ),
+          mime: z.string().min(1).max(128),
+        }).strict(),
+      )
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
+        const apiKey = await transcriptionApiKey(ctx.wiring, input.organizationId);
+        if (!apiKey) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Voice input needs a Groq key (Settings → API Keys)",
+          });
+        }
+        try {
+          return {
+            text: await transcribeAudio({
+              apiKey,
+              audio: Buffer.from(input.audioBase64, "base64"),
+              mime: input.mime,
+            }),
+          };
+        } catch (error) {
+          if (error instanceof VoiceTranscriptionError) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+          }
+          throw error;
+        }
       }),
   }),
 });

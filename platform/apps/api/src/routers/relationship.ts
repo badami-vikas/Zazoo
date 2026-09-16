@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { join } from "node:path";
 import { z } from "zod";
 import { databaseUuidSchema } from "@bridge/db";
 import { communityCreateFieldsSchema, communityUpdateFieldsSchema, personCreateFieldsSchema, personUpdateFieldsSchema, relationshipMutationPayloadSchema } from "../relationship-record-materializer.js";
@@ -8,13 +9,8 @@ import type { Action } from "@bridge/core";
 import { routeHelpRequest, draftHelpOffer, type HelpResponderCandidate } from "../relationship-help-routing.js";
 import { transition } from "@bridge/jobpilot";
 import { personIndexFrom as whatsAppPersonIndexFrom, readSyncState as readWhatsAppSyncState, syncedThreads as whatsAppSyncedThreads, chatsLinkedToPerson as whatsAppChatsLinkedToPerson } from "@bridge/whatsapp";
-import { t, WHATSAPP_SOURCE, WHATSAPP_SYNC_NAMESPACE, procedure, publicProcedure, assertPilotOrganization, provisionHelpRequestAnswerTask, paginatedInput, relationshipNodeTypeEnum, relationshipSignalEvidenceInput, humanInteractionFieldsSchema, proposeRelationshipMutation, intakeReviewView, relationshipEffectView, approvedRelationshipResolution, retryApprovedRelationship, viewSortSpecInput, viewRowFilterInput } from "../router-shared.js";
+import { WHATSAPP_SOURCE, WHATSAPP_SYNC_NAMESPACE, approvedRelationshipResolution, archiveRelationshipRecord, assertPilotOrganization, authenticatedProcedure, humanInteractionFieldsSchema, intakeReviewView, organizationGuard, paginatedInput, procedure, proposeRelationshipMutation, provisionHelpRequestAnswerTask, publicProcedure, relationshipEffectView, relationshipNodeTypeEnum, relationshipSignalEvidenceInput, retryApprovedRelationship, t, viewRowFilterInput, viewSortSpecInput } from "../router-shared.js";
 
-/**
- * Dedicated Relation surface. Public callers can only stage Signal evidence
- * proposals here; owner, provenance, source Module, and approval behavior are
- * all assigned by the server and materialized only after a Human decision.
- */
 const relationshipListInput = z.object({
   organizationId: databaseUuidSchema,
   query: z.string().trim().max(120).optional(),
@@ -32,10 +28,15 @@ const relationshipListInput = z.object({
   filterMatch: z.enum(["all", "any"]).optional(),
 });
 
+/**
+ * Dedicated Relation surface. Public callers can only stage Signal evidence
+ * proposals here; owner, provenance, source Module, and approval behavior are
+ * all assigned by the server and materialized only after a Human decision.
+ */
 export const relationshipRouter = t.router({
-  listPeople: procedure
+  listPeople: authenticatedProcedure
     .input(relationshipListInput)
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const { items, total } = await ctx.wiring.graphStore.listPeople(
         input.organizationId,
         ctx.identity.id,
@@ -51,15 +52,15 @@ export const relationshipRouter = t.router({
       return { items, total, hasMore: input.offset + items.length < total };
     }),
 
-  getPerson: procedure
+  getPerson: authenticatedProcedure
     .input(z.object({ organizationId: databaseUuidSchema, id: databaseUuidSchema }))
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       return ctx.wiring.graphStore.getPerson(input.organizationId, ctx.identity.id, input.id);
     }),
 
-  createPerson: procedure
+  createPerson: authenticatedProcedure
     .input(z.object({ organizationId: z.string().uuid(), values: personCreateFieldsSchema }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const recordId = ctx.run.ids.next();
       const payload = relationshipMutationPayloadSchema.parse({
         kind: "relationship_record_mutation",
@@ -71,13 +72,13 @@ export const relationshipRouter = t.router({
       return proposeRelationshipMutation(ctx, input.organizationId, payload);
     }),
 
-  updatePerson: procedure
+  updatePerson: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       id: z.string().uuid(),
       values: personUpdateFieldsSchema,
     }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const person = await ctx.wiring.graphStore.getPerson(
         input.organizationId,
         ctx.identity.id,
@@ -96,29 +97,15 @@ export const relationshipRouter = t.router({
       return proposeRelationshipMutation(ctx, input.organizationId, payload);
     }),
 
-  archivePerson: procedure
+  archivePerson: authenticatedProcedure
     .input(z.object({ organizationId: databaseUuidSchema, id: databaseUuidSchema }))
-    .mutation(async ({ input, ctx }) => {
-      const person = await ctx.wiring.graphStore.getPerson(
-        input.organizationId,
-        ctx.identity.id,
-        input.id,
-      );
-      if (!person?.isOwner) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Person not found" });
-      }
-      const payload = relationshipMutationPayloadSchema.parse({
-        kind: "relationship_record_mutation",
-        recordType: "person",
-        operation: "archive",
-        recordId: input.id,
-      });
-      return proposeRelationshipMutation(ctx, input.organizationId, payload);
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
+      return archiveRelationshipRecord(ctx, input.organizationId, "person", input.id);
     }),
 
-  listCommunities: procedure
+  listCommunities: authenticatedProcedure
     .input(relationshipListInput)
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const { items, total } = await ctx.wiring.graphStore.listCommunities(
         input.organizationId,
         ctx.identity.id,
@@ -134,15 +121,15 @@ export const relationshipRouter = t.router({
       return { items, total, hasMore: input.offset + items.length < total };
     }),
 
-  getCommunity: procedure
+  getCommunity: authenticatedProcedure
     .input(z.object({ organizationId: z.string().uuid(), id: z.string().uuid() }))
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       return ctx.wiring.graphStore.getCommunity(input.organizationId, ctx.identity.id, input.id);
     }),
 
-  createCommunity: procedure
+  createCommunity: authenticatedProcedure
     .input(z.object({ organizationId: z.string().uuid(), values: communityCreateFieldsSchema }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const recordId = ctx.run.ids.next();
       const payload = relationshipMutationPayloadSchema.parse({
         kind: "relationship_record_mutation",
@@ -154,13 +141,13 @@ export const relationshipRouter = t.router({
       return proposeRelationshipMutation(ctx, input.organizationId, payload);
     }),
 
-  updateCommunity: procedure
+  updateCommunity: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       id: z.string().uuid(),
       values: communityUpdateFieldsSchema,
     }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const community = await ctx.wiring.graphStore.getCommunity(
         input.organizationId,
         ctx.identity.id,
@@ -179,29 +166,71 @@ export const relationshipRouter = t.router({
       return proposeRelationshipMutation(ctx, input.organizationId, payload);
     }),
 
-  archiveCommunity: procedure
+  archiveCommunity: authenticatedProcedure
     .input(z.object({ organizationId: z.string().uuid(), id: z.string().uuid() }))
-    .mutation(async ({ input, ctx }) => {
-      const community = await ctx.wiring.graphStore.getCommunity(
-        input.organizationId,
-        ctx.identity.id,
-        input.id,
-      );
-      if (!community?.isOwner) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Community not found" });
-      }
-      const payload = relationshipMutationPayloadSchema.parse({
-        kind: "relationship_record_mutation",
-        recordType: "community",
-        operation: "archive",
-        recordId: input.id,
-      });
-      return proposeRelationshipMutation(ctx, input.organizationId, payload);
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
+      return archiveRelationshipRecord(ctx, input.organizationId, "community", input.id);
     }),
 
-  createInteraction: procedure
+  /**
+   * The bulk form of the two procedures above — TASK-086's table multi-select.
+   *
+   * IT IS A LOOP, DELIBERATELY. Every id goes through
+   * `archiveRelationshipRecord`, the same function `archivePerson` and
+   * `archiveCommunity` call, so three Records produce three proposals and
+   * three ledger decisions, each naming the Record it archived. There is no
+   * batch write for a batch to be governed more thinly than a single delete —
+   * which is the whole constraint. Sequential rather than `Promise.all` so
+   * ledger append order stays deterministic and one failure cannot race the
+   * others.
+   *
+   * A per-id failure is REPORTED, not thrown: a partial bulk that reported
+   * nothing would leave the user unable to tell which Records survived.
+   */
+  archiveRecords: authenticatedProcedure
+    .input(z.object({
+      organizationId: databaseUuidSchema,
+      recordType: z.enum(["person", "community"]),
+      // Bounded: an unbounded list is an unbounded number of governed
+      // proposals in one request.
+      ids: z.array(databaseUuidSchema).min(1).max(50),
+    }))
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
+      const results: Array<{
+        id: string;
+        proposalId: string | null;
+        materialization: { status: string } | null;
+        error: string | null;
+      }> = [];
+      for (const id of new Set(input.ids)) {
+        try {
+          const outcome = await archiveRelationshipRecord(
+            ctx,
+            input.organizationId,
+            input.recordType,
+            id,
+          );
+          results.push({
+            id,
+            proposalId: outcome.proposal.id,
+            materialization: { status: outcome.materialization.status },
+            error: null,
+          });
+        } catch (caught) {
+          results.push({
+            id,
+            proposalId: null,
+            materialization: null,
+            error: caught instanceof TRPCError ? caught.message : "Archive failed",
+          });
+        }
+      }
+      return { results };
+    }),
+
+  createInteraction: authenticatedProcedure
     .input(z.object({ organizationId: z.string().uuid(), values: humanInteractionFieldsSchema }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const participantsAccessible =
         await ctx.wiring.graphStore.areRelationshipRecordsAccessible(
           input.organizationId,
@@ -223,7 +252,7 @@ export const relationshipRouter = t.router({
       return proposeRelationshipMutation(ctx, input.organizationId, payload);
     }),
 
-  memories: procedure
+  memories: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       personId: z.string().uuid(),
@@ -231,7 +260,7 @@ export const relationshipRouter = t.router({
       offset: z.number().int().min(0).max(10_000).default(0),
       snapshotAt: z.string().datetime({ offset: true }).optional(),
     }))
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       if (ctx.identity.type !== "user") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Relationship Memory requires a Human user principal" });
       }
@@ -259,7 +288,7 @@ export const relationshipRouter = t.router({
       };
     }),
 
-  addMemory: procedure
+  addMemory: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       personId: z.string().uuid(),
@@ -267,7 +296,7 @@ export const relationshipRouter = t.router({
       content: z.string().trim().min(1).max(5_000),
       scope: z.enum(["private", "organization"]).default("private"),
     }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const person = await ctx.wiring.graphStore.getPerson(
         input.organizationId,
         ctx.identity.id,
@@ -288,14 +317,14 @@ export const relationshipRouter = t.router({
       return proposeRelationshipMutation(ctx, input.organizationId, payload);
     }),
 
-  correctMemory: procedure
+  correctMemory: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       personId: z.string().uuid(),
       memoryId: z.string().uuid(),
       content: z.string().trim().min(1).max(5_000),
     }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       if (ctx.identity.type !== "user") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Relationship Memory changes require a Human user principal" });
       }
@@ -325,13 +354,13 @@ export const relationshipRouter = t.router({
       return proposeRelationshipMutation(ctx, input.organizationId, payload);
     }),
 
-  forgetMemory: procedure
+  forgetMemory: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       personId: z.string().uuid(),
       memoryId: z.string().uuid(),
     }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       if (ctx.identity.type !== "user") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Relationship Memory changes require a Human user principal" });
       }
@@ -359,7 +388,7 @@ export const relationshipRouter = t.router({
       return proposeRelationshipMutation(ctx, input.organizationId, payload);
     }),
 
-  commitments: procedure
+  commitments: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       personId: z.string().uuid(),
@@ -368,7 +397,7 @@ export const relationshipRouter = t.router({
       includeArchived: z.boolean().default(false),
       snapshotAt: z.string().datetime({ offset: true }).optional(),
     }))
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const snapshotAt = input.snapshotAt ?? ctx.run.clock.nowISO();
       const page = await ctx.wiring.graphStore.listCommitments(
         input.organizationId,
@@ -394,14 +423,14 @@ export const relationshipRouter = t.router({
       };
     }),
 
-  createCommitment: procedure
+  createCommitment: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       personId: z.string().uuid(),
       text: z.string().trim().min(1).max(2_000),
       dueAt: relationshipDateTimeSchema.nullable().optional(),
     }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const person = await ctx.wiring.graphStore.getPerson(
         input.organizationId,
         ctx.identity.id,
@@ -424,7 +453,7 @@ export const relationshipRouter = t.router({
       return proposeRelationshipMutation(ctx, input.organizationId, payload);
     }),
 
-  updateCommitment: procedure
+  updateCommitment: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       personId: z.string().uuid(),
@@ -433,7 +462,7 @@ export const relationshipRouter = t.router({
       dueAt: relationshipDateTimeSchema.nullable().optional(),
       status: z.enum(["pending", "completed", "cancelled"]),
     }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const current = await ctx.wiring.graphStore.listCommitments(
         input.organizationId,
         ctx.identity.id,
@@ -464,13 +493,13 @@ export const relationshipRouter = t.router({
       return proposeRelationshipMutation(ctx, input.organizationId, payload);
     }),
 
-  archiveCommitment: procedure
+  archiveCommitment: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       personId: z.string().uuid(),
       commitmentId: z.string().uuid(),
     }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const current = await ctx.wiring.graphStore.listCommitments(
         input.organizationId,
         ctx.identity.id,
@@ -502,7 +531,7 @@ export const relationshipRouter = t.router({
       return proposeRelationshipMutation(ctx, input.organizationId, payload);
     }),
 
-  introductions: procedure
+  introductions: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       personId: z.string().uuid(),
@@ -510,7 +539,7 @@ export const relationshipRouter = t.router({
       offset: z.number().int().min(0).max(10_000).default(0),
       snapshotAt: z.string().datetime({ offset: true }).optional(),
     }))
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const snapshotAt = input.snapshotAt ?? ctx.run.clock.nowISO();
       const page = await ctx.wiring.graphStore.listIntroductions(
         input.organizationId,
@@ -548,7 +577,7 @@ export const relationshipRouter = t.router({
       };
     }),
 
-  createIntroduction: procedure
+  createIntroduction: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       sourcePersonId: z.string().uuid(),
@@ -556,7 +585,7 @@ export const relationshipRouter = t.router({
     }).refine((input) => input.sourcePersonId !== input.targetPersonId, {
       message: "An Introduction requires two different People",
     }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const [sourcePerson, targetPerson] = await Promise.all([
         ctx.wiring.graphStore.getPerson(input.organizationId, ctx.identity.id, input.sourcePersonId),
         ctx.wiring.graphStore.getPerson(input.organizationId, ctx.identity.id, input.targetPersonId),
@@ -581,7 +610,7 @@ export const relationshipRouter = t.router({
       return proposeRelationshipMutation(ctx, input.organizationId, payload);
     }),
 
-  recordIntroductionConsent: procedure
+  recordIntroductionConsent: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       personId: z.string().uuid(),
@@ -605,7 +634,7 @@ export const relationshipRouter = t.router({
         });
       }
     }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const page = await ctx.wiring.graphStore.listIntroductions(
         input.organizationId,
         ctx.identity.id,
@@ -644,14 +673,14 @@ export const relationshipRouter = t.router({
       return proposeRelationshipMutation(ctx, input.organizationId, payload);
     }),
 
-  transitionIntroduction: procedure
+  transitionIntroduction: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       personId: z.string().uuid(),
       introductionId: z.string().uuid(),
       transition: z.enum(["cancel", "complete"]),
     }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const page = await ctx.wiring.graphStore.listIntroductions(
         input.organizationId,
         ctx.identity.id,
@@ -682,13 +711,13 @@ export const relationshipRouter = t.router({
       return proposeRelationshipMutation(ctx, input.organizationId, payload);
     }),
 
-  meetingPrep: procedure
+  meetingPrep: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       personId: z.string().uuid(),
       limit: z.number().int().min(1).max(25).default(10),
     }))
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       if (ctx.identity.type !== "user") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Meeting preparation requires a Human user principal" });
       }
@@ -752,7 +781,7 @@ export const relationshipRouter = t.router({
       };
     }),
 
-  timeline: procedure
+  timeline: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       recordType: z.enum(["person", "community"]),
@@ -763,7 +792,7 @@ export const relationshipRouter = t.router({
         id: z.string().uuid(),
       }).optional(),
     }))
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const page = await ctx.wiring.graphStore.listTimeline(
         input.organizationId,
         ctx.identity.id,
@@ -823,7 +852,7 @@ export const relationshipRouter = t.router({
    * cloud Person page until an explicit promote exists. That is reported as
    * `linkage: "no_local_record"`, not disguised as "no activity".
    */
-  whatsappTimeline: procedure
+  whatsappTimeline: authenticatedProcedure
     .input(
       z.object({
         organizationId: z.string().uuid(),
@@ -831,7 +860,7 @@ export const relationshipRouter = t.router({
         recordId: z.string().uuid(),
       }),
     )
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const organizationId = PILOT_ORGANIZATION;
       const localPlane = ctx.wiring.localPlane;
 
@@ -900,9 +929,9 @@ export const relationshipRouter = t.router({
       return { linkage: "linked" as const, entries };
     }),
 
-  listSignals: procedure
+  listSignals: authenticatedProcedure
     .input(paginatedInput)
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const { items, total } = await ctx.wiring.graphStore.listSignals(
         input.organizationId,
         ctx.identity.id,
@@ -911,15 +940,15 @@ export const relationshipRouter = t.router({
       return { items, total, hasMore: input.offset + items.length < total };
     }),
 
-  getSignalDetail: procedure
+  getSignalDetail: authenticatedProcedure
     .input(z.object({ organizationId: z.string().min(1), signalId: z.string().uuid() }))
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       return ctx.wiring.graphStore.getSignalDetail(input.organizationId, ctx.identity.id, input.signalId);
     }),
 
-  proposeSignalAction: procedure
+  proposeSignalAction: authenticatedProcedure
     .input(z.object({ organizationId: z.string().min(1), signalId: z.string().uuid() }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const detail = await ctx.wiring.graphStore.getSignalDetail(input.organizationId, ctx.identity.id, input.signalId);
       if (!detail) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Signal not found" });
@@ -970,7 +999,7 @@ export const relationshipRouter = t.router({
       return proposal;
     }),
 
-  recordSignalAction: procedure
+  recordSignalAction: authenticatedProcedure
     .input(
       z.object({
         organizationId: z.string().min(1),
@@ -978,7 +1007,7 @@ export const relationshipRouter = t.router({
         verb: z.enum(["act", "dismiss", "save"]),
       }),
     )
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const detail = await ctx.wiring.graphStore.getSignalDetail(input.organizationId, ctx.identity.id, input.signalId);
       if (!detail) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Signal not found or not accessible" });
@@ -992,13 +1021,13 @@ export const relationshipRouter = t.router({
       return { ok: true };
     }),
 
-  intakeReview: procedure
+  intakeReview: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       limit: z.number().int().min(1).max(50).default(25),
       offset: z.number().int().min(0).max(10_000).default(0),
     }))
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const page = await ctx.wiring.pipeline.listPending(input.organizationId, {
         limit: input.limit,
         offset: input.offset,
@@ -1018,20 +1047,20 @@ export const relationshipRouter = t.router({
       };
     }),
 
-  nodeTypeOwner: procedure
+  nodeTypeOwner: authenticatedProcedure
     .input(z.object({ organizationId: z.string().uuid(), nodeType: relationshipNodeTypeEnum }))
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       return ctx.wiring.graphStore.getNodeTypeOwner(input.nodeType);
     }),
 
-  graph: procedure
+  graph: authenticatedProcedure
     .input(
       z.object({
         organizationId: z.string().uuid(),
         limit: z.number().int().min(1).max(500).default(200),
       }),
     )
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const nodeLimit = Math.min(input.limit, 100);
       const [personPage, communityPage, relationPage] = await Promise.all([
         ctx.wiring.graphStore.listPeople(
@@ -1111,7 +1140,7 @@ export const relationshipRouter = t.router({
       };
     }),
 
-  listRelations: procedure
+  listRelations: authenticatedProcedure
     .input(
       z.object({
         organizationId: z.string().uuid(),
@@ -1127,7 +1156,7 @@ export const relationshipRouter = t.router({
           .optional(),
       }),
     )
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const { items, total, nextCursor } = await ctx.wiring.graphStore.listRelations(
         input.organizationId,
         ctx.identity.id,
@@ -1159,7 +1188,7 @@ export const relationshipRouter = t.router({
       };
     }),
 
-  findPaths: procedure
+  findPaths: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       start: z.object({
@@ -1173,7 +1202,7 @@ export const relationshipRouter = t.router({
       maxDepth: z.number().int().min(1).max(6).default(4),
       maxPaths: z.number().int().min(1).max(5).default(3),
     }))
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const result = await ctx.wiring.graphStore.findRelationshipPaths(
         input.organizationId,
         ctx.identity.id,
@@ -1205,13 +1234,13 @@ export const relationshipRouter = t.router({
       };
     }),
 
-  communityOrganization: procedure
+  communityOrganization: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().uuid(),
       communityId: z.string().uuid(),
       limit: z.number().int().min(1).max(50).default(25),
     }))
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const community = await ctx.wiring.graphStore.getCommunity(
         input.organizationId,
         ctx.identity.id,
@@ -1320,9 +1349,9 @@ export const relationshipRouter = t.router({
       };
     }),
 
-  proposeSignalEvidence: procedure
+  proposeSignalEvidence: authenticatedProcedure
     .input(relationshipSignalEvidenceInput)
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       if (ctx.identity.type !== "user") {
         throw new TRPCError({
           code: "FORBIDDEN",
@@ -1393,9 +1422,9 @@ export const relationshipRouter = t.router({
       };
     }),
 
-  materializationStatus: procedure
+  materializationStatus: authenticatedProcedure
     .input(z.object({ organizationId: z.string().uuid(), proposalId: z.string().min(1) }))
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const { ownerUserId } = await approvedRelationshipResolution(
         ctx,
         input.organizationId,
@@ -1409,7 +1438,7 @@ export const relationshipRouter = t.router({
       return effect ? relationshipEffectView(effect) : null;
     }),
 
-  outstandingMaterializations: procedure
+  outstandingMaterializations: authenticatedProcedure
     .input(
       z.object({
         organizationId: z.string().uuid(),
@@ -1417,7 +1446,7 @@ export const relationshipRouter = t.router({
         cursor: z.object({ id: z.string().uuid() }).optional(),
       }),
     )
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const { items, nextCursor } =
         await ctx.wiring.relationMaterializations.listOutstandingPage(
           input.organizationId,
@@ -1434,15 +1463,15 @@ export const relationshipRouter = t.router({
       };
     }),
 
-  retryMaterialization: procedure
+  retryMaterialization: authenticatedProcedure
     .input(z.object({ organizationId: z.string().uuid(), proposalId: z.string().min(1) }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       return retryApprovedRelationship(ctx, input.organizationId, input.proposalId);
     }),
 
-  reconcileApproved: procedure
+  reconcileApproved: authenticatedProcedure
     .input(z.object({ organizationId: z.string().uuid(), proposalId: z.string().min(1) }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       return retryApprovedRelationship(ctx, input.organizationId, input.proposalId);
     }),
 
@@ -1501,9 +1530,9 @@ export const relationshipRouter = t.router({
         }),
     }),
 
-    list: procedure
+    list: authenticatedProcedure
       .input(paginatedInput)
-      .query(async ({ input, ctx }) => {
+      .use(organizationGuard).query(async ({ input, ctx }) => {
         const { items, total } = await ctx.wiring.helpdeskStore.listTickets(input.organizationId, {
           limit: input.limit,
           offset: input.offset,
@@ -1511,15 +1540,15 @@ export const relationshipRouter = t.router({
         return { items, total, hasMore: input.offset + items.length < total };
       }),
 
-    get: procedure
+    get: authenticatedProcedure
       .input(z.object({ organizationId: z.string().min(1), ticketId: z.string().uuid() }))
-      .query(async ({ input, ctx }) => {
+      .use(organizationGuard).query(async ({ input, ctx }) => {
         const result = await ctx.wiring.helpdeskStore.getTicket(input.organizationId, input.ticketId);
         if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "unknown ticket" });
         return result;
       }),
 
-    reply: procedure
+    reply: authenticatedProcedure
       .input(
         z.object({
           organizationId: z.string().min(1),
@@ -1528,7 +1557,7 @@ export const relationshipRouter = t.router({
           status: z.enum(["open", "pending", "resolved", "closed"]).optional(),
         }),
       )
-      .mutation(async ({ input, ctx }) => {
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
         const message = await ctx.wiring.helpdeskStore.replyAsAgent(
           input.organizationId,
           input.ticketId,
@@ -1540,7 +1569,7 @@ export const relationshipRouter = t.router({
         return message;
       }),
 
-    route: procedure
+    route: authenticatedProcedure
       .input(
         z.object({
           organizationId: z.string().min(1),
@@ -1557,7 +1586,7 @@ export const relationshipRouter = t.router({
           limit: z.number().int().min(1).max(10).default(3),
         }),
       )
-      .query(async ({ input, ctx }) => {
+      .use(organizationGuard).query(async ({ input, ctx }) => {
         const candidates = (
           await Promise.all(
             (input.candidatePersonIds ?? []).map(async (personId) => {
@@ -1588,7 +1617,7 @@ export const relationshipRouter = t.router({
         };
       }),
 
-    stageAnswer: procedure
+    stageAnswer: authenticatedProcedure
       .input(
         z.object({
           organizationId: z.string().min(1),
@@ -1599,7 +1628,7 @@ export const relationshipRouter = t.router({
           draftBody: z.string().min(1),
         }),
       )
-      .mutation(async ({ input, ctx }) => {
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
         const routedPerson = await ctx.wiring.graphStore.getPerson(
           input.organizationId,
           ctx.identity.id,

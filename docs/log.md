@@ -1,5 +1,177 @@
 # Change Log
 
+- **2026-09-07 — a Module can be deleted, and the confirmation asks which of the three things you meant (TASK-113)**: the rail could only HIDE, which is this browser's localStorage and never reached the server, so a Module the user was finished with stayed installed forever. Delete now sits beside Hide in the rail menu and opens a confirmation with three answers, each stating its own consequence: delete the Module and keep what it collected, delete the Module and its data, or hide it and delete nothing. `modules.uninstall` takes `deleteData` as data and does exactly that — human identity only (AP-182 names irreversible loss as a thing governance blocks on), refusing a Module another Module is attached to and naming the dependent, and returning the count of Records removed rather than a bare success. `LocalStateStore` gained `remove` and `ModuleStore` gained `deleteVersions`, because writing an empty document leaves a row that reads back as "this Database has no Records" — a different fact from "this Database is gone" (ADR-247) — and `deprecated` is a Module that still exists and can be rolled back to. ADR 2026-09-07 "Deleting a Module is a question with three answers". An existing rail assertion said the rail must never call `modules.uninstall`; it narrowed to "hiding never reaches the server", which is still true and is the fact it was protecting. Not landed: another member's saved View on a deleted Database is left behind (the `view_configs` delete policy is owner-only, and widening a security policy to tidy up is the wrong trade), a share grant pointing at it resolves to nothing, and the Module's folder under `~/Documents/Bridge/` is untouched because those are the user's own files and deserve their own question.
+- **2026-09-06 — Notion database parity, measured from code and closed in four slices (TASK-108/109/110/111)**: the user asked for every Notion database feature to be present in our tables. Two read-only inventories were taken first, scoring a capability absent whenever it was only a type-union member, a disabled control or a hook with no caller, and the result is `docs/raw/notion-database-parity-2026-09-06.md`, which supersedes the 2026-08-10 audit's per-feature scores. The grammar landed first in `@bridge/tables` so four parallel slices could share it: nine column kinds (longText, email, phone, person, files, status, rollup, autoNumber, button), three view kinds (list, timeline, chart), the number/date/choice/checkbox filter operators with `filterOpsForKind` deciding which a column may offer, and the view mechanics Notion persists — sub-group, row height, cell wrap, column widths and order, a frozen column, per-column summaries, page size, card settings — every one optional so an older saved List resolves unchanged. Then, as PRs #92, #93, #94 and #95: List, Timeline and Chart Views plus a real Gallery (no charting dependency, three shapes in plain SVG); cells that render and edit as their kind, columns that resize, reorder, wrap and freeze, and table grouping, which retired the "grouping is not wired for this View yet" reason on every column; a filter builder with per-kind operators and the first control that ever wrote `filterMatch`, a multi-level sort editor, saved Lists that can be renamed, duplicated, deleted, shared and made the default (migration 0051), and one pagination control; and a server that queries — `moduleRecords.list` searches, filters, sorts, groups and pages over every stored Record before slicing, values are coerced and checked against their kind with `required` enforced, a relation target naming no Database is refused at registration, and rollups are computed on read. Follow-ups landed in the same run: the three new Views held their settings in component state so a saved List forgot them, `ROW_HEIGHT_PX` and the filter helpers were declared but never exported, and the server's new default window silently truncated both Module surfaces — the Record page could not open the 51st Record. ADR 2026-09-06 "One table grammar, four parity slices". Not landed and stated on the tasks: formula on a Module Database stays refused, `autoNumber` is validated but not assigned, a two-way relation is still absent, filters join with one all-or-any switch rather than nested groups, a button cell has no Action runner, grouped bodies are not windowed, and the seventeen Notion features the audit lists as untouched — row comments, row history, sub-items, row templates, bulk property edit, manual row order, row undo and trash, CSV import and export, cell-range paste, database automations, a public API, external sync, a shared-View route, web publishing, database- and column-level permissions, linked views and locked views.
+- **2026-09-06 — the Module surface obeys: toolbar, right-click columns, grid lines, add/rename, Sections once, inline policy, an onboarding turn, a keychain named Bridge (TASK-104/105/106/107)**: the user's first Module Page fought them at every control (BUGS 2026-09-06, verbatim). Fixed across four slices and three subagent PRs (#89, #90, #91). The toolbar is now List/View/Search left and Filter/⋮ right with nothing else — a page's custom actions became a labelled group inside the ⋮. Column commands open on right-click of the header (Enter/Space/ContextMenu keyboard route) and the per-column ⋮ is gone; header and body cells draw vertical rules. `SCHEMA_MUTABLE_SPECS` was the reason "Add column" and rename were dead on Module Databases: the governed schema path now reaches them, `ColumnOverlay` gains `added[]`, adding is its own answer (`canAddColumn`/`addReason`, false with a server-authored reason for Accounting and D2C whose rows are real sqlite columns), and ModulePage asks for the capability like AccountingPage. Adding a Record opens `/module/:name/:pageId/new` instead of swapping the table inline, which is why Intelligence and Governance rendered twice; `RecordPage` no longer mounts `RecordSections` at all. Governance policy is edited in place through the existing governed overlay with no Edit mode, an incomplete rule is never sent and says so, and "Manage in Module Detail" is deleted — it linked the page to itself. Standing explainer prose became `title` tooltips or was cut. The Builder now spends ONE onboarding turn on its own session after installing a Module that declares outside software or has required columns. The OS keyring service is renamed `com.bridge.dealpilot` → `Bridge` with a read-through fallback, because the item holds this app's own secrets. ADR 2026-09-06 "The Module surface obeys". Not landed: Add List needed no code (`view.saved.*` accepts any Database id, proven end to end on a migrated Local Plane against unfixed source) — the control was reporting a real server error, most likely an installed plane migrated before 0047; hand-written surfaces keep the inline Add path; the delete preview now says it did not inspect Views rather than claiming none are persisted; macOS still re-prompts after every local rebuild because each build is ad-hoc signed.
+- **2026-09-05 — the Builder finishes the job; Approvals have no page; the chat panel declutters (TASK-103, TASK-097 done, TASK-101)**: the user's first real build ended in `Could not register academics-module/module.yaml: … options must be an array of strings` after the agent told them to "go to Modules and install" (BUGS 2026-09-05, verbatim). The Builder's grammar never said how a relation names its target (`relation_target`), the chat lane stopped at registration, and the copy was written for developers. Now a rejected definition goes back to the agent's own session (≤2 rounds, verbatim reason), the accepted Module is installed through the governed `modules.install` path with a `user_pref` ask decided by the chatting user in the same turn as a recorded Human decision, and `PLAIN_LANGUAGE_RULES` (no internals vocabulary, first principles, executive style, never "go install it") ride in both lanes — ADR 2026-09-05 "The Builder installs what it builds and speaks plainly". Same report, two subagent PRs merged: #88 deletes the Approvals page (`/approvals` → Tasks, unanchored approvals as "Waiting for your yes" on the Task Manager, dead `relationship.outstandingMaterializations` call removed) and #87 removes the composer footer and Module dropdown and names sessions `<Module> · <date>` (multi-Module attach now has no UI affordance — noted on TASK-101/093). Follow-up the same evening (BUGS 2026-09-05 "the chatbot claims academics is in my side bar when it isnt"): the live repair loop worked but install left the row `promoted` while every surface lists only `available`; the lane now promotes, re-reads the row and only says "in your sidebar" when it is; the left nav re-reads `modules.list` on `bridge:modules-changed` after a chat turn; the user's row was promoted by hand on the live plane.
+- **2026-09-05 — merged PRs #85 and #86, rebuilt and reinstalled the Egg (TASK-097 done)**: PR #85 (`@` addresses an Agent; Chief of Staff stays the face, TASK-101) merged with its migration renumbered 0049 → 0050 because the ledger `superseded` CHECK already held 0049; PR #86 (the Builder discovers before it designs) merged with its task renumbered TASK-101 → TASK-102 — two parallel subagents had both taken TASK-101. Installer rebuilt from main 8771081d (Tauri dmg step failed only because the previous Downloads dmg was still mounted at /Volumes/Bridge; the dmg was written with `hdiutil create` from the signed .app) and installed. Live evidence on the reinstalled Egg: migrations 0049+0050 applied, first tick wrote 255 `superseded` rows, `action.listPending` total 2 in plain language, Canvas sync parked.
+- **2026-09-05 — the approvals pile survived the fix: migration 0049, fenced sweep, parking foreign-Module Automations, plain-language proposals (TASK-097 reopened)**: a read-only copy of the installed Egg's Local Plane showed 375 undecided rows, 0 `superseded`, and no Automation Run since the reinstall — migration 0015's `ledger_user_decision_check` refused `superseded`, the sweep threw, and the scheduler tick died every minute (the 2026-09-04 tests ran on in-memory stores with no constraint). Fixes: `0049_ledger_superseded_decision`; the sweep in its own try/catch; boot parks any active Automation whose Skills belong to a Module outside the profile (the stale Academics "Canvas coursework sync" row); replay carries the persisted Skill; `describeProposal` sentences on Home, Task Page and Approvals. BUGS 2026-09-05 (verbatim), ADR 2026-09-05 "Ledger admits `superseded`; approvals speak plain language; housekeeping never stops Automations". Evidence: `superseded` insert seen failing on a scratch copy of the real plane before 0049 and passing after; db 239/239 (metadata head moved to 0049, no snapshot — constraint-only like 0038); core 805/805 (replay test now expects the persisted Skill); web 242/242 + pending-work 6/6; vocabulary, ui-rules and agent-context gates OK; full `@bridge/api` suite 0 failures.
+- **2026-09-05 — `@` in Chat addresses another Agent; the footer names Modules as Modules (TASK-101)**:
+  the user read the Chat panel's "On this conversation: TaskManager" as Agents and asked why other
+  Agents show at all when Chief of Staff is the face (BUGS 2026-09-05, verbatim there). The line was
+  TASK-093's Module list; it now reads "Working in:" with the explanation on the element. Typing `@`
+  in the composer opens a keyboard-driven picker over `chat.agents.list` — installed Modules' declared
+  Agents resolved to runtime ids and kept only while active in the Organization, Chief of Staff never
+  offered — and inserting one sends `mentions: [runtimeId]`; `turn.send` refuses a non-active id before
+  writing and records each on the assistant turn as an `addressed_agent` ref (core kind, db CHECK,
+  migration 0050), badged "Addressed to X · answered by Chief of Staff". Routing is unchanged and said
+  so: the per-Agent lane handoff is NOT LANDED. ADR 2026-09-05 "`@` addresses an Agent; Chief of Staff
+  stays the face". Evidence: `chat.test.mjs` 9/9 (2 seen failing first), `chat-mentions.test.ts` 2/2,
+  api + web typecheck clean.
+- **2026-09-05 — the Builder discovers before it designs (TASK-102)**: the user asked why "build me
+  a module for my academics" designed two Databases with "No Agents/Automations for now", no mention
+  of the Commons Academics Module, no question about their software, no open-source prior art. Root
+  causes were data, not the model: `MODULE_BUILD_PROCESS` began at "write module.yaml"; `commonsPriorArt`
+  asked only the HTTP registry, unreachable in every no-service boot, so the compiled-in Commons
+  catalogue was never read; the briefing carried no Integrations and prior art carried Pages only.
+  Now `MODULE_DISCOVERY_STEPS` (restate → prior art with OFFER-install → ASK about software against
+  the manifests' Integrations → Skills/Agents/Automations with read/write/egress → structure + plan,
+  ONE message) head the process in both Builder lanes; `commonsPriorArt` ranks
+  `COMMONS_BUILT_IN_MODULES` beside the registry and reports registry status honestly; each entry
+  lists its declared capabilities with `governanceOf`; `integrationsForBriefing()` reads
+  `integration` connectors from the manifests (`google-gmail`, `google-calendar`, `github`,
+  `bizbuysell-alerts`). myzazoo's `src/prompt.md` was read as asked: no discovery step there either;
+  its Skills-as-listed-data shape is what was reused. Evidence: `chat-agentic-backend.test.ts`
+  briefing asserts + ordering unit test, both seen failing first as missing exports; targeted api
+  35/35; typecheck/build clean; vocabulary gate flagged "project"/"tool" in the new copy → reworded,
+  then OK; agent-context OK. ADR 2026-09-05 "The Builder discovers before it designs"; BUGS
+  2026-09-05; TASK-098 note. Not done: a live Claude Code turn on the installed Egg.
+- **2026-09-04 — pending-task batch by subagents, merged in order and shipped in one installer**: PR #81 (TASK-098: the agentic briefing carries installed Modules with Databases/columns/Pages and the Organization folders tagged Module-or-plain, as data), PR #82 (TASK-097: Home ranks waiting approvals by tier external > write > read, untrusted first, oldest first; `superseded` reads as withdrawn in the ledger), PR #83 (TASK-069: Academics is a Commons manifest with three declared Databases and no bespoke code; the old page/router/store deleted; drizzle tables kept until a copying migration exists), PR #84 (TASK-100: `module.sub_modules[]` and per-Database `sections`, rail disclosure, scoped header toggles, `ModuleRecordDetailPage`, `MODULE_STRUCTURE_RULES` in the Builder prompt and briefing, ADR 2026-09-04 "The Builder's Module has the Rulebook's structure"). TASK-037 closed (stashes preserved as pushed `salvage/stash-*` branches, 116 local branches verified contained in main). Merged main verified: turbo build 26/26, api + web typecheck clean, core 805/805, web 242/242, full api suite no failures, vocabulary/ui-rules/agent-context OK. Egg installer rebuilt from main 1e86eaca → `~/Downloads/Bridge-Egg_0.1.0_aarch64.dmg` (22:35). Not done: live walk of any of it on the installed app (user's machine).
+- **2026-09-04 — the Builder's Module has the Rulebook's structure (TASK-100)**: asked whether the
+  Builder maps a requirement onto Module → sub-module → toggle → Section → element page, the answer
+  was "Databases and toggles only". Now `module.sub_modules[]` (collapsible nav children grouping a
+  Module's Pages; unknown or twice-listed page ids refused) and `databases[].sections` (per-Database
+  Notes/Intelligence/Governance, default all on) are parsed in core; `moduleStructure` is the one
+  resolver the rail (reusing the ADR-178 disclosure, keyed `<module>/<sub id>`), `ModulePage` (header
+  toggles = the current scope's Pages), the new `ModuleRecordDetailPage` at
+  `/module/<name>/<page>/<recordId>` (C-15 sticky back + path, fields, `RecordSections`, Save-only
+  writes) and `moduleRecords.structure` read; `records.sections` defaults from the declared Sections;
+  `MODULE_STRUCTURE_RULES` carries §2's decision rules into `MODULE_BUILD_PROCESS` for both the
+  primitive loop and the Claude Code briefing. ADR 2026-09-04 "The Builder's Module has the Rulebook's
+  structure", Rulebook §3d addendum, glossary "Sub-module". Evidence: core manifest 19/19 (+2), api
+  targeted 44/44 (+1 records/structure test, briefing asserts), web 242/242 (+1 source test,
+  `ModuleRecordDetailPage` exempted from the landing-shell ratchet as a Record Detail surface),
+  api/web typecheck clean, vocabulary/ui-rules/agent-context gates.
+- **2026-09-04 — the agentic chat briefing carries the Organization's Modules and folders as data (TASK-098, second half)**:
+  `moduleBuildBriefing` had been static text plus Commons prior art, so a Claude Code turn could
+  not know what the Organization already had. `installedModulesForBriefing` (one row per Module
+  name from the store — `available`, else the newest not-retired version, so a just-registered
+  `private`/`pending_review` Module is listed with that status — with each declared Database's
+  column ids/kinds and each Page) and `organizationFoldersForBriefing` (top-level folder names,
+  each tagged Module (module.yaml) or plain folder of files; never file names or bodies) ride in the
+  `system` prompt as data (ADR-247), capped at 30/50 with "…and N more", and a failed read says
+  "unavailable" rather than vanishing. Evidence: `chat-agentic-backend.test.ts` second turn, seen
+  failing unfixed ('the registered Module is listed with status').
+- **2026-09-04 — first-launch reports: approvals belong to Tasks, the chat lane is briefed, the companion is summoned-only (TASK-097/098/099)**:
+  the Egg's first launch showed 255 inherited approvals (254 identical learning-digest proposals
+  and 117 DevPilot polls still ticking, from a Local Plane that once ran the full profile), the
+  Claude Code chat asked what a "module" is, and the companion appeared on notch hover and at
+  launch. Fixes: `automationProposalKey` — the executor halts on an identical undecided proposal;
+  the scheduler tick withdraws stale duplicates as `superseded` (`pipeline.supersede`); boot parks
+  Automations of non-profile Modules as draft; `action.listPendingForTask` + brief nudges carry the
+  anchor Task; Task Page Approvals section, Home lists approvals by Task, Settings keeps only the
+  ledger; `ChatBackendSendArgs.system` carries `moduleBuildBriefing` and a written module.yaml is
+  registered; `OverlayApp` presents only when `summoned`. BUGS 2026-09-04 ×3 (verbatim), ADR
+  2026-09-04 "Approvals belong to Tasks". Amended the same day after two more companion reports: Fn push-to-talk is a ≈0.4 s hold with NumericPad-flagged keys excluded (a raw Function-flag poll fired on arrows/Home/End/F-keys while typing), and a push-to-talk panel dismisses itself once the task is done (`pttOpened`, `dismissAfterTask`, `onTaskDone`). Evidence: `turbo build` 26/26; api + web typecheck clean; targeted api (scheduler, egg-profile, chat-agentic-backend, egg-boot, router-decide) 35/35; web 241/241; full api suite green except two culture-research cancel timeouts that pass 57/57 in isolation (orphaned test runs from a wiped worktree were holding the socket); vocabulary OK; ui-rules 3/3 doc gates; agent-context 9963 always-loaded bytes; `cargo check` clean. Mid-slice the whole `.claude/worktrees` tree and `.git/worktrees` registry vanished (cause unknown); api/docs were salvaged from disk and the web/core/desktop edits replayed from the session transcript, then re-verified above.
+- **2026-09-04 — the Egg's primary Agents work and Builder-built Modules get a standard Page (AP-183, TASK-096, second half)**:
+  Task Manager 1.10.0 binds `task-manager.skill.web-research` to its Learning Agent and the
+  web-research gate accepts that binding when Relationship is absent, so the Egg's Research Agent
+  runs; `resolveModuleAgentRuntimeId` maps Task Manager's `learning-agent`/`capability-builder`;
+  `BUILDER_AGENT_RUNTIME_ID` is the seeded …d5 (the …d7 split is BUGS 2026-09-04). Manifests
+  declare `module.databases[]` (Blueprint column kinds, validated in core; Pages name a declared
+  `database_id`); `moduleRecords.*` serves definition/rows from `module:records:<module>.<db>`
+  (Local Plane, Human-first guard, undeclared columns refused, column overlay applied); the shell
+  renders every declared Page at `/module/<name>/<page>` (`ModulePage.tsx`, UI Rulebook §3d) and
+  the rail lands on the first Page. A Builder Run on a new Module registers its `module.yaml`
+  (`receipt.registration`; `modules.registerFromFiles` on demand); install stays the governed
+  proposal (Record-writing Modules park for approve). Verified: `egg-boot.test.ts` 3/3 (bare Egg:
+  five Agents active, chat, Research Run, Builder → register → approve → Records),
+  `module-records.test.ts` 3/3, `egg-profile.test.ts` 4/4, full api suite green once its single-owner gate test (`agent-orchestration`) learned the second owner (24/24); api+web
+  typecheck, `build:egg` green (12 JS assets, no Module Page chunk), vocabulary scan, `cargo check` on the sidecar.
+  Desktop Egg installer built the same day once 6 GB of merged worktrees were removed: `prepare:bundle` + `build:tauri:egg` → `Bridge.app` 723 MB and `Bridge_0.1.0_aarch64.dmg` 208 MB, ad-hoc signed, llama.cpp b9000 runtime bundled; first-launch smoke run still owed; the …d7/…d5 Builder id split is BUGS 2026-09-04 (FIXED).
+
+- **2026-09-04 — the installable Egg: Commons directory, `BRIDGE_PROFILE=egg`, Builder prior art (AP-183, TASK-096)**:
+  `platform/modules/*` → `platform/commons/*`, manifests → `platform/packages/module-manifests`
+  (package names unchanged; lockfile importer paths rewritten). `BRIDGE_PROFILE=egg` mounts
+  `eggRouter` (kernel only) and seeds `EGG_MODULES` = task-manager; `VITE_BRIDGE_PROFILE=egg`
+  builds the web shell without Module Pages (2616→2308 KB, 16→0 Module chunks; full build now
+  lazy-loads them). `builder.run` accepts a new kebab-case Module and prompts the standard build
+  process with Commons prior art (`commonsPriorArt`, top-5 word overlap; registry down → Run
+  proceeds). Verified: `egg-profile.test.ts` 4/4, builder-run/modules/commons suites green, api+web
+  typecheck, vocabulary/ui-rules/agent-context checks. ADR 2026-09-04 "The Egg ships the kernel".
+
+- **2026-09-02 (later the same session) — the chat stops forgetting who it was talking to (user report)**:
+  *"When i change AI models in left hand chat, the chat should remain consistent since Bridge is
+  managing context and should direct the chat to a given model … Currently the chat clears when I
+  switch models. Also Each modules continues from previous session that is associated with given
+  module just like claude code sessions are associated with projects but I can add multiple projects
+  to a given session"*.
+  **The clearing predates the agentic backend**: the plane selector has called `newChat` since it
+  shipped, so Local↔Cloud discarded the conversation too — the new Claude Code option only made an
+  old behaviour obvious. Fixed for both: `chat.thread.setBackend` repoints the LIVE thread and every
+  turn stays.
+  **Bridge now hands the incoming engine what was already said.** A backend taking over
+  mid-conversation has no session to resume, so the recent completed turns are rendered and prefixed
+  to its first message — the user's own words verbatim, assistant turns truncated, bounded at 20
+  turns / 12k chars. The decisive test asserts the carried prompt contains the earlier turn, not
+  merely that the thread survived.
+  **One privacy call, made by the user and recorded rather than buried.** Switching a private Local
+  thread onto Claude Code relabels its stored turns public and exports them to Anthropic. Three
+  handlings were offered — consent once per thread, carry silently, carry a summary — and the user
+  chose **carry silently**. ADR-267(c) says plainly that this removes a visible boundary, that it
+  holds at one owner-operator and not past it, and names the revisit trigger: the first non-owner
+  user. The store still records the switch; what went away is the prompt, not the audit trail.
+  **Modules get sessions**: `module_name` + `attached_modules` on `chat_threads` (migration 0045),
+  `chat.thread.forModule` resumes a Module's live thread and creates one only on first visit, and
+  `attachModule` pulls a second Module into the same conversation. Server half tested (5 API tests
+  green); **the Module surfaces do not call it yet**, so the resume is real at the API and invisible
+  in the product. ADR-267, AP-173, TASK-093.
+
+- **2026-09-02 — the Builder Agent gets hands, and Chat gets a second kind of engine (user directive)**:
+  Two directives, one session. (1) *"Refer myzazoo folder for builder agent reference and ensure we
+  have the builder agent completely built and also similar to myzazoo, me having an option to choose
+  claude as one of the model in the right hand chatbot or for avatar, while ensuring it runs terminal
+  in backend"*; (2) *"I want governance but not at cost of execution. Seek approval only if high risk
+  task, else lets have exectuion first approach. Bridge needs an agentic backend similar to my zazoo
+  and I hope capabilities are designed as swappable elements"*.
+  **What was actually there before:** `capability/builder-primitives.ts` had carried the risk lookup,
+  the grant-scope check and the `SandboxProvider` port since Track F2 — with no caller anywhere in
+  `apps/api`. Classification without execution. `invokeAgent` returned the Capability Builder a text
+  draft and held no store or pipeline handle by design. The BA0–BA6 roadmap had been `status:
+  proposed` since July with zero code and no TASK rows. So the honest answer to "is it completely
+  built" was: it has an identity and a persona, and it cannot build anything.
+  **Shipped:** `primitive-policy.ts` (the execute/approve/refuse gate — the encoding of directive 2),
+  `builder-loop.ts` (one governed action per step over the existing `ModelProvider` port's
+  constrained-JSON output, so it runs on local llama.cpp too), `apps/api/src/builder/primitive-executor.ts`
+  (`HostPrimitiveExecutor` — the first code in Bridge that actually reads, writes, edits and runs commands),
+  and the `ChatBackend` port with Claude Code behind it: Agent SDK headless in the API process, OAuth
+  PKCE sign-in ported from myzazoo's `src/oauth.ts` into the Local Plane credential vault, a new
+  `backend` axis on `chat_threads` (migration 0044), and the option in the Chat model menu — which
+  the Avatar composer inherits for free because it renders the same `ChatView`. 45 tests green.
+  **Two design calls worth the ink.** The backend, not the caller, decides a thread's plane: Claude
+  Code runs locally but ships file contents to Anthropic, so the thread is Cloud Plane and
+  `thread.create` overrides the plane hint — filing cloud egress under a Local Plane thread is the
+  one residency mislabelling the model cannot absorb. And the agentic path takes **no cloud grant**:
+  a grant records consent to an exact disclosed context, and the context an external agent chooses is
+  not Bridge's to disclose, so recording one would be a fabricated consent record.
+  **ADR-027 was not weakened, it was scoped.** Container/microVM stays mandatory for untrusted
+  capability bodies (Commons, imports, generated code) and that adapter is still unbuilt. What
+  `HostPrimitiveExecutor` covers is the different case the roadmap never separated: the Builder working in the
+  user's own folder, at their request, on their machine — where the trust boundary is the allow/deny
+  gate plus branch-and-merge, exactly as in myzazoo. It declares `isolation: "host-process"` and is
+  deliberately not assignable to `SandboxProvider` so nothing shopping for a sandbox can accept it.
+  **What is NOT done, said plainly:** nothing yet calls the loop from a governed Builder Run, no
+  action reaches the ledger with a cost receipt, no container adapter exists, and there is no browser
+  evidence for any of the UI — the standalone API demands verified auth and the desktop shell renders
+  in a Tauri window this session could not screenshot. TASK-090 and TASK-091 stay `in_progress`;
+  TASK-092 carries the rest of BA0. ADR-265, ADR-266, AP-172,
+  `docs/raw/builder-agent-execution-plan-2026-09.md`.
+  **Re-confirmed in passing, not mine:** `packages/core/test/input-capture.test.ts:325` classifies a
+  fixed UTC timestamp through a LOCAL-timezone bucket, so "22:00 is night" fails anywhere west of
+  UTC. Green under `TZ=UTC`, red in CDT. Already filed — BUGS.md "OPEN 2026-08-30 … timezone-dependent
+  assertion", item (3), still open three days later and still the only thing standing between
+  `@bridge/core` and a green suite outside UTC.
+
 - **2026-08-17 — the companion chat stretches again, and Zazoo moves out from under the notch (user report)**:
   Two user reports, both about the desktop companion. (1) *"the zazoo avatar chat window is no longer
   stretchable or shrinkable"* — the chat panel had invisible edge-drag handles on
@@ -3805,4 +3977,579 @@ The organization guard fold is a tightening, and I recorded it as one: 286 handl
 
 Two things the agents got wrong that the verify caught. The catalog inversion rewrote `modules/d2c/package.json` after the storage move had added `drizzle-orm` to it, so 52 API test files failed on a missing package; and WhatsApp kept a dependency line on the catalog with no import behind it, which turbo reported as a build cycle before running anything. Both were one-line fixes; both would have been invisible to a green-looking partial run.
 
-`drizzle-kit generate` reproduced 0044 and 0045 exactly from `schema.ts`, so the missing snapshot was regenerated rather than hand-written, and the metadata test now pins head 0045.
+`drizzle-kit generate` reproduced 0044 and 0045 exactly from `schema.ts`, so the missing snapshot was regenerated rather than hand-written, and the metadata test now pins head 0052 after the renumber below.
+
+Landing it on main was its own lesson. Main had already split the router on 2026-09-03, on a branch this one never saw, and had built its own Module Builder and its own notch behaviour since. So the merge kept main's split and re-applied only the guard fold to its 39 routers; dropped the branch's authoring stack and notch fix as superseded; renumbered the migration to 0052; and rebuilt the six per-Module catalog entries from main's newer manifests rather than the branch's. Two sessions solving the same strain a week apart is the cost of a 93-commit gap.
+
+The user's report that the New dialog still lacks Modules turned out to be the seed guard: it filled only an empty registry, so a registry seeded before a built-in was curated never learned about it. It now publishes what is missing.
+
+Landing it took two more passes. The guard fold had asserted membership for Agents as well as people — `assertMembership` takes a userId, so every Agent-callable procedure was refused with "not a member" before the agent floor could say why — and it compared the organizationId before zod had lowercased it, so an upper-case uuid the handler would have taken was refused as non-pilot. Eight tests named the first, one named the second. Both are the same mistake: middleware runs earlier than the parse, and folding an assert outward moves it earlier too.
+
+The user asked again why the New dialog is short. Measuring their own registry settled it: 13 entries, not 15. Relationship and DevPilot are refused by the publish scan as the lethal trifecta, and the union is real — Relationship reads private data on every Page, ingests mail and web, and can send. Exempting first-party built-ins at the publish route turned out to be dead code, because `verifyCommonsEntryContent` independently rejects any scan-failed entry on every read. That is the Capability Trust Model's own definition of a valid entry, so the change was reverted and the decision written up for the user rather than taken quietly.
+## 2026-08-27 — the colleague was right: main could not build a working desktop app (TASK-078, ADR-256, AP-166)
+
+A full fresh-machine reproduction — uninstall, wipe all app data (user portion backed up first), pull `main`, delete every build artifact, rebuild, launch — found three independent breakages stacked in the order a fresh machine meets them: the bundler (correctly) refusing the accounting/d2c merge's native addons in Resources; the TASK-077 updater demanding a CI-only signing secret from local builds; and the accounting migrations folder missing from the deploy whitelist, which booted a dead API behind a live-looking shell. All three fixed the repo's way — keyring-pattern signed Framework + fail-closed loader for better-sqlite3, canvas pruned as the optional dependency it is, updater artifacts skipped without the key, migrations shipped and guarded in `verifyInputs`. The rebuilt app now boots healthy from nothing: sidecar port reported, accounting migrations applied, webview mutations 200. CI never saw any of this because the full bundle job runs only on tags — the colleague was simply the first truly fresh build since ac6de169.
+
+## 2026-08-27 — every issue from the fresh-machine run closed; main's gates green again (TASK-079, ADR-257, AP-167)
+
+"Can you fix all these issues?" — yes: the model download was never broken (human-triggered by design, closed as not-a-bug); the dead-end updater is disabled by the user's explicit choice until distribution exists (BRIDGE_UPDATER=1 re-enables); the false desktop SEC-1 warning became a truthful per-deploy-shape notice (unit-tested red-first); the 16 unclassified procedures (13 accounting/d2c plus 3 jobpilot.onboarding nobody counted) are classified on store-residency evidence; and the retired-vocabulary gate is green through migration, not amnesty — Zazoo's egg became shell, the governance copy dropped its retired noun, TASK-078's own accidental "artifact" findings were caught and renamed, and only Tauri's unrenameable schema key got reviewed allowlist entries. Three BUGS.md entries resolved, including the 2026-08-17 one that warned every session about red that was not theirs.
+
+## 2026-08-29 — every UI rule in one rulebook; the consolidation found the docs describing an app that no longer exists (TASK-080..084, ADR-258, AP-168)
+
+"Can you layout an executive style clear rulebook" — the rules lived across `ui-architecture.md`, the imported `ui-conventions-cvn.md` (C-1..C-34), `design-system.md` and the one thing that actually enforces any of them, `ui-conformance.test.mjs`. Consolidating them meant checking each documented claim against the running code rather than against the other docs, and that is where the value was: three of the user's questions turned out to be documentation describing surfaces that do not exist. **Module Detail** was deleted 2026-08-10 on the user's own directive yet is still named as the destination for admin in four places — so admin (mount/unmount, scopes, versions) has had **no surface at all** since, and `ModuleGovernanceSection`'s "Edit in Module Detail" link redirects the user back to the page they were on. **`module.yaml`** is named in the always-loaded `CLAUDE.md` and in `TASKS.md`; no such file has ever existed, manifests are TypeScript. The **Governance Section** the user thought was missing is in fact built and correctly placed at all 14 call sites — but enforced at exactly one, and declared by exactly one Module of thirteen. Five doc/code contradictions were catalogued with an explicit precedence rule (a passing gate beats the latest directive beats the doc text), including the one the user found unaided: the rail-scope rule still listed Second Brain after ADR-224 removed its entry. On the rules themselves the user rejected the *genre* — backward-facing "X is not Y" rules and meta-rules asserting that examples are not definitions — so ADR-258 makes positive definition the required form and deletes the comparisons outright. Six new rules approved (AP-168) and queued as TASK-080..084 so none of this depends on remembering a chat; two BUGS entries filed. One reversal recorded loudly rather than folded in: **C-33 is overridden**, New opens an element page everywhere. Two things were narrowed against the literal directive and the reasoning written down: the add-row gate is rewritten rather than deleted, and enabled-with-warning stops short of the 13 column-menu items that have no capability behind them, because enabling those would ship a menu that looks live and fails at the server.
+
+## 2026-08-30 — the UI rules stop being advisory: four enforcement layers, one implementation (ADR-260/261, AP-170/171)
+
+"Bring in hooks, governance policies and code level, test level and other enforcement mechanisms for the UI." Built and verified: a **Claude Code PostToolUse hook** (fires as a `.tsx` is written), a **tracked `.githooks/pre-commit`** (fires on commit touching UI or the rulebook), **`pnpm check:ui-rules` wired into `pnpm verify`** (local + CI), and **two new gates in `ui-conformance.test.mjs`** (15 tests now). The first three run the SAME script — an agent-level check that drifts from the CI check is worse than none. The counted-rule checker covers eight rules as a **ratchet**: a count going up fails (you introduced one), and a count going down ALSO fails, demanding the fix be recorded, because an unrecorded fix regresses silently. It froze **395 pre-existing violations** — 334 hardcoded hexes, 29 sub-12px type sizes, 17 native dialogs, 10 `vh`-not-`dvh`, 2 `absolute top-full`, 2 bare `<select>`, 1 `overscroll-contain` — turning invisible debt into counted debt. Three doc gates hard-fail with no baseline: one canonical rulebook (the four retired canons may not regrow rules), no `module.yaml`, no rule directing a reader to the deleted Module Detail. Two findings came out of building it. The doc gate **immediately caught a live Module Detail reference in the rulebook** — which on inspection was a correct line saying the route *was deleted*, so the gate was tightened rather than the prose edited: a gate that fires on correct code is one people learn to ignore. And proving the new conformance gates red-first **found a defect in the gate itself** — the regex prefix-matched, so `<ModuleGovernanceSectionREMOVED` satisfied the check that a Governance Section exists; a tag boundary fixed it. That is the entire argument for CLAUDE.md's rule that a test proves nothing until seen failing unfixed. Documented in `docs/wiki/ui-enforcement.md`, including what is deliberately NOT enforced: the judgement rules (Hick's Law, "a collapsed panel shows its finding") stay reviewer-enforced and are tagged CANON rather than GATED, so the distinction is visible rather than assumed.
+
+## 2026-08-30 — the rail gains right-click, drag-order and rename; Organization admin gets a surface for the first time since Module Detail was deleted (TASK-081, TASK-089, ADR-262)
+
+"start implementing the tasks with multiple subagents." First wave landed. Right-clicking a Module in the rail now opens Hide/Rename, hidden Modules come back from rail **View options** in their previous position, and Modules drag-reorder — all persisted per Organization in `rail-module-presentation.ts` (10 unit tests, pure model, no React). And admin has a home again: `/organization/admin` behind the rail's Organization control, Modules and Members tabs — the gap TASK-080 recorded when it found ADR-180 had put admin inside Module Detail and ADR-224 had then deleted that page, leaving mount/unmount/scopes/versions with **no surface at all** since 2026-08-10.
+
+Both tasks stay `in_progress`, and the reason is the same in both cases: half of each exit test is genuinely not met and marking them done would be a lie the ledger keeps. **A renamed Module's local Files folder does not follow the rename** — the rename is client-side presentation, the folder path is derived server-side, and closing that needs a per-Organization `displayNameOverride` on the installation record plus a folder migration, which is Tier C. **Unmount is explained rather than offered, and there is no invite/accept flow** — both are governed writes, and a button that looks live and fails at the server is precisely what the canon forbids. Named as ceilings in ADR-262, not smoothed over.
+
+Two findings from merging rather than from building. The conformance §5 search-slot regex was **firing on compliant code**: `searchPlaceholder="Search Modules…"` is a page handing `<DataViews>` its placeholder, which is the correct path, and the gate called it a divergence. Anchored, and `JobPilotPage.tsx` came off `KNOWN_DIVERGENCES` as a real burn-down — the second time in two days that building enforcement found the enforcement wrong. And the merge caught a `max-h-[min(70vh,420px)]` in `Layout.tsx` — `NEW VIOLATION — vh-not-dvh (1, was 0)` — because the agents' worktrees branched off `main` and so did not carry the gate they were being measured by. That is a dispatch defect owned here, not an agent defect: agent worktrees must branch off the branch that carries the gate. Central gate green after the fix: 395 violations held at baseline, 3 doc gates pass, 25 tests pass.
+
+## 2026-08-30 — governance stops being read-only and the Chat composer stops being half-disabled (TASK-088, TASK-082, ADR-263)
+
+Wave 2 of the parallel run landed. **Governance is editable.** `module.governance.userEdited` has been parsed by the manifest reader and rendered by the UI since ADR-248 with nothing in the repo able to set it — the flag was written for an overlay nobody built. It exists now: an engine-held overlay keyed by Organization + Module, on the Local Plane state store that learning-consent already rides (no new table, no migration), resolved into the same `governanceVerdict` the enforcement path always used. Accounting's one real governed call site now answers to the **resolved** policy rather than the manifest, and the Section's "Edit in Module Detail" link — which returned the user to the page they were already on — is an in-place editor. That closes the BUGS 2026-08-29 dead end.
+
+The overlay **replaces** the declared policy rather than merging with it, and that is a reading of the TASK row rather than a transcription of it: merge semantics mean the user deletes a manifest deny, saves, and watches it come back. `reset` is the only road back to the default. Written down in ADR-263 as chosen, not read, because the implementing agent's worktree branched off `main` and could not see the row it was building against.
+
+**The paperclip uploads and the mic works everywhere.** Uploads route through `modules.addFile` — the one existing Module File path, not a second uploader — and transcription moved off the Tauri-only Rust command into `chat.voice.transcribe`, same model and same 24 MB ceiling, audio forwarded once and never persisted. Both controls now report their refusals *ahead of time* through `chat.model.status.composer`, so a control that cannot run is visible, disabled, and carries the server's own reason instead of dying after the user has already recorded. The Avatar shortcut still auto-sends and the panel mic still fills the draft for review — that distinction is pinned by test now rather than by convention.
+
+Both rows stay `in_progress`, and for the same reason as yesterday's pair: **neither has been watched in a browser**, and the exit tests say a human sees it. One clause is not merely unverified but currently unrunnable — "a second Organization still sees the shipped default" cannot execute while every `moduleGovernance` procedure calls `assertPilotOrganization`; the test asserts that pin rather than routing around it and proves the Organization key one layer down at the store. It unblocks with TASK-089.
+
+Merging found more than the agents did. Reviewing TASK-088's own suite against its exit test showed two clauses unproven, so **reset** and **Organization keying** got tests written centrally — the reset test proven to bite by mutating `reset` into a no-op. And `git stash` cost real work: it is shared across every worktree of one repository, two agents stashed, one popped and took the other's entry and dropped it. It survived only because the popper noticed and recovered it from the dangling commit. That also left one worktree carrying a sibling's changes, so TASK-082 had to be separated from TASK-088 by diffing the two agent worktrees file-by-file rather than trusting either agent's own file list — four governance files came back byte-identical, which is what made the separation safe. Standing rule now demonstrated rather than asserted: **no agent uses `git stash` in this repo.**
+
+Three red tests were found on `main` that nobody's change caused — a missing `avatar/zazoo/parts` module, an unawaited nested test in `modules.test.ts:386`, and an `input-capture` assertion that only passes in UTC-ish timezones — filed in BUGS.md so the next session does not re-litigate whose failure they are. Central verification after both merges: typecheck 57/57, web 189/190 (the one is the pre-existing avatar failure), API subset 37/37, `check:ui-rules` OK at the 395 baseline with 3 doc gates passing.
+
+## 2026-08-30 — the column menu stops lying and tables gain multi-select; and a "pre-existing failure" turns out to be my own bad command (TASK-084, TASK-086, ADR-264)
+
+Wave 3. **13 of `StandardColumnMenu`'s 17 items had been permanently disabled** — not for risk, but because no governed schema-mutation capability existed behind them. The capability exists now, as a per-Organization column overlay resolved over the shipped `TableSpec`, riding the same Local-Plane seam ADR-263's governance overlay established. Nine items are live and warn before acting through a real dialog carrying a dependency preview; eight stay visible and disabled, each with a stated reason. Three of those eight are the honest ceiling: **the overlay describes columns the Database already has, so an added column has nowhere to store its values** — enabling Add/Duplicate would ship exactly the menu-that-fails-at-the-server the task forbade. And fx binds to Accounting's existing validator rather than growing a second engine; the web app never parses or evaluates, asserted by test.
+
+**Every table now has multi-select**, long-press on touch, and a shared selection bar. The Constraint that a bulk delete be governed identically to three single deletes is met *structurally* rather than asserted: `onDeleteRows(ids)` is the only delete prop and `archiveRelationshipRecord` the only server helper, so the caret, the cell menu and the bar all route through one path. That was proven the right way round — giving the bulk loop its own inline `pipeline.propose` made the ledger test fail on a differing `action`, `skill` and `userDecision`.
+
+Two pieces of engineering worth keeping. The gesture logic went into a **pure reducer** because the web suite has no jsdom, and a swallow written inside an `onClick` closure is behaviour nothing can fail on. Extracting it made the synthetic-click trap provable — and the actual failure mode was worse than the one the task row anticipated: without the swallow the finger-lift toggled the row straight back **off**, emptying selection so the next tap opened a Record. Separately, the dependency preview **distinguishes "inspected, none found" from "never looked"**: Automations and Skills carry opaque `inputs` with no column-level reference in the contract, so a step naming a column cannot be found, and the preview says so in danger colour instead of showing a reassuring blank.
+
+Both rows stay `in_progress`. TASK-086's touch clauses **cannot** be verified here — the reducer is proven, but nothing proves the DOM fires those events at the right moments, and no synthetic dispatch was substituted because it would only prove that events can be dispatched. TASK-084's "every dependent cell recompute" is half-runnable: with no imported facts every metric value is `null`, so the new Value column reads blank in every row. No figure was fabricated to make the clause demonstrable — that is "unknown is first-class" costing a visibly empty column.
+
+Two corrections of my own. **My previous commit broke `check:agent-context` on `main`** — CLAUDE.md went 995 → 1020 words against a 1000 budget, and both agents dutifully reported it as pre-existing when it was mine. Fixed by deleting what should not have been there: the always-loaded file was enumerating five of the rulebook's own rules, which is the recurring cost CLAUDE.md itself warns about, and it still said governance editing "is not built yet" one wave after TASK-088 built it. Now 999 words, 10224 bytes, green. And **the `avatar-liveness` failure I filed in BUGS was my own bad invocation**, not a defect: run the way the package runs it — with `--import ./test/ts-resolve.mjs` — the web suite is 232/232. Withdrawn in place rather than deleted, because the lesson is the entry: a red test is evidence only when invoked the way the project invokes it, and "I ran the tests" is worth nothing without the command.
+
+Central verification after the merge: typecheck 57/57, web 232/232, api subset 62/62, tables 21/21, `check:ui-rules` OK at the 395 baseline, `check:agent-context` green, `check:vocabulary` OK. One conflict at merge, in the one file both agents were warned about, and it was two additive prop lists — resolved by keeping both.
+
+## 2026-09-02 (evening) — the wiring pass: three built-but-unreachable pieces given callers, and a standing rule so it stops happening
+
+User directive, verbatim: *"fix everything that built but is pending connection. Ensure proper wiring of everything's that built. Also ensure in future things are wiring in the same run after breing built"*. Fair. The morning wave shipped a Builder loop nothing called, a Module-session API no surface opened, and a changed-files list the router collected and threw away — each honestly marked NOT LANDED in its TASK, which is the right disclosure of the wrong outcome.
+
+**`builder.run`** is now the seam (`apps/api/src/builder/run.ts` + the procedure). The Module's own governance answers `builder.run` before anything else, so a Module can refuse the Builder quoting the reason the user wrote. Then one `HostPrimitiveExecutor` per Run, its `audit` hook wired to the immutable ledger for every call — executed, escalated, refused — and one closing receipt with stop reason, model, model calls and token counts. `runBuilderLoop` accumulates usage per step and per run so that receipt is measured, not asserted. BA0's third exit criterion is met; the container adapter and the containment CI suite are still open (TASK-092), and I have not pretended otherwise.
+
+Two calls worth naming. The Run passes an **empty** `ModulePrimitivePolicy` rather than mapping the Module's dotted governance rules onto the executor's shell globs — `builder.run` is an action selector and `git push*` is a command pattern, and collapsing two vocabularies would silently reinterpret rules the user wrote for something else. And the ledger forced a good thing: `actor_id` is a uuid column, so `builder:task-manager` could not be an actor and the Builder finally has a runtime identity beside Learning, Strategist, Governance and Chief of Staff.
+
+**Module sessions reached the UI.** `Layout` derives the active Module from the nav route (longest matching base) and threads it through `AgentPanel` → `ChatView` → `useChat(surface, moduleName)`, whose init effect opens that Module's own live thread instead of a blank one. `attachModule` still has no control — a thread can hold several Modules at the API and only one can be attached by clicking; that stays NOT LANDED rather than being quietly counted as done.
+
+**`changedPaths` is a receipt now**, not prose: one `chat_backend_changed_files` ledger row (paths and a count, never contents) referenced from the assistant turn. A model saying it edited twelve files is a claim.
+
+**The standing rule** went into CLAUDE.md — *"Build and wire in the same run. Nothing is shipped until a real caller reaches it from the surface that needs it; otherwise record the gap in the TASK as NOT LANDED."* It is always-loaded, so it was paid for rather than added: eleven existing bullets tightened in place, no rule dropped, `check:agent-context` back under both the 1000-word and 8192-byte budgets. AP-174, ADR-268.
+
+Verification: the whole `apps/api` suite at its own concurrency — 2 failures, both in `jobpilot-culture-research` and both "timed out after 120s waiting for the server to observe the socket close"; that file run alone is 57/57, so they are load-induced socket timeouts under a 4-way concurrent run on this machine, not a regression from anything here. Everything else green. Specifically: `apps/api/test/builder-run.test.ts` 3/3 (a file really on disk with a costed receipt; `git push` refused mid-run and still ledgered; a Module policy denying `builder.run` refusing in the user's own words), `chat-agentic-backend.test.ts` 5/5 including the new changed-files ref, `public-cloud-boundary` 2/2 with `builder.` classified Local-only, `check:vocabulary` OK (it caught "project" in my own system prompt — fixed to "Module"), `check:ui-rules` OK at the 395 baseline, `check:agent-context` green, `@bridge/core` green apart from the known `input-capture` timezone failure already in BUGS. Still no browser evidence for any of the 2026-09-02 wave: the standalone API requires verified auth and the desktop shell renders in a Tauri window this session cannot screenshot.
+## 2026-09-01 — Two questions about Task Manager, three different answers (ADR-269/266, AP-175, TASK-021)
+
+Asked whether every Task given to the Avatar lands in Task Manager and whether every agentic Run and Automation routes through it, the honest answer was not one answer. **Agent Runs were already routed** and I said so: `pipeline.propose` refuses a governed Skill without a `goalTaskRef` naming a real assigned Task, and `child_agent_runs`/`research_runs` carry `task_id` as NOT NULL foreign keys. **A second gap I reported was wrong.** I claimed unmanifested Skills bypass the Task anchor; they cannot, for an Agent — that branch opens only for `(action, resourceType)` combinations `agentFloorDeny` already denies at authority Layer 0, before the pipeline reaches the gate. It is human-only by construction. Withdrawn rather than closed with a check that would have guarded a path no Agent can take.
+
+**The real gap was `automation_runs`**, which had no Task column: the anchor lived on the Automation STEP, a mutable row shared by every Run of it, so an audit could only learn what the step says today, not what was true when the Run happened. Migration 0046 adds `task_id` — nullable, composite-FK'd to `tasks (organization_id, id)`, projected at Run start from the first step that names one. No backfill: historical Runs have no anchor to name and inventing one would assert something the ledger never witnessed.
+
+**For "every task given to Avatar":** the plumbing was never the problem. One sentence in the Chat output contract said `create_task` applies *"if and only if the person explicitly asks to create a Task"*, so ordinary directives — most of what anyone tells an Avatar — produced an answer and no Record. That sentence now captures any instruction, and bars `clarification` from being used to dodge work already understood. The human review card **stays**: minting a Record with no decision would put an Agent in the approver seat `AGENT_FLOOR_MUTATIONS` explicitly denies. I built the classifier change, not the floor breach, and said which was which.
+
+**Then, asked to see the queue, a parser bug.** `parseCanonicalTasks` read the entire `- Status:` line as the status. Sixteen of 87 tasks annotate theirs — `in_progress (admin surface LANDED 2026-08-30, ADR-262; the invite half is NOT met)` — so they matched nothing, the projection called them `open`, and `current-tasks.md` dropped **seven active Tasks, six of them in progress**, from the file every agent loads. They were invisible for exactly the reason that made them worth annotating, and the 4_096-byte budget they now exceed was the size of an index that was missing them. Status is now a token plus a verbatim `statusNote`; the budget rises to 4_608, because hiding active work to stay under a ceiling is not a saving.
+
+**Hierarchy came from `Horizon`, not from invention.** docs/TASKS.md has no `Parent:` field and never had one — 87 sibling `##` sections. `Horizon` is the one grouping each record declares, so the tree is 7 Goal nodes over 87 tasks: 49 completed, 14 in progress, 21 pending, 3 blocked, none unfiled. `Dependencies` stays a sibling edge (ADR-204); conflating it with parenthood would have produced a tree that reads like a blocker graph and is neither.
+
+**What this does NOT do, and it is the thing that was asked for.** `TaskManagerPage` reads the live `taskManager.list` API. Nothing ingests docs/TASKS.md into the `tasks` table — `projectCanonicalTasks` has had no caller but its own test since it was written. So the 94 records above are a correct, correctly-hierarchical projection **with no consumer**, and the Task Manager surface still shows whatever the local Database holds. The ingest is the next step and is not started.
+
+Verified: `task-doc-parser` 9/9, with both new cases run against `git show HEAD:` first and seen failing. Full workspace build 34/34, no TS errors. `@bridge/core` green under `TZ=UTC`. `@bridge/db` 239/239 — the one failure was `migration-metadata`, a head-pin that must be advanced when a migration lands; advancing it 0043 → 0046 also ran its `drizzle-kit generate` no-op assertion, which is the actual proof that the by-hand 0046 snapshot matches `schema.ts` (the composite FK is deliberately in neither). api `task-manager` + `task-manager-automations` + `chat` 45/45. `check:agent-context` green at the new budget. Found on the way and filed, not fixed: `input-capture.test.ts` asserts `timeOfDay === "night"` for a hardcoded UTC instant while the value is computed in local time, so `pnpm verify` is red on any machine outside UTC — pre-existing, and the fix is a decision about what the facet means, not a test edit.
+
+## 2026-09-01 — The ledger becomes real Task Records (ADR-271, AP-176, TASK-021)
+
+The previous entry ended by saying the projection had no consumer and the ingest was not started. It is now started and done.
+
+Three paths already in the repository looked like they should carry an import, and I checked each before writing anything. **`taskManager.create` in a loop** can't: `draftTaskCreate` forces every Task after the first to `candidate` and stages an impact-fit proposal, so importing 87 rows would produce 93 candidates and 93 proposals — asking a human to re-approve, one at a time, work the ledger says finished weeks ago. **`proposeProjectionReconcile`** can't: it requires the submitted content to byte-equal the Module folder's own `tasks.md`, and its materializer throws on any id it does not already hold. It is a round-trip for edits to an existing queue. **A CLI writing the Database** would need its own wiring, its own auth story, and a second place that knows how a Task Record is shaped.
+
+So a fourth path, deliberately narrow: pure `draftCanonicalLedgerImport` plans it, `TaskManagerStore.importCanonicalLedger` applies it in one transaction on both implementations, one procedure exposes it, one button reaches it. **The whole difference from intake is a single line — an imported Task lands at the status the ledger states.** Intake governance answers "should this be in the queue at all", and for these rows that was answered when they were written; re-asking it 93 times is not more governance, it is a review queue nobody can clear.
+
+What actually needed guarding was idempotence, and that is what got the test. One deterministic uuid per `recordId`, so pressing Import twice re-states statuses and mints nothing. Mutation-checked: delete the existing-row lookup and the test fails. The other invariants kept from intake are dot-path recomputation (never trusted from the payload) and the non-goal `in_progress` exit-test rule — an entry that would breach it is admitted as `pending` **and named in the result**, because a downgrade nobody is told about is a lie about the queue.
+
+The payload is the committed projection, not the Markdown. `docs/TASKS.md` is a repository file the API has no path to in a packaged desktop build; `pending-work.generated.json` already ships in the web bundle; and re-parsing the document server-side would put a second parser in the system that could disagree with the first. A side effect worth naming: this revives `pending-work.ts`, which had been dead code since `/pending-work` started redirecting to `/task-manager`.
+
+Three things it deliberately does not do. Re-import updates **status only** — moving a Task somebody re-parented in the app back to where a text file thinks it belongs is exactly the drift `proposeProjectionReconcile` exists to negotiate. An unmapped `canonicalStatus` is **dropped, not guessed** into `pending`. And `Dependencies` is **not** imported as `depends_on` edges: that line is canonical prose which often names non-task gates, and converting it is its own decision.
+
+Verified: workspace build 34/34. api `task-manager` 4/4 — the new tree/status/re-import assertion, plus one proving a bad parent is refused whole and leaves no rows behind. web 235/235, including three new pure mapping cases, one of which runs the real committed projection through the mapper and checks every record maps and every parent is present. The mapping lives in `pending-work.ts` rather than the component because the Node runner strips types but does not transform JSX — logic inside a component cannot be asserted at all.
+
+**Still not seen working.** The import has never run against a live API in a browser. "The Page shows 94 records" is inferred from `taskManager.list` returning them in a test, not observed. There is also no automatic re-import: the ledger changes in git, and the Database learns about it when someone presses the button.
+
+## 2026-09-01 — One filter control, a stray block made inert, and effort becomes data (ADR-272, AP-177, TASK-021/TASK-061)
+
+*"Why do I see goals and candidates next to filter? I need only filter and filters to appear inside it."* Both buttons applied exactly one row filter each — `isGoal` and `status` — and both are already columns in `TASK_SPEC`, which the kit's Filter popover already filters by. So they were **deleted, not re-homed**: there was nothing to move, the capability was already in the Filter control. Worth naming that this kit answered the same report on 2026-08-10 — *"Why are there 2 filters, retain only the button"* — and the Page then reintroduced it in a different shape. A scope toggle IS a filter; putting it outside Filter is a second filter UI whatever it is called. **`Import ledger` I kept** in the Custom-actions slot: it is a governed action, not a filter, which is what that slot's contract describes. Flagged rather than assumed.
+
+**Then a real bug, found while reading tasks to estimate them.** The projection had TASK-037 wearing TASK-023's outcome. Cause: `docs/TASKS.md` contains two orphaned runs of `- Field:` lines with no `## ` heading and no `- ID:` of their own, and the parser took the LAST value for a repeated field — so a stray paste became authoritative and TASK-037 displayed another task's outcome, exit test, scope, evidence, requests and approval under its own title, while TASK-039's `Dependencies: none` was silently replaced. First-wins now, plus `duplicateFieldIncidents` reporting every duplicate with line numbers, printed as a warning by the generator. **The stray lines stay in canon.** Their intent cannot be recovered from the file — the second one names TASK-027 pointing accuracy that matches neither neighbour's stated dependencies — and deleting canon I cannot attribute is a worse error than leaving it inert. Filed in BUGS.md for a human.
+
+My first test for this was worthless and I threw it away. "No two tasks share an Outcome verbatim" passed against the broken parser, because the stray block is an older *variant* of TASK-023's text rather than a byte copy. The replacement asserts the actual contract — for every duplicate the document contains, the value the parser kept is the one on the line it kept, never the one it reported as ignored — and it fails on `git show HEAD:` naming `TASK-037.outcome took the value from ignored line 634`.
+
+**Estimates are now data.** 38 open tasks carry an `- Estimate:` line, through the parser, the projection, the import, and a read-only Estimate column (`tasks.estimate`, migration 0047). TEXT not numeric, because the unit is part of the judgement; NULL not zero, because "nobody has estimated this" is not an estimate of none. And stated plainly here: these are **coarse sizings derived from each task's own Outcome and Prototype test — judgement, not measurement**, with no calibration against any actual completion time.
+
+What that surfaces: the two smallest open items, TASK-082 and TASK-086 at 0.5d, are both blocked on things that are not code — *"live web-session runs"* and *"the touch clauses need a real device"*. The smallest item anyone can actually build is TASK-085 at 1d.
+
+Verified: workspace build 34/34. `@bridge/db` `migration-metadata` green through 0047, whose `drizzle-kit generate` no-op assertion is again what proves the hand-written snapshot matches `schema.ts`. api `task-manager` 4/4, including a new assertion that an un-estimated Task reads as absent rather than zero. web suite green. `task-doc-parser` 11/11, both new cases seen failing against `HEAD` first. `check:agent-context` green.
+
+## 2026-09-02 — TASK-085: the intake found a defect the intake list did not contain
+
+Disposed ~110 UI rule candidates harvested from three sibling repositories. The test was **adopt on
+evidence of live divergence, not on agreement**: a candidate enters the rulebook when Bridge's code
+diverges from it today or when it names a decision Bridge has not written down. Thirteen of ~110
+outside Category 0 were adopted; the rest are COVERED, SCOPED to the sibling's product, or REJECTED
+with the reason recorded. A rule that costs attention on every UI task and changes no behaviour is a
+net loss — that is ADR-247's argument and it is why this is a triage, not a merge.
+
+**What the exercise actually found.** Three of the eight counted gates in `check-ui-rules.mjs` —
+`native-dialog`, `vh-not-dvh`, `overscroll-contain` — were enforcing rules that appeared nowhere in
+`docs/raw/ui-rulebook.md`. Each fails a build with a citation a reader cannot look up, which turns
+every review into an argument about the gate rather than about the interface. All three clauses are
+now written: **C-23a**, **C-14a**, and the no-`overscroll-behavior: contain` paragraph in Part I §3,
+each naming the ratchet that enforces it. None of this was on the candidate list; it surfaced only
+because an outside list forced a claim-by-claim check against the repo.
+
+**I got one disposition wrong twice and both corrections are in the record.** First I rejected CV
+Naturals' "no native `confirm()`/`prompt()`" as a rule against a defect Bridge does not have —
+reasoned from the repo's general strictness instead of running the grep. There are **17** call sites
+(`SettingsPage` 8, `RelationshipPage` 7, `DealPilotPage` 1, `NewModuleDialog` 1). So I flipped it to
+ADOPTED as a new rule — wrong again: the ratchet already held all 17 in its baseline. The rule was
+live; only its prose was missing. An assumed grep is not evidence, and a rule name in an error string
+is not canon.
+
+**No new debt filed.** The 17 sites are already tracked by a baseline that can only shrink, and
+retiring them is TASK-073's retrofit scope. A triage that grows into a four-file refactor stops
+being a triage.
+
+Verified: `check-ui-rules.mjs` green — 3 doc gates pass, 388 known violations held at baseline, after
+`--update` recorded the four `vh` → `dvh` fixes (`NotchHome` 1→0, `OverlayApp` 3→0, `ZazooLab` 2→0,
+`ZazooWorld` 1→0) that the ratchet was refusing to let go unrecorded. `check-ui-rules.test.mjs` 4/4.
+`ui-conformance.test.mjs` 15/15. `@bridge/web` build green.
+
+## 2026-09-02 — TASK-081: the rename is now the Organization's, and the folder follows it
+
+The rail could rename a Module since 2026-08-30, but only in one browser's localStorage. The Files
+folder is derived server-side, so after a rename the label the person read and the folder they opened
+in Finder disagreed — the unmet clause of TASK-081's own prototype test.
+
+`module_installations.display_name_override` (migration 0048) now carries what an Organization calls a
+Module, and `modules.rename` writes it **and moves the folder in the same call**. Three things worth
+naming. The override lives on the installation row rather than the manifest because
+`seedBuiltInModules` rewrites a built-in Module's stored manifest on every boot — a rename written
+there is reverted at next start; `rail-module-presentation.ts` had already written that reason down
+and this only acts on it. It is set on *every* version row for that Module, not the `available` one,
+so promote and rollback cannot lose someone's name for it. And the ten places that spelled out
+`manifest.module.displayName ?? moduleName` are now one `moduleFolderLabel()`: two of them disagreeing
+would put a Module's Files in two directories, and the one nobody is looking at reads as empty — the
+success-shaped failure this ledger keeps recording. That refactor came first because the override
+could not be added safely on top of ten copies.
+
+**The call I made, stated rather than buried:** when a directory already occupies the new name, the
+rename still lands and the move does not. Both directories stay intact and the mutation answers
+`destination-exists`. Refusing to rename a Module because a folder is in the way is the tail wagging
+the dog — a label is recoverable by renaming again, a merged directory is not.
+
+Verified: `@bridge/api` `modules` 27/27, including the round trip (rename → the folder moves with the
+owner's file still inside → `modules.files` reads the new root without being told the new name →
+renaming back clears the override and moves it back) and the collision case. The round trip was seen
+failing first against a `moduleFolderLabel` that ignored the override — `actual .../DealManager,
+expected .../Pipeline`. `@bridge/core` green, `@bridge/db` `migration-metadata` green through 0048,
+`@bridge/web` build green.
+
+**Two things `pnpm verify` caught that per-package builds had not.** `@bridge/web#typecheck` failed on
+`Layout.tsx`: `installedModules` can be `null` and the optimistic rename update called `.map()` on it
+unguarded — vite's build does not typecheck, so the green I had was incomplete. And
+`procedure-classification` failed: `modules.rename` was neither allowed in public cloud nor explicitly
+closed. It is now `LOCAL_ONLY` with the reason *"renaming a Module MOVES its ~/Documents/Bridge
+folder"* — which is the honest classification, and the gate's own error says why leaving it unlisted
+is not the same as closing it. Worth stating that the one gate list exists precisely for this: two
+narrow green checks did not add up to a green repository.
+
+**Builder Agent, asked in the same message — the honest answer is "half".** The identity and its
+governance are real: `CAPABILITY_BUILDER_AGENT` in `wiring.ts` with an assumed
+`role-capability-builder`, a `signal:write` scope, and `ensureCapabilityBuilderGovernance` wired into
+both the hosted and local wirings. Rung 3 is real too: `packages/core/src/learning/builder.ts`
+(`episodesForSkill`, `draftStepsFromEpisodes`) with its own test file. But **nothing calls those two
+functions outside their tests** — grep across `packages` and `apps` returns the test file and nothing
+else. So there is a Builder Agent identity that can act, and Builder logic that works, and no path
+between them. Rung 4 (structure synthesis) is not built. That is a wiring gap, not a design gap, and
+it deserves its own task rather than a line in this one.
+
+## 2026-09-02 — Builder rung 4: the north-star test passes, and a claim of mine that did not
+
+**First, the correction.** I told the user the Builder Agent's core functions had no caller anywhere.
+Wrong: `episodesForSkill` and `draftStepsFromEpisodes` are called in
+`learning.promotions.drafts.proposeSteps`, which the Settings drafts card drives and four api tests
+cover. Rung 3 has been wired end to end since 2026-08-13. What was actually missing was rung 4.
+
+**Rung 4 is now built and its north-star test passes** — *given only observation data from ETA-style
+work, propose a Deals/Sources/Theses-shaped module without being told about DealPilot.*
+`draftStructureFromClaims` reads K3's entities and claims and finds the shape: a field whose values
+repeat across enough entities is a type discriminator, grouping by its value gives the Databases, and
+the fields a group's members share give the columns — each carrying its support count and the live
+claim ids it was counted from.
+
+**It is a derivation, not a model call, and that is the whole design.** A language model could pass
+the north-star test without reading the data — "these look like deals" is domain recognition, and it
+would produce a confident Deals table out of three rows of anything commercial. A derivation cannot
+cheat: every column is a field it counted, every name is a value it read back. When nothing in the
+data names a group, the shape is still proposed and the name is `null` — writing "Deals" over columns
+that merely look deal-shaped is exactly the failure being avoided, performed by hand instead.
+
+Red-tier claim content is dropped BEFORE counting, so it cannot become a column, cannot become a
+discriminator, and cannot even move a support count — and the count of what was excluded is shown,
+because a quietly smaller proposal is worse than a smaller one that says why. Both halves are
+mutation-checked. The lane is a **query**: rung 4 proposes a structure, it never creates one.
+Materializing a Database is a schema change and stays with the governed pipeline.
+
+Worth recording: the first fixture I wrote used `origin: broker` and the north-star test failed in a
+way that looked like a sort bug. It was not — `classifyClaimContent` is deliberately over-broad and
+"broker" contains "broke" (financial_distress), so the field was dropped as red-tier before counting.
+The safety rule working correctly, caught by a test, and now stated in the fixture's own comment.
+
+Verified: core `learning-builder-structure` 7/7, two mutations RED (red filter disabled → 2 tests
+fail; `STRUCTURE_MIN_ENTITIES` 3→1 → the refusal test fails). api `builder-structure` 4/4 over real
+`buildWiring()`, with all 27 claims seeded through the governed propose→accept path first, plus
+flight-off and non-member fail-closed cases. `@bridge/web` build green.
+
+**Found and deliberately not folded in — TASK-094.** Neither Builder rung attributes its work to an
+Agent Run. `CAPABILITY_BUILDER_AGENT` has a role, a scope and seeded governance in both wirings, and
+both lanes still execute as the requesting human, so the Builder's own work leaves nothing
+attributable behind. That is a real gap against "only an attributable allowed Agent invokes them",
+it is identical in rung 3, and fixing it in rung 4 alone would leave the ladder inconsistent.
+
+Also corrected in canon: TASK-053 still carried "HONEST BLOCKER: TASK-042 has never been executed"
+and a `TASK-042 (rung 4 — OPEN)` dependency. TASK-042 went done on 2026-08-14. The blocker line is
+struck through rather than deleted — a task record that quietly loses its own wrong claim teaches
+nothing.
+
+**`pnpm verify` status for both slices, stated exactly.** Three full runs. Run 1 failed
+`@bridge/web#typecheck` (a real defect of mine — `installedModules` is nullable and my optimistic
+rename update called `.map()` on it; vite's build does not typecheck, which is why per-package green
+was not repository green). Run 2 failed `procedure-classification`: `modules.rename` was neither
+allowed in public cloud nor explicitly closed — now `LOCAL_ONLY` with the reason *"renaming a Module
+MOVES its ~/Documents/Bridge folder"*. Run 3 failed only two culture-fetch cancellation tests on a
+120s socket-close timeout; those are **not** a regression — they passed in run 2 on the same tree,
+the file passes 57/57 in isolation, and run 3 took 43m31s against run 2's 26m31s on the same machine.
+Filed as a flake in BUGS.md rather than papered over: a fixed wall-clock budget in a suite whose
+runtime varies by 65% is a flake generator, and a flake in a cancellation test guards exactly the
+failure that is otherwise invisible. **So: the gate is green except for a documented load-sensitive
+flake, and I am not claiming a clean `pnpm verify`.**
+
+## 2026-09-02 — TASK-094: the Capability Builder acts as itself
+
+The leftover from ADR-275, closed rather than carried. `CAPABILITY_BUILDER_AGENT` had an identity, a
+role, a `signal:write` scope and seeded governance in both wirings since the Builder ladder began, and
+nothing referenced any of it — both Builder lanes ran as whichever human pressed the button.
+
+`runAsCapabilityBuilder` now wraps both: resolve authority for the Builder as actor on behalf of the
+requesting human, open an Agent Run under its agent id, finish it `completed` with the evidence ids
+the derivation used — or `halted` with the error. `learning.builderRuns` reads them back, and both
+lanes return their `runId` so the surfaces can show it.
+
+**The authority check is the point, not the Run.** A Run alone would satisfy the word "attributable"
+and none of its purpose: if narrowing the Builder's scope leaves the lane working, the agent identity
+is decoration — you could rename what the Builder had done but not stop it. So the test that matters
+is the negative one: set the scope to `[]` and the lane fails closed while the human's own authority
+is untouched. Deleting the guard turns exactly that test RED and leaves the other three green.
+
+Two smaller calls. A refusal is a **completed** Run, not a halted one — the Builder declining because
+the evidence does not support a proposal is the Builder working, and `halted` is for a derivation that
+threw; conflating them makes "refused" and "broke" indistinguishable in the one place you look to tell
+them apart. And no propose/decide gate in front of drafting: activation (rung 3) and materialization
+(rung 4) are the governed moments, and gating the explanation instead trains people to approve without
+reading.
+
+Verified: api `builder-attribution` 4/4 with the negative case mutation-checked, `builder-steps` 4/4,
+`builder-structure` 4/4, `procedure-classification` 5/5, web typecheck clean.
+
+**Not done, and said out loud rather than left implicit:** the Builder's Runs carry no taint label,
+and no web surface lists them. `learning.builderRuns` exists and is tested; nothing in the app calls
+it. The data is queryable, the screen is not built.
+
+## 2026-09-03 — AP-182 applied: governance proportionality (ADR 2026-09-03 "Governance facilitates work")
+
+User directive: governance should facilitate work; only critical issues block, the rest flag and
+can be overridden; model-premised rules are stale. Audit in
+`outputs/2026-09-03-governance-proportionality-audit.md`; user gave full approval in-session.
+
+Applied (nine items): `pipeline.ts` `requiresApproval` consults the risk band — Agents auto-apply in
+the `informational` band with an audited `governance.auto-apply` result (advisory still drafts: the
+first cut auto-applied advisory too and 22 tests correctly refused — every advisory manifest is a
+learning suggestion or intake whose pending proposal IS the product; see the ADR's correction); Agent-only invocation and the
+Goal/Task ceremony are `governance.flag` results, not rejections (an inactive Agent is still refused);
+`deployment-boundary.ts` is a deny-list; five flights default ON; `verify` drops `check:vocabulary`
+(advisory in CI, `continue-on-error`); `check:agent-context` warns on size and drops the equality
+counts; UI-rules doc gates warn; pre-commit keeps only the PII check; coverage floors dropped on
+twenty packages (core/net-guard/api keep theirs); `tools/eslint-rules` (`no-crm-vocab`) and
+`check:no-dummy-runtime` deleted; APPROVALS policy narrowed; CLAUDE.md merged Tiers A/B and dropped
+the token budgets; ADRs cited by date and title from here on.
+
+Same session, Phase 2 of the cleanup closed: full `@bridge/api` suite 581 tests / 580 pass / 0 fail
+(one skipped) after the router split into `routers/<ns>.ts` + `router-shared.ts`, the
+`organizationGuard` middleware, and the shared `test/caller.ts`.
+
+**Not done by the agent:** the `.claude/settings.json` PostToolUse UI-rules hook — auto mode refuses
+settings edits; the user removes the `hooks` block by hand.
+## 2026-09-03 — TASK-028: the research agent runs without the companion, and its brief becomes a Result
+
+The Research Run engine has been correct since July and reachable only from one place: the desktop
+overlay webview. "Bridge runs a multi-step research objective on its own in the background" was true
+while a panel was open on one Mac. That is the gap this slice closes.
+
+**The executor moved, the governance did not.** `apps/api/src/research-executor.ts` runs the same
+`@bridge/research` loop in the API process. It owns no authority of its own — every outside edge is a
+hook the router hands it from helpers that were already governed: search is the pipeline-proposed
+`web-research` Skill, planning is a receipted `ModelProvider` completion, reading is `HttpPageReader`
+over `guardedFetch`, each step lands as a terminal child Agent Run. That is what makes an executor
+testable with no network, no model, and no database — and why the file is short.
+
+**Four functions were extracted rather than copied.** `skill.webResearch`, `research.start`,
+`research.recordStep` and `research.complete` now share exactly the code the server executor calls.
+Two executors over two copies of the egress path would have been two chances to drift on rights,
+quarantine, or taint; the sharing is the point, the thinner procedures are a side effect.
+
+**Stop is checked per executed step, not on a timer.** A timer is either laxer than the engine allows
+(a poll interval of latency) or wasteful (polling a database while a page loads). Reading the flag
+immediately after a step's evidence lands means the engine's next loop-top check sees it, so a Run
+ends at the very next step edge — one step of latency, which is the step that was already in flight.
+The test that proves it was seen failing against the timer version first.
+
+**The executor never rejects.** A loop that throws still freezes the Run as `executor_error`. A Run
+left `running` with nothing driving it is the one state the Run detail Page cannot describe honestly,
+so the executor is not allowed to produce it.
+
+**The brief is now a Result, not a column.** `completeResearchRun` freezes the Run row first —
+complete-once belongs to the store and the 0035 trigger — then writes the brief as an owner-scoped
+Memory plus an Event on the Learning Agent's Task, both `untrusted_external`: a brief synthesized
+from fetched pages is exactly as trustworthy as the pages it summarizes. A Run that stopped without a
+brief records nothing. The desktop overlay gets this too, because it completes through the same
+procedure.
+
+Verified: api typecheck clean, web typecheck clean, `research-executor` 6/6, `research-runs` 7/7
+(3 new), web suite green.
+
+**Not done, and said out loud.** The loop runs in the API process, so an API restart interrupts a Run
+rather than carrying it — BR4 resume replays the ledger, and the call site carries a `ponytail:` note
+naming the job runner as the upgrade. There is still no actuator and no proposal channel, so amber
+steps stay engine-blocked. And nothing here ran against a live provider or a live model: this proof
+is deterministic, and the live checks remain TASK-041's.
+
+## 2026-09-03 — TASK-093 and TASK-062: a conversation that spans Modules, and a View that survives a reload
+
+Two P1s off the queue, taken in the order that puts the smallest gap first.
+
+**TASK-093 — the control that was missing.** The server had carried `moduleName` and
+`attachedModules` since ADR-267e and `useChat` had called `attachModule` since; nothing in the app
+reached it. A thread that can span Modules but offers no way to attach one is a capability only a
+test can use. The composer now carries an "Attach a Module" select beside the model select, offering
+only Modules this Organization has installed (the same `modules.list` filter the nav uses, so the
+offer matches what a user can actually open) and hiding the ones already on the thread; the Modules
+on the conversation render as badges above the composer, which is the half of the exit test that says
+"confirm both are listed".
+
+Noted rather than guarded: `forModule`/`attachModule` still accept any Module-name string. That is
+harmless while the name is a durable LABEL with no filesystem or authority effect — grep says nothing
+but `liveModuleThread` reads it — and the UI only offers installed Modules. The moment a Module name
+selects that Module's files for an agentic backend, both procedures need an installed-Module check,
+in one shared guard rather than two. Building it now would have been a guard against a threat that
+does not exist yet; saying where it goes costs nothing.
+
+**TASK-062 — configuration that only lives in React state is not configuration.** One `view_configs`
+table (migration 0047), a `ViewConfigStore` port with an in-memory double, a Drizzle implementation,
+`view.saved.list/save/update/remove`, and `useSavedViews` wired into `<DataViews>` **itself**. The
+shell owns it deliberately: fifteen pages render through `<DataViews>`, and a per-page opt-in would
+have been fifteen chances to forget — every one of them gained saved Lists without being edited. A
+saved View restores both halves of what was on screen: the `ViewConfig`, and the column visibility
+the shell keeps outside it. The List slot's "not built yet (TASK-062)" disabled reason is deleted,
+and a conformance test now fails if that placeholder ever returns.
+
+**Two scopes from the first migration, not one.** A View is `personal` or `organization`, and the
+RLS policy uses a WIDER predicate for read than for write — an organization-scoped View is readable
+by every member and writable only by its owner. That asymmetry is not symmetry-for-its-own-sake: a
+shared View anyone could rewrite is not a share, and it is exactly the seam TASK-064 extends. Default
+is `personal`: a View is never shared by omission.
+
+**The shape is validated at the router, not in the column.** `ViewConfig` belongs to the view kinds;
+a column that encoded it would migrate every time a kind gained a field. `.strict()` there is
+load-bearing — an unknown key would turn the stored config into a place to carry state past every
+validator downstream, and a test asserts that an unknown key is refused rather than stored.
+
+Verified: core 5/5 new + suite green in three timezones, api `saved-views` 5/5 over the real wiring,
+db suite green including both migration gates (rebased through 0047 with its snapshot, and `generate`
+still a deterministic no-op), web suite green, all typechecks clean.
+
+**Three bugs found by running the suites, all in files neither task touched.** A third instance of
+the nested-`test()` defect (`packages/db/test/local-store.test.ts`) — three in one day is a pattern,
+and BUGS.md now says what would catch the fourth. And a core test that asserted a LOCAL time bucket
+from a fixed UTC instant, so it passed in CI and failed on this machine: the direction of failure
+that erodes trust in a suite fastest, because the local failure looks like "your branch broke it".
+
+**TASK-083 — creation is one gesture, and a Section is a property of the Database.** The table's
+in-place draft row is deleted (state, commit path, row and `DraftCell` all gone). New raises
+`onRequestCreate` and `<DataViews>` opens the Record page: every column listed — a `formula`, `skill`
+or locked column shown with what fills it rather than dropped — column defaults pre-filled into React
+state, and exactly one request, on Save. Backing out sends nothing, because there was nothing in
+flight to cancel.
+
+**The shell owns the create page for the same reason it owns saved Lists.** `TableView` had one
+create surface and the Form view another; putting the page in the shell leaves one place to compose a
+new Record and one place to change it. The table only raises the intent.
+
+**⋮ → Records toggles Notes, Intelligence and Governance per DATABASE**, over `records.sections` /
+`records.setSection` on the Local-Plane state store the column overlay already uses — human-only,
+membership-checked, and keyed by spec id alone so there is no Record-scoped variant to diverge into.
+Notes live in a **separate namespace**, which is what makes switching the Section off a hide rather
+than a delete; a test turns Notes on, writes a note, turns it off and reads the note back.
+
+**The approved word was "elements"; the shipped word is Record.** `element` is retired canon and
+`check:vocabulary` is the authority on identifiers and copy. An allowlist entry for a surface written
+today would be grandfathering, not migration, so the rename went the other way — the ⋮ entry reads
+**Records** and the behaviour AP-171 approved is untouched.
+
+**The gated test was rewritten, not deleted**, and still guards its original defect: New is always
+present and states a reason when it cannot act (JobPilot and Signals once silently lost a control
+DealPilot had). Two more conformance tests came with it.
+
+Honest ceiling: only ONE per-Module Record Detail page exists (`TaskRecordDetailPage`), so "reopen
+ANY Record page of that Database and the Section is there" is demonstrable on Tasks and nowhere else
+— every other surface opens a Record in a side panel. Those panels render no Sections yet.
+
+Verified: api `record-sections` 5/5 over the real wiring, web 220/220, `check:vocabulary` and
+`check:ui-rules` clean, both typechecks clean. No browser verification (TASK-041).
+
+**TASK-061 — two toolbars was the mechanical reason every page looked different.** `StandardToolbar`
+was §5-conformant and had ONE consumer; `<DataViews>`'s row had fifteen. The documented toolbar and
+the shipped toolbar were different objects, so drift was guaranteed. Approvals moved onto the shell
+and both `StandardToolbar` and its `ListDropdown` wrapper are deleted — the direction of convergence
+is the opposite of the one the task text named, because converging the other way would have moved
+fifteen pages onto the weaker component to satisfy a sentence.
+
+**The ratchet is empty and gone.** Research Runs and Approvals were Databases drawn by hand and are
+now `<ModuleSurfaceLayout>` + `<DataViews>`; Second Brain needed only the layout; Organization and the
+Relationship sub-module pages are exempt with written reasons. The primitive scan now honours EXEMPT —
+a page excused from the shell cannot then be required to use the shell's slots, which is what had been
+failing Settings and Helpdesk for a search box on a surface with no toolbar. Replacing the backlog is
+a stricter gate, not a softer one: a second toolbar component or a reordered §5 slot list now fails
+the build.
+
+Research Runs are started from the standard New gesture (TASK-083's Record page) rather than a
+page-local form. FormView's Build/Preview split is deleted, and click-outside autosave applies only to
+a Record that already exists — autosaving a half-typed new one is the exact defect C-34 forbids.
+
+Verified: web 220/220 with the rewritten gate (shell backlog 0, primitive backlog 0), `check:ui-rules`
+and `check:vocabulary` clean, web typecheck clean. NOT verified: the live desktop pass over the seven
+surfaces, which needs the user's machine (TASK-041).
+
+**TASK-064 — the Share panel stops explaining and starts sharing.** `share_grants` (migration 0048)
+generalizes the one primitive Bridge had (`helpdesk_tickets.access_token`) into a grant with a target,
+a level (`view` ⊂ `edit` ⊂ `coowner`), an expiry and a revocation. Human-only, owner-only, token minted
+server-side — a token the caller chose is not unguessable.
+
+**The RLS replacement is the part that makes a share real.** 0047's read policy admitted owner +
+`organization` scope, so a grant on a personal View would have granted nothing. 0048 replaces it to
+admit rows a LIVE grant names you on, with expiry and revocation inside the predicate: access ends at
+the database, not at whichever caller remembers to check. The in-memory double takes the grant store
+for the same reason — a double that answers differently from production is worse than none.
+
+**Revocation is a write.** The grant stays and reports itself dead; there is no DELETE policy on the
+table. "Who could see this last week" is the question a share ledger exists to answer.
+
+**What is NOT shared yet, said plainly.** Enforcement is on the VIEW, not on the DATA. `resolve` gives
+a recipient the sharer's hidden-column list and the server's `canEdit`/`canReshare`, but Module read
+procedures take an identity, not a grant, so a recipient's rows are still their own. And no route
+opens a shared View, so the panel shows the token rather than inventing a URL. Both are in the TASK row
+as NOT LANDED rather than folded into a green line.
+
+Verified: core `share-grant` 5/5, api `share-grants` 5/5 over the real wiring, procedure-classification
++ public-cloud boundary 7/7 with the four new procedures classified, migration-metadata rebased through
+0048, web conformance 19/19 including a gate that fails if a share URL is ever fabricated.
+
+**Suite note, so the next run is not misread.** The full api suite reported two failures on the pass
+that closed these three rows — `chat-model-manager`'s install-retry test and
+`jobpilot-culture-research`'s socket-abort test, neither in a file this work touched. Both were run
+again on their own: **63/63, green.** They failed because three suites were running concurrently on
+this machine and the second of them asserts a 120s liveness deadline on a real socket close — the same
+sensitivity its own last commit ("Cut shard parallelism to cores/3 and make the socket liveness
+deadline unmissable") was written for. Recorded rather than waved off: a red test is evidence only
+when it is invoked the way the project invokes it, and "it passed alone" is a claim that has to be
+run, not assumed.
+
+**TASK-063 — created/last-edited without storing them twice.** Four new `ColumnKind`s, folded from the
+`events` table on read. The fold lives in the API rather than in a store, so the ordering rule — get it
+wrong and "created" and "last edited" silently swap — is unit-testable without a database, and there
+are five tests on it.
+
+**Derived means unwritable, structurally rather than by convention.** One `isMetadataColumn` predicate
+in `@bridge/tables`: the form refuses them, the Record page lists them with what fills them, and
+Change-type is handed no kind because there is no type they could become. The shell merges them before
+search and sort, or "sort by last edited" would order on empty cells.
+
+**The actor is read from five declared keys and is otherwise unknown.** `events.payload` is free-form
+jsonb; sniffing an actor out of it would invent provenance. Wired on Task Manager; any other Database
+joins with one spec edit and its own `recordEntityType`.
+
+Verified: api `record-metadata` 5/5, web 241/241 with a new gate that fails if a surface makes a
+metadata column writable or the shell stops filling them, tables 21/21, classification 5/5.
+
+## 2026-09-03 — TASK-095: the Avatar has hands
+
+Directive: parity with Hey Clicky, and a proper arrow pointer instead of the ring. Research first:
+Clicky's cursor is an overlay flying a smoothstep Bézier; its real input is a hidden per-window
+driver. Bridge went the other way on purpose (ADR-277): the REAL pointer glides along the same arc the
+glyph draws, so action has a visible tell the way capture has the blink, and the user's hand halts it.
+
+Landed: `actuator.rs` (move/click/type/key/scroll via eleven CoreGraphics externs, no crate),
+`act.rs` (bounded look-decide-act loop, closed JSON vocabulary, `act_start/poll/stop`, `bridge:act-step`
+narration), `AgentPointer.tsx` (arrow glyph, flight on jumps, snap on actuator samples, click ring),
+`DoRun.tsx` + Do mode in the companion panel with the mouse/keyboard switch (default OFF) and the
+Accessibility grant at point of use. Verification: Rust 195 passed + 1 ignored (11 new; clippy clean on the new files); two guards mutation-checked RED-then-green (⌘Q refusal, click-without-cell refusal); web typecheck 0 errors, 117/117 tests, production build, ui-rules and vocabulary gates pass; browser lab (`annotate.html?lab=1`) proves the arrow renders, the click ring centres on its tip, and a throttled flight still lands on target. No live desktop run — no cloud call and no real input event was posted this session; the at-keyboard walk is the user's step.
+
+Not landed, named on the task: walkthrough click-detection, scribble context, dictation-into-app,
+per-app allowlist (TASK-056), skills from the panel (TASK-057). The at-keyboard walk is the user's.
+
+## 2026-09-03 — TASK-095 (same day): the four buildable gaps close
+
+Directive: *"Fix the gaps and then launch the desktop avatar for me to test all the implementations"*.
+Guide mode reuses the Do planner with a teaching voice and swaps the hands for a wait-for-your-click
+(`CGEventSourceButtonState`, permission-free, edge-triggered, padded hit box, one nudge). Circling
+makes the annotate window interactive for exactly one drag and paints the rectangle into the consented
+screenshot rather than cropping it, so the locator's coordinates stay full-frame. Dictation is
+transcription + `act_type_text` behind the same consent, Accessibility, and privacy-guard gates.
+The allowlist is a substring match, empty meaning any (ADR-263's "empty is not default-deny").
+Rust 196 passed; web typecheck 0 errors, 238/238 tests, ui-rules and vocabulary gates pass. App launched for the user's at-keyboard walk.
+
+## 2026-09-03 — Two live defects from the user's first walk
+
+Allowlist gated the look instead of the hands (refused from the Claude app before step 1) — moved to
+right before an action lands, `open_app` exempt. "Sign in with Claude" used `window.open`, inert in
+WKWebView — the shell now opens https URLs via `open_external_url`. Both in BUGS.md; app relaunched.
+
+## 2026-09-04 — worktree cleanup: eight stray branches pushed, fifteen snapshots committed, one directive landed (AP-184)
+
+The disk hit zero mid-session with 27 GB of worktrees, 26 GB of it `node_modules`/`target`. Every local-only commit was pushed (eight branches), every dirty worktree got a `wip:` snapshot commit on its own branch so the folder could go, and each snapshot was checked against `main` before merging. Most were superseded: `worktree-agent-ad6eca` (TASK-081/089 rail presentation + Organization admin) and `academics-module-workflow` (module-scoped chat sessions) had already re-landed on `main` through later sessions, so their merges were aborted rather than fought. The June/July branches sit 350–815 commits behind and stay on their branches as history. **One thing was genuinely missing:** the 2026-08-30 directive "toggle options should always be in header" — the branch wrote it into `ui-architecture-rules-2026-07.md`, which ADR-260/AP-170 retired the same day, so it never reached `main`. Ported as raw `ui-rulebook.md` §5h + a wiki bullet (AP-184), plus the branch's `build.rs` fix: `tauri_build::build()` validates the `bundle.macOS.frameworks` list for every profile, so a fresh debug build failed on the not-yet-extracted `bridge-sqlite3.dylib`; an empty placeholder (same pattern as the keyring one above it) satisfies the manifest check and debug never loads that path. Preflight here was the doc gates (`check:agent-context`, `check:vocabulary`) only — the Rust side was not rebuilt on a full disk, so the `build.rs` change is proven by reading, not by a build. Still on their branches, not merged, each needing real work: `academics-canvas-integration` (new `integrations-canvas` package + migrations 0044/0045 that collide with `main`'s numbering) and `ox-alpha-groq-fallback` (model-provider keys/OpenRouter, conflicts in `router.ts`/`ChatView.tsx`).
+
+## 2026-09-04 — TASK-097 follow-up: Home ranks waiting approvals; the ledger reads `superseded`
+
+The brief's approval nudges now carry `importance` as data (`routers/approval-importance.ts`: external side effect > write > read, untrusted above trusted, older above newer), computed over the first 50 undecided rows and cut to five; Home sorts by it and shows the tier as a label, the count still opens `/approvals`. The web `Decision` vocabulary gains `withdrawn` so a `superseded` ledger row reads "Withdrawn (replaced by a newer identical proposal)" and closes its proposal in the Execution Ledger fold instead of both rows showing "Pending". Tests: `approval-importance.test.ts`, `brief.test.ts` (seen failing with the sort disabled). Left NOT LANDED on TASK-097: anchor Tasks without a Task Manager Record (TASK-030). Pre-existing on this branch, untouched: `pending-work.test.mjs` "the committed projection imports whole" fails 104 ≠ 105 against the committed `pending-work.ts` projection.
+## 2026-09-04 — TASK-069 Academics lands as a Commons manifest with declared Databases, no code
+
+Per ADR 2026-09-04 "The Egg ships the kernel; Modules live in Commons", Academics is now three `module.databases[]` (Subjects, Lecture Sessions, Assignments) on the `academics` manifest, rendered by the standard Module Page and served by `moduleRecords.*`; it joins `COMMONS_BUILT_IN_MODULES` (`need:coursework-vault`) and stays out of `EGG_MODULES`. The bespoke `AcademicsPage.tsx`, `routers/academics.ts`, and `DrizzleAcademicsStore` are deleted so `/module/academics/:page` reaches `ModulePage`. Not landed: the 0042 drizzle tables stay (dropping them could lose rows), rows written through the old router are not migrated, and `relation` columns have no picker on the standard Page yet. New `apps/api/test/academics-module.test.ts` (Egg boot → register → approve → insert one row per Database → list) and a catalog test, both seen red before the manifest change.
+
+
+## 2026-09-07 — TASK-112: Add column asks what it is, and Task Manager gets the capability it was missing
+
+Add column used to mint `New column` of type text with no questions asked. It now opens one dialog — name, type over the twenty kinds `COLUMN_KINDS` accepts, and an add/remove option list for `select`/`multiselect`/`status` — shared by both entry points (the toolbar overflow and the column menu's Add left/right), creating nothing until confirm. An empty name is refused rather than defaulted: confirm stays visible and disabled with the reason on it (ADR-247). `options` and `position` now actually reach the add op; both were accepted server-side and silently dropped, which is why "Add column left" had been landing at the end. Retype carries options the same way, stored beside the overlay as `ColumnOverlayOptions` and resolved over the shipped column. The reported Task Manager gap had a plainer cause than expected: `task-manager.tasks` was in neither `SCHEMA_MUTABLE_SPECS` nor a manifest, so rename, retype, lock and delete were dead there too, not just add — the spec joins the list, `canAddColumn: !shipped` gives exactly the asked-for answer, and `TaskManagerPage` now reads the resolved spec from `tableSchema.get` with its constant demoted to a pre-load fallback. Checked before shipping: the overlay is keyed by column id, no server code matches a Task column by label, and the one writer validates `status` server-side, so a retype produces a refusal rather than a corrupt Task. NOT LANDED: the three D2C pages need only client wiring and the ten other hand-written pages need a server spec first — neither was reported, so neither was done quietly.
+
+## 2026-09-08 — TASK-114: the companion sleeps behind the notch and comes out on hover
+
+User directive, verbatim: *"I want the avatar always present behind my notch. But it should listen to me or appear outside notch only when I hover there or when I trigger it with shortcut"*. The 2026-09-04 rule concealed the window entirely at rest and made ⌘⇧Space the only way in, so the notch home showed nothing at launch. Three states replace two: `interactive` (summoned — shown and taking the mouse), `resting` (shown, CLICK-THROUGH) and `concealed`. Resting matters because the docked window covers a strip of the menu bar; a permanently present window that swallowed clicks there would cost the user their own menus, so `overlay_present` takes an `interactive` flag and sets `ignore_cursor_events` from it. At rest the window shrinks to the cutout's width and 16px more, and Zazoo is parked so his CROWN — not his bounding box, whose top quarter the rig leaves empty — sits at the cutout's lower edge; the window itself clips the rest, so what shows is the top of a sleeping head under the notch. Hover restores the full wake performance, and hover summons ONLY in the notch home: the free-floating avatar has no notch to hover, which is what the 2026-09-04 complaint was actually about. Verified in `overlay.html?lab=1` — the first peek rendered as a plain black strip, which is how the empty rig margin was found. Evidence: two new cases in `apps/web/test/notch-home.test.mjs`, each seen failing against unchanged source; web 314/314; `@bridge/web typecheck` and `cargo check` clean; ui-rules OK.

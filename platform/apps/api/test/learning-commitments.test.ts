@@ -30,20 +30,9 @@ import {
 } from "@bridge/core";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
+import { makeCaller } from "./caller.js";
 
 const ORG = PILOT_ORGANIZATION;
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(61);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(wiring: Wiring) {
-  return appRouter.createCaller({
-    wiring, run: makeRun(), identity: { type: "user", id: PILOT_USER }, authenticated: true, verifying: false,
-  });
-}
 
 class LocalChatModel implements ModelProvider {
   readonly id = "k6-local-chat";
@@ -105,7 +94,7 @@ async function ensureApplied(
 }
 
 test("flight OFF: the send path detects nothing; the suggestion surface fails closed", async () => {
-  const wiring = await buildWiring({ modelProviders: [new LocalChatModel()] });
+  const wiring = await buildWiring({ modelProviders: [new LocalChatModel()], learningObservationEnabled: false });
   try {
     const caller = makeCaller(wiring);
     await sendChatTurn(caller, "k6-off-turn", "I'll send Priya the revised deck by Friday.");

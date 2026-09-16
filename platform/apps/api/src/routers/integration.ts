@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { IntegrationFloorScopeError } from "@bridge/db";
 import { listProviderIds, oauthScopesFor } from "../social/registry.js";
-import { t, procedure, actionEnum } from "../router-shared.js";
+import { actionEnum, procedure, t } from "../router-shared.js";
 
 export const integrationRouter = t.router({
   /** The platforms Bridge can connect, with their declared OAuth scopes. */

@@ -366,6 +366,15 @@ export interface LocalStateStore {
     initialState: unknown,
     reduce: (current: unknown) => LocalStateMutation<T>,
   ): Promise<T>;
+  /**
+   * Remove one state document, returning whether there was one to remove.
+   *
+   * Writing an empty document would leave the row and read back as "this
+   * Database has no Records", which is a different fact from "this Database is
+   * gone" (ADR-247). Deleting a Module with its data is the only caller, and it
+   * is human-confirmed at the surface (2026-09-07).
+   */
+  remove(organizationId: string, namespace: string): Promise<boolean>;
 }
 
 /** The Local Plane stores, assembled. */

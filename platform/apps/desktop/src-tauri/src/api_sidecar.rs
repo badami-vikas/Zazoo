@@ -51,6 +51,7 @@ struct RespawnPlan {
     entry: PathBuf,
     local_dir: PathBuf,
     native_keyring: Option<PathBuf>,
+    native_sqlite3: Option<PathBuf>,
 }
 
 pub struct SpawnedApi {
@@ -134,6 +135,14 @@ fn packaged_keyring_at(desktop_executable: &Path) -> Option<PathBuf> {
         .map(|contents| contents.join("Frameworks/bridge-keyring.dylib"))
 }
 
+#[cfg(target_os = "macos")]
+fn packaged_sqlite3_at(desktop_executable: &Path) -> Option<PathBuf> {
+    desktop_executable
+        .parent()?
+        .parent()
+        .map(|contents| contents.join("Frameworks/bridge-sqlite3.dylib"))
+}
+
 /// Resolve the Node runtime. Release builds accept only an explicit override
 /// or the Tauri-packaged external binary beside the desktop executable.
 fn resolve_node_binary() -> Option<PathBuf> {
@@ -165,6 +174,24 @@ fn resolve_native_keyring() -> Option<PathBuf> {
     }
 }
 
+/// The signed better-sqlite3 Framework backing the accounting/d2c Module
+/// stores. Same rules as the keyring: release macOS only, must exist on disk;
+/// debug builds load the repo's own prebuild through better-sqlite3 unpatched.
+fn resolve_native_sqlite3() -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        if cfg!(debug_assertions) {
+            return None;
+        }
+        let packaged = packaged_sqlite3_at(&std::env::current_exe().ok()?)?;
+        packaged.is_file().then_some(packaged)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
 pub fn dev_web_port() -> u16 {
     std::env::var("BRIDGE_WEB_DEV_PORT")
         .ok()
@@ -185,6 +212,7 @@ fn api_command(
     local_dir: &PathBuf,
     token: &str,
     native_keyring: Option<&Path>,
+    native_sqlite3: Option<&Path>,
     inherited_listener: Option<&TcpListener>,
 ) -> Command {
     let mut command = Command::new(node);
@@ -198,6 +226,9 @@ fn api_command(
         .arg(entry)
         .env_remove("NODE_ENV")
         .env("BRIDGE_ENV", "production")
+        // Egg profile (ADR 2026-09-04): baked at build time so an installed Egg
+        // cannot be switched into the full profile by an environment variable.
+        .env("BRIDGE_PROFILE", option_env!("BRIDGE_PROFILE").unwrap_or("full"))
         .env("PORT", "0")
         // Bind loopback only — never expose the kernel API on the LAN.
         .env("API_HOST", "127.0.0.1")
@@ -232,6 +263,9 @@ fn api_command(
         .stdout(Stdio::piped());
     if let Some(native_keyring) = native_keyring {
         command.env("BRIDGE_KEYRING_NATIVE_LIBRARY", native_keyring);
+    }
+    if let Some(native_sqlite3) = native_sqlite3 {
+        command.env("BRIDGE_SQLITE3_NATIVE_LIBRARY", native_sqlite3);
     }
     #[cfg(unix)]
     if let Some(listener) = inherited_listener {
@@ -282,6 +316,7 @@ pub fn spawn_api(
     local_dir: &PathBuf,
     token: &str,
     native_keyring: Option<&Path>,
+    native_sqlite3: Option<&Path>,
     inherited_listener: Option<&TcpListener>,
 ) -> std::io::Result<Child> {
     api_command(
@@ -290,6 +325,7 @@ pub fn spawn_api(
         local_dir,
         token,
         native_keyring,
+        native_sqlite3,
         inherited_listener,
     )
     .spawn()
@@ -459,6 +495,15 @@ pub fn start(resource_dir: Option<PathBuf>, local_dir: PathBuf) -> Option<Spawne
         );
         return None;
     }
+    let native_sqlite3 = resolve_native_sqlite3();
+    #[cfg(all(target_os = "macos", not(debug_assertions)))]
+    if native_sqlite3.is_none() {
+        eprintln!(
+            "[bridge-desktop] api sidecar: the signed macOS sqlite framework is missing. \
+             Refusing a release API whose Module stores cannot open their databases."
+        );
+        return None;
+    }
     if let Err(err) = std::fs::create_dir_all(&local_dir) {
         eprintln!(
             "[bridge-desktop] api sidecar: could not create Local Plane directory \
@@ -501,6 +546,7 @@ pub fn start(resource_dir: Option<PathBuf>, local_dir: PathBuf) -> Option<Spawne
         &local_dir,
         &token,
         native_keyring.as_deref(),
+        native_sqlite3.as_deref(),
         Some(&listener_reservation),
     ) {
         Ok(c) => c,
@@ -523,6 +569,7 @@ pub fn start(resource_dir: Option<PathBuf>, local_dir: PathBuf) -> Option<Spawne
             entry,
             local_dir,
             native_keyring,
+            native_sqlite3,
         },
     })
 }
@@ -657,6 +704,7 @@ pub fn restart(state: &ApiSidecarState) -> bool {
         &respawn.local_dir,
         &token,
         respawn.native_keyring.as_deref(),
+        respawn.native_sqlite3.as_deref(),
         Some(listener),
     ) {
         Ok(child) => child,
@@ -852,7 +900,7 @@ mod tests {
         let node = PathBuf::from("node");
         let entry = PathBuf::from("server.js");
         let local_dir = PathBuf::from("/test/bridge/local-plane");
-        let command = api_command(&node, &entry, &local_dir, "test-sidecar-token", None, None);
+        let command = api_command(&node, &entry, &local_dir, "test-sidecar-token", None, None, None);
         let envs = command
             .get_envs()
             .map(|(key, value)| (key.to_owned(), value.map(OsStr::to_owned)))
@@ -937,6 +985,7 @@ mod tests {
             &local_dir,
             "test-sidecar-token",
             None,
+            None,
             Some(&listener),
         );
         let envs = command
@@ -962,6 +1011,7 @@ mod tests {
             &PathBuf::from("server.js"),
             &PathBuf::from("/test/bridge/local-plane"),
             "test-sidecar-token",
+            None,
             None,
             None,
         );
@@ -1001,12 +1051,15 @@ mod tests {
     fn sidecar_command_uses_the_reviewed_signed_keyring_loader() {
         let native_keyring =
             PathBuf::from("/Applications/Bridge.app/Contents/Frameworks/bridge-keyring.dylib");
+        let native_sqlite3 =
+            PathBuf::from("/Applications/Bridge.app/Contents/Frameworks/bridge-sqlite3.dylib");
         let command = api_command(
             Path::new("node"),
             &PathBuf::from("server.js"),
             &PathBuf::from("/test/bridge/local-plane"),
             "test-sidecar-token",
             Some(&native_keyring),
+            Some(&native_sqlite3),
             None,
         );
         let envs = command
@@ -1026,6 +1079,11 @@ mod tests {
                 .and_then(|value| value.as_deref()),
             Some(native_keyring.as_os_str())
         );
+        assert_eq!(
+            envs.get(OsStr::new("BRIDGE_SQLITE3_NATIVE_LIBRARY"))
+                .and_then(|value| value.as_deref()),
+            Some(native_sqlite3.as_os_str())
+        );
     }
 
     #[cfg(target_os = "macos")]
@@ -1036,6 +1094,18 @@ mod tests {
             packaged_keyring_at(&executable),
             Some(PathBuf::from(
                 "/Applications/Bridge.app/Contents/Frameworks/bridge-keyring.dylib"
+            ))
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn packaged_sqlite3_is_resolved_from_the_signed_frameworks_directory() {
+        let executable = PathBuf::from("/Applications/Bridge.app/Contents/MacOS/bridge-desktop");
+        assert_eq!(
+            packaged_sqlite3_at(&executable),
+            Some(PathBuf::from(
+                "/Applications/Bridge.app/Contents/Frameworks/bridge-sqlite3.dylib"
             ))
         );
     }
@@ -1121,6 +1191,7 @@ mod tests {
                 entry: PathBuf::from("/nonexistent/server.js"),
                 local_dir: std::env::temp_dir().join("bridge-restart-test"),
                 native_keyring: None,
+                native_sqlite3: None,
             },
         });
 
@@ -1327,6 +1398,7 @@ mod tests {
                 entry: PathBuf::from("server.js"),
                 local_dir: PathBuf::from("/test/bridge/local-plane"),
                 native_keyring: None,
+                native_sqlite3: None,
             },
         });
 

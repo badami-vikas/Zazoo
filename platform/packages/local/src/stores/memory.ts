@@ -375,6 +375,11 @@ export class InMemoryLocalStateStore implements LocalStateStore {
     });
   }
 
+  async remove(organizationId: string, namespace: string): Promise<boolean> {
+    const key = stateKey(organizationId, namespace);
+    return this.#exclusive(key, async () => this.rows.delete(key));
+  }
+
   async #exclusive<T>(key: string, operation: () => Promise<T>): Promise<T> {
     const previous = this.#tails.get(key) ?? Promise.resolve();
     let release = (): void => {};

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { desc } from "drizzle-orm";
 import { d2cSchema } from "../d2c-store.js";
-import { t, procedure, D2C_NOTES_SPEC } from "../router-shared.js";
+import { D2C_NOTES_SPEC, procedure, t } from "../router-shared.js";
 
 /**
  * D2C Notes — the owner's working notes (TASK-074 sub-module, `d2c-notes`

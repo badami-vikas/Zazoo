@@ -4,7 +4,9 @@
 // `ledger` table would. NOTE: no naked relationship scores anywhere — warmth is phrased qualitatively.
 
 export type ActorKind = 'agent' | 'human';
-export type Decision = 'approved' | 'vetoed' | 'edited_approved' | 'auto_approved' | null;
+// `withdrawn` = the ledger's `superseded`: the machine replaced the proposal with a newer
+// identical one; never a Human decision, never executed (ADR 2026-09-04 "Approvals belong to Tasks").
+export type Decision = 'approved' | 'vetoed' | 'edited_approved' | 'auto_approved' | 'withdrawn' | null;
 export type PolicyPhase = 'pre' | 'runtime' | 'post';
 
 export interface PolicyResult {
@@ -90,6 +92,7 @@ export function decisionLabel(d: Decision): string {
     case 'vetoed': return 'Vetoed';
     case 'edited_approved': return 'Edited + approved';
     case 'auto_approved': return 'Auto-approved';
+    case 'withdrawn': return 'Withdrawn (replaced by a newer identical proposal)';
     default: return 'Pending';
   }
 }
@@ -101,6 +104,7 @@ export function decisionToken(d: Decision): string {
     case 'edited_approved': return 'var(--success)';
     case 'vetoed': return 'var(--danger)';
     case 'auto_approved': return 'var(--info)';
+    case 'withdrawn': return 'var(--color-warm-gray)';
     default: return 'var(--warning)';
   }
 }

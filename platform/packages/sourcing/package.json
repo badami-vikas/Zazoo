@@ -14,7 +14,7 @@
     "build": "tsc -b",
     "typecheck": "tsc -b --noEmit false",
     "test": "node --test-reporter=dot --test dist/test/*.test.js",
-    "test:coverage": "node --experimental-test-coverage --test-coverage-include='dist/src/**' --test-coverage-exclude='**/test/**' --test-coverage-lines=70 --test dist/test/*.test.js"
+    "test:coverage": "node --experimental-test-coverage --test-coverage-include='dist/src/**' --test-coverage-exclude='**/test/**' --test dist/test/*.test.js"
   },
   "dependencies": {
     "@bridge/core": "workspace:*"

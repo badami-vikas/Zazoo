@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   canApplyChatResponse,
   isNearChatBottom,
+  needsCloudGrant,
   mergeChatThreadState,
 } from "../src/app/chat/chat-state.mjs";
 
@@ -17,7 +18,11 @@ const desktopNavigation = read("../src/app/lib/desktop-navigation.ts");
 const panelControl = read("../src/app/components/shared/PanelControl.tsx");
 
 test("panel, Page, and Avatar render the same persistent Chat view", () => {
-  assert.match(panel, /<ChatView surface="chat_panel" compact \/>/);
+  // `moduleName` is passed through since ADR-267e (per-Module chat sessions);
+  // this assertion still expected the pre-ADR call shape and had been failing
+  // on main. Asserting the surface and the compact flag is what the test is
+  // for — pinning the exact argument list makes it fail on every prop added.
+  assert.match(panel, /<ChatView surface="chat_panel" compact/);
   assert.match(page, /<ChatView surface="chief_of_staff_page"/);
   assert.match(overlay, /surface="avatar_overlay"/);
   assert.match(overlay, /onOpenTask=/);
@@ -130,7 +135,7 @@ test("Chat exposes model setup, terminal lifecycle actions, and accessible statu
   assert.match(hook, /model\?\.local\.state === "verifying"/);
   assert.match(hook, /if \(id\) void loadThread[\s\S]*void refreshModel\(\)/);
   assert.doesNotMatch(hook, /if \(shouldPoll\) void refreshModel\(\)/);
-  assert.match(view, /const accepted = await chat\.send\(message\)/);
+  assert.match(view, /const accepted = await chat\.send\(message, mentions\)/);
   assert.match(view, /if \(accepted\) setDraft\(""\)/);
   assert.doesNotMatch(view, /setDraft\(""\);\s*restoreComposerFocusRef/);
   assert.match(view, /if \(accepted && pendingMessage\)/);
@@ -147,4 +152,101 @@ test("Chat exposes model setup, terminal lifecycle actions, and accessible statu
   assert.match(panelControl, /aria-valuenow=\{Math\.round\(value\)\}/);
   assert.match(panelControl, /aria-valuetext=\{`\$\{Math\.round\(value\)\} pixels`\}/);
   assert.match(panel, /\{!mobile && \(\s*<ResizeHandle/);
+});
+
+// ---------------------------------------------------------------------------
+// TASK-082 — the composer's two dead controls
+// ---------------------------------------------------------------------------
+
+const companionAsk = read("../src/app/avatar/CompanionAsk.tsx");
+
+test("the paperclip uploads through the one Module File path (TASK-082)", () => {
+  // The dishonest disabled state is gone, and nothing replaced it with a
+  // second dishonest one: the control is present, and its title states the
+  // real reason only when the server says attachments cannot land (§3a).
+  assert.doesNotMatch(view, /Attachments aren't supported yet/);
+  assert.match(view, /type="file"/);
+  assert.match(view, /trpc\.modules\.addFile\.mutate/);
+  // Reuse, not a second storage path: no bespoke upload endpoint.
+  assert.doesNotMatch(view, /chat\.attachment\.upload/);
+  // The message carries the reference, so the attachment is findable from
+  // the turn it was sent with.
+  assert.match(view, /ATTACHMENT_MODULE/);
+  assert.match(view, /attachmentUnavailableReason/);
+});
+
+test("the mic runs on every surface, and still only fills the draft (TASK-082)", () => {
+  // No Tauri gate, and no desktop-only command left in the panel composer.
+  assert.doesNotMatch(view, /isDesktopShell/);
+  assert.doesNotMatch(view, /companion_transcribe/);
+  assert.doesNotMatch(view, /companion_capabilities/);
+  assert.match(view, /trpc\.chat\.voice\.transcribe\.mutate/);
+  // AP-168 does NOT approve auto-send from the panel: dictation fills the
+  // composer for human review, because a Chat turn can start governed Task
+  // proposals.
+  assert.match(view, /setDraft\(\(current\) => \(current \? `\$\{current\} \$\{transcript\}` : transcript\)\)/);
+  assert.doesNotMatch(view, /chat\.send\(transcript\)/);
+  // The Avatar shortcut's auto-send is correct and unchanged.
+  assert.match(companionAsk, /ask\(transcript\)/);
+  // Unavailability is stated on the control, never hidden (ADR-001/§3a).
+  assert.match(view, /voiceUnavailableReason/);
+});
+
+test("the Module rides the route, not a dropdown; the session is named for it (TASK-093, BUGS 2026-09-05)", () => {
+  // The panel binds the conversation to the Module of the Page the user is on:
+  // AgentPanel passes the route's Module and `useChat` resumes-or-starts that
+  // Module's own thread on the server (ADR-267e). No control is needed for it.
+  assert.match(panel, /<ChatView surface="chat_panel" compact moduleName=\{moduleName\}/);
+  assert.match(hook, /trpc\.chat\.thread\.forModule\.mutate/);
+  // The user read "Working in: TaskManager" and the "Mod..." dropdown as noise
+  // (verbatim report 2026-09-05). Both are gone from the composer.
+  assert.doesNotMatch(view, /Working in:/);
+  assert.doesNotMatch(view, /On this conversation/);
+  assert.doesNotMatch(view, /aria-label="Attach a Module"/);
+  assert.doesNotMatch(view, /chat\.attachModule\(/);
+  // The Module is said once, where it belongs: the session name is
+  // "<Module display name> · <date>" — the same display name the sidebar
+  // shows — and "Chief of Staff · <date>" for the standalone Chat. A bare
+  // "Chat · <date>" no longer appears.
+  assert.match(view, /const sessionLabel = \(thread: ChatThread\)/);
+  assert.match(view, /thread\.moduleName \? moduleLabel\(thread\.moduleName\) : "Chief of Staff"/);
+  assert.match(view, /\{sessionLabel\(thread\)\}/);
+  assert.doesNotMatch(view, /Chat · \$\{/);
+  // The display name comes from the same installed-Module read the nav uses.
+  assert.match(view, /trpc\.modules\.list/);
+  assert.match(view, /item\.state === "available"/);
+  assert.match(view, /item\.displayNameOverride \?\?/);
+});
+
+test("Chief of Staff is the one face; other Agents are reached by typing @ (2026-09-05)", () => {
+  // `@` opens a picker bound to a REAL read of the Organization's active
+  // Agents — never a hard-coded list — and the picker is keyboard-driven.
+  assert.match(view, /trpc\.chat\.agents\.list\.query/);
+  assert.match(view, /role="listbox"/);
+  assert.match(view, /aria-label="Agents you can address"/);
+  assert.match(view, /case "Escape":/);
+  assert.match(view, /case "ArrowDown":/);
+  // Inserting a mention tokenises `@Name`; the send carries the runtime id.
+  assert.match(view, /insertMention\(/);
+  assert.match(view, /chat\.send\(message, mentions\)/);
+  assert.match(hook, /\.\.\.\(mentions && mentions\.length > 0 \? \{ mentions \} : \{\}\)/);
+  // The reply says who was addressed and who answered.
+  assert.match(view, /ref\.kind === "addressed_agent"/);
+  assert.match(view, /answered by Chief of Staff/);
+  // No Agent dropdown: Chief of Staff stays the single user-facing Agent.
+  assert.doesNotMatch(view, /aria-label="Chat agent"/);
+});
+
+test("a Claude Code thread sends without asking for a cloud model grant", () => {
+  // Claude Code declares plane "cloud" (it reaches Anthropic), but Bridge
+  // assembles no prompt and consumes no model provider on that path. Branching
+  // on the plane alone made every agentic turn fetch a grant first and die on
+  // "No authorized cloud model provider is configured" (BUGS 2026-09-07).
+  assert.equal(needsCloudGrant({ plane: "cloud", backend: "claude_code" }), false);
+  assert.equal(needsCloudGrant({ plane: "cloud", backend: "bridge" }), true);
+  assert.equal(needsCloudGrant({ plane: "cloud" }), true);
+  assert.equal(needsCloudGrant({ plane: "local", backend: "bridge" }), false);
+  // Both call sites go through the predicate, not a bare plane comparison.
+  assert.doesNotMatch(hook, /thread\.plane === "cloud"/);
+  assert.match(hook, /needsCloudGrant\(view\.thread\)/);
 });

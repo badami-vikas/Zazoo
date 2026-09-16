@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { syncGroqKeyToCompanionJson, t, credentialSettingsProcedure, assertModelProviderKeyId, assertModelProviderKeyStorage } from "../router-shared.js";
+import { assertModelProviderKeyId, assertModelProviderKeyStorage, credentialSettingsProcedure, procedure, syncGroqKeyToCompanionJson, t } from "../router-shared.js";
 
 /**
  * Integration management — connected providers and their USER-EDITABLE scopes.

@@ -235,6 +235,7 @@ function unpack(row: typeof moduleInstallations.$inferSelect): ModuleInstallatio
     state: row.state as ModuleVersionState,
     status: row.status as ModuleInstallationRow["status"],
     lineageManifestId: row.lineageManifestId,
+    displayNameOverride: row.displayNameOverride,
     ...(moduleAttachment ? { moduleAttachment } : {}),
     ...(commonsSource ? { commonsSource } : {}),
     createdAt: row.createdAt.toISOString(),
@@ -456,6 +457,38 @@ export class DrizzleModuleStore implements ModuleStore {
         .returning();
       if (!updated) throw new Error(`module_installations: unknown id ${id}`);
       return unpack(updated);
+    });
+  }
+
+  async setDisplayNameOverride(
+    organizationId: string,
+    moduleName: string,
+    displayNameOverride: string | null,
+  ): Promise<ModuleInstallationRow[]> {
+    return withDefaultOrganization(this.#db, this.#defaultOrganizationId, async (tx) => {
+      const updated = await tx.update(moduleInstallations)
+        .set({ displayNameOverride })
+        .where(and(
+          eq(moduleInstallations.organizationId, organizationId),
+          eq(moduleInstallations.moduleName, moduleName),
+        ))
+        .returning();
+      return updated.map(unpack);
+    });
+  }
+
+  /** Every version row this Module has in one Organization, deleted. Keyed the
+   * same way the rename is, and for the same reason: the user is deleting the
+   * Module, not the version that happens to be available today (2026-09-07). */
+  async deleteVersions(organizationId: string, moduleName: string): Promise<ModuleInstallationRow[]> {
+    return withDefaultOrganization(this.#db, this.#defaultOrganizationId, async (tx) => {
+      const removed = await tx.delete(moduleInstallations)
+        .where(and(
+          eq(moduleInstallations.organizationId, organizationId),
+          eq(moduleInstallations.moduleName, moduleName),
+        ))
+        .returning();
+      return removed.map(unpack);
     });
   }
 

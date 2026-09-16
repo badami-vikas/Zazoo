@@ -1,13 +1,17 @@
 /**
- * Google OAuth2 — borrowed, not hand-rolled (googleapis / google-auth-library).
+ * Google OAuth2 — borrowed, not hand-rolled (google-auth-library).
+ *
+ * `google-auth-library` directly rather than through `googleapis`: the umbrella
+ * package carries generated clients for every Google API (113MB of build/),
+ * and Bridge uses exactly three things from it — OAuth2, Gmail v1 and Calendar
+ * v3. See `gateway-google.ts` for the other two.
  *
  * Read AND write scopes, offline access + consent prompt → a long-lived refresh
  * token. Tokens are persisted to the LOCAL SecretStore (@bridge/local), never to
  * cloud canonical. No third-party connector SaaS is in the path — Bridge talks to
  * Google directly.
  */
-import { google, type Auth } from "googleapis";
-import { CodeChallengeMethod } from "google-auth-library";
+import { CodeChallengeMethod, OAuth2Client } from "google-auth-library";
 import type { OAuthTokenRecord } from "@bridge/local";
 import { GOOGLE_SCOPES } from "./contracts.js";
 
@@ -27,8 +31,8 @@ export function oauthConfigFromEnv(): GoogleOAuthConfig | null {
   return { clientId, clientSecret, redirectUri };
 }
 
-export function buildOAuthClient(cfg: GoogleOAuthConfig): Auth.OAuth2Client {
-  return new google.auth.OAuth2(cfg.clientId, cfg.clientSecret, cfg.redirectUri);
+export function buildOAuthClient(cfg: GoogleOAuthConfig): OAuth2Client {
+  return new OAuth2Client(cfg.clientId, cfg.clientSecret, cfg.redirectUri);
 }
 
 /** Build a consent URL bound to the callback with PKCE S256. */
@@ -76,7 +80,7 @@ export async function exchangeCode(
 }
 
 /** Build an authenticated OAuth client from a stored token record. */
-export function clientFromToken(cfg: GoogleOAuthConfig, token: OAuthTokenRecord): Auth.OAuth2Client {
+export function clientFromToken(cfg: GoogleOAuthConfig, token: OAuthTokenRecord): OAuth2Client {
   const client = buildOAuthClient(cfg);
   client.setCredentials({
     access_token: token.accessToken,

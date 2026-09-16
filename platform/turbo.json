@@ -53,6 +53,10 @@
       ],
       "outputs": []
     },
+    "//#check:ui-rules": {
+      "inputs": ["scripts/check-ui-rules*.mjs", "apps/web/src/**", "!**/dist/**", "!**/node_modules/**"],
+      "outputs": []
+    },
     "//#check:agent-context": {
       "cache": false
     }

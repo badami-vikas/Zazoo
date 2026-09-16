@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ListChecks, Target } from "lucide-react";
+import { Download, ListChecks } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
 import { normalizeViewKind, type TableSpec, type ViewConfig } from "@bridge/tables";
 import { Header } from "../components/shared/Header";
@@ -9,13 +9,25 @@ import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
 import { ModuleGovernanceSection } from "../components/shared/ModuleGovernanceSection";
 import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
+import { TaskApprovalsSection } from "./TaskRecordDetailPage";
 import { DataViews } from "../dataviews/DataViews";
 import { computeEligibleKinds, viewConfigForKind } from "../dataviews/eligibility";
-import type { DataRow } from "../dataviews/types";
+import type { ColumnSchemaActions, DataRow } from "../dataviews/types";
+import type { ColumnSchemaCapability } from "../components/shared/StandardColumnMenu";
+import { canonicalLedgerImportPayload, PENDING_WORK_SOURCE } from "../data/pending-work";
 import { API_TRANSPORT_CONFIGURED, PILOT_ORGANIZATION, trpc } from "../lib/trpc";
 
 const PILOT_USER = "e0f0053b-fc44-476e-be27-1371e179e958";
 
+/**
+ * The Task Database's shipped columns — the PRE-LOAD FALLBACK only.
+ *
+ * `tableSchema.get` returns this same spec with the Organization's column
+ * overlay already resolved over it, and that is what renders the moment it
+ * arrives: the server has the last word on what a Database's columns are
+ * (ADR-247). Keeping a copy here is what lets the table draw before the first
+ * round trip, not a second source of truth.
+ */
 const TASK_SPEC: TableSpec = {
   id: "task-manager.tasks",
   columns: [
@@ -30,10 +42,20 @@ const TASK_SPEC: TableSpec = {
       options: ["candidate", "committed", "pending", "in_progress", "blocked", "done", "parked", "abandoned", "archived"],
     },
     { id: "priority", label: "Priority", kind: "select", editable: true, options: ["P0", "P1", "P2", "P3", "P4"] },
+    // Read-only text, not a number: the unit is part of the judgement, and an
+    // un-estimated Task must render blank rather than 0 (AP-247).
+    { id: "estimate", label: "Estimate", kind: "text", editable: false },
     { id: "outcomeTitle", label: "Outcome", kind: "text", editable: true },
     { id: "outcomeMeasure", label: "Measure", kind: "text", editable: true },
     { id: "outcomeTarget", label: "Target", kind: "text", editable: true },
     { id: "exitTest", label: "Exit test", kind: "text", editable: true },
+    // TASK-063 — derived from the Event log, never stored on the Task row. They
+    // are hidden from the intake form because there is nothing to type into
+    // them: the values appear the moment the first governed write lands.
+    { id: "createdTime", label: "Created", kind: "createdTime", editable: false, hiddenInForm: true },
+    { id: "createdBy", label: "Created by", kind: "createdBy", editable: false, hiddenInForm: true },
+    { id: "lastEditedTime", label: "Last edited", kind: "lastEditedTime", editable: false, hiddenInForm: true },
+    { id: "lastEditedBy", label: "Last edited by", kind: "lastEditedBy", editable: false, hiddenInForm: true },
     {
       id: "parentTaskId",
       label: "Parent Task",
@@ -74,6 +96,7 @@ function toDataRow(task: TaskRow, dependsOn: readonly string[] = []): DataRow {
     isGoal: task.isGoal,
     status: task.status,
     priority: task.priority,
+    estimate: task.estimate ?? null,
     outcomeTitle: outcome?.title ?? null,
     outcomeMeasure: outcome?.measure ?? null,
     outcomeTarget: outcome?.target ?? null,
@@ -90,10 +113,23 @@ export function TaskManagerPage() {
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [goalsOnly, setGoalsOnly] = useState(false);
-  const [candidatesOnly, setCandidatesOnly] = useState(false);
   const [pendingProposal, setPendingProposal] = useState<TaskProposal | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importNote, setImportNote] = useState<string | null>(null);
   const [dependenciesByTask, setDependenciesByTask] = useState<Record<string, string[]>>({});
+  /**
+   * The RESOLVED spec and the governed schema capability (TASK-112).
+   *
+   * User report, 2026-09-07: "why am I still unable to add column in task
+   * manager module?" — and adding was only the half they noticed. Nothing on
+   * this Page had ever asked `tableSchema.get`, and the server did not know
+   * `task-manager.tasks` either, so rename, retype, lock and delete were dead
+   * here as well. Adding stays refused, with the server's own reason: a Task's
+   * row is a real sqlite row in `tasks`, so a new column has nowhere to put
+   * its values.
+   */
+  const [spec, setSpec] = useState<TableSpec>(TASK_SPEC);
+  const [capability, setCapability] = useState<ColumnSchemaCapability | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedView = normalizeViewKind(searchParams.get("view"));
   const initialKind = requestedView && computeEligibleKinds(TASK_SPEC).includes(requestedView) ? requestedView : "table";
@@ -109,11 +145,20 @@ export function TaskManagerPage() {
     setLoading(true);
     setError(null);
     try {
-      const [rows, graph] = await Promise.all([
+      const [rows, graph, schema] = await Promise.all([
         trpc.taskManager.list.query({ organizationId: PILOT_ORGANIZATION }),
         trpc.taskManager.dependencies.query({ organizationId: PILOT_ORGANIZATION }),
+        trpc.tableSchema.get.query({ organizationId: PILOT_ORGANIZATION, specId: TASK_SPEC.id }),
       ]);
       setTasks(rows);
+      setCapability({
+        available: schema.available,
+        reason: schema.reason,
+        canUndo: schema.canUndo,
+        canAddColumn: schema.canAddColumn,
+        addReason: schema.addReason,
+      });
+      if (schema.spec) setSpec(schema.spec as TableSpec);
       const byTask: Record<string, string[]> = {};
       for (const edge of graph.dependencies) {
         byTask[edge.taskId] = [...(byTask[edge.taskId] ?? []), edge.dependsOnTaskId];
@@ -130,13 +175,106 @@ export function TaskManagerPage() {
     void load();
   }, []);
 
-  const visibleTasks = useMemo(
-    () => tasks.filter((task) => (!goalsOnly || task.isGoal) && (!candidatesOnly || task.status === "candidate")),
-    [candidatesOnly, goalsOnly, tasks],
-  );
+  // ADR-271 — the repository's canonical ledger becomes real Task Records.
+  // The payload is the committed projection that ships in this bundle; the
+  // server derives one deterministic id per ledger row, so pressing this twice
+  // re-states statuses instead of minting a second copy of the queue.
+  async function importCanonicalLedger() {
+    setImporting(true);
+    setImportNote(null);
+    setError(null);
+    try {
+      const plan = await trpc.taskManager.importCanonicalLedger.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        entries: canonicalLedgerImportPayload(PENDING_WORK_SOURCE),
+      });
+      setImportNote(plan.note);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  // No page-local scope toggles. "Goals" and "Candidates" were two buttons in
+  // the toolbar's actions slot that each applied one row filter — `isGoal` and
+  // `status`, both already columns in TASK_SPEC and both already reachable
+  // through the kit's Filter control (user report 2026-09-01: "Why do I see
+  // goals and candidates next to filter? I need only filter and filters to
+  // appear inside it"). A filter that lives outside the Filter button is a
+  // second filter UI, which is the same report this kit already answered once
+  // on 2026-08-10. Deleted rather than re-homed: the capability did not move,
+  // it was already there.
   const rows = useMemo(
-    () => visibleTasks.map((task) => toDataRow(task, dependenciesByTask[task.id] ?? [])),
-    [visibleTasks, dependenciesByTask],
+    () => tasks.map((task) => toDataRow(task, dependenciesByTask[task.id] ?? [])),
+    [tasks, dependenciesByTask],
+  );
+
+  /**
+   * Rename / retype / lock / delete, routed to the same governed capability
+   * Accounting and every Module Page use. NO `addColumn`: the server reports
+   * `canAddColumn: false` here, and a handler present against a refusal is a
+   * control that looks live and fails (ADR-247). Its absence is what makes the
+   * menu show the SERVER's reason instead.
+   *
+   * Every command re-reads through `load()` — the server has the last word.
+   */
+  const columnSchema = useMemo<ColumnSchemaActions>(
+    () => ({
+      capability,
+      rename: async (columnId, label) => {
+        await trpc.tableSchema.mutate.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          specId: TASK_SPEC.id,
+          op: { kind: "rename", columnId, label },
+        });
+        await load();
+      },
+      changeType: async (columnId, kind, options) => {
+        await trpc.tableSchema.mutate.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          specId: TASK_SPEC.id,
+          op: {
+            kind: "setKind",
+            columnId,
+            columnKind: kind,
+            ...(options?.length ? { options } : {}),
+          },
+        });
+        await load();
+      },
+      setLocked: async (columnId, locked) => {
+        await trpc.tableSchema.mutate.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          specId: TASK_SPEC.id,
+          op: { kind: "setLocked", columnId, locked },
+        });
+        await load();
+      },
+      remove: async (columnId) => {
+        await trpc.tableSchema.mutate.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          specId: TASK_SPEC.id,
+          op: { kind: "delete", columnId },
+        });
+        await load();
+      },
+      preview: (columnId) =>
+        trpc.tableSchema.preview.query({
+          organizationId: PILOT_ORGANIZATION,
+          specId: TASK_SPEC.id,
+          columnId,
+        }),
+      undo: async () => {
+        await trpc.tableSchema.undo.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          specId: TASK_SPEC.id,
+        });
+        await load();
+      },
+    }),
+    [capability],
   );
 
   function changeView(next: ViewConfig) {
@@ -217,15 +355,24 @@ export function TaskManagerPage() {
       )}
       <ModuleSurfaceLayout
         above={
-          /* Notion-like: the table is always present. When no Database is
-             connected we show an honest banner above the (empty) table
-             rather than hiding it. It sits in the first screen, so it
-             shrinks the table instead of pushing it out of view. */
-          !API_TRANSPORT_CONFIGURED && !loading && !error ? (
-            <div className="mx-3 mt-3 rounded-lg border border-dashed p-3 text-xs text-muted-foreground sm:mx-4 sm:mt-4">
-              No Task Database is connected. Start the Bridge API to create the first real Task.
-            </div>
-          ) : null
+          <>
+            {/* Approvals with no Task behind them (ADR 2026-09-04): the one
+                place a direct Human action's proposal waits for a decision. */}
+            {API_TRANSPORT_CONFIGURED && (
+              <div className="mx-3 mt-3 sm:mx-4 sm:mt-4">
+                <TaskApprovalsSection taskId={null} />
+              </div>
+            )}
+            {/* Notion-like: the table is always present. When no Database is
+               connected we show an honest banner above the (empty) table
+               rather than hiding it. It sits in the first screen, so it
+               shrinks the table instead of pushing it out of view. */}
+            {!API_TRANSPORT_CONFIGURED && !loading && !error ? (
+              <div className="mx-3 mt-3 rounded-lg border border-dashed p-3 text-xs text-muted-foreground sm:mx-4 sm:mt-4">
+                No Task Database is connected. Start the Bridge API to create the first real Task.
+              </div>
+            ) : null}
+          </>
         }
         table={
           loading ? (
@@ -233,11 +380,17 @@ export function TaskManagerPage() {
           ) : error ? (
             <p role="alert" className="p-6 text-sm text-red-600">Task Manager could not load: {error}</p>
           ) : (
+            <>
+            {importNote ? (
+              <p role="status" className="px-3 pt-3 text-xs text-muted-foreground sm:px-4">{importNote}</p>
+            ) : null}
             <DataViews
-              spec={TASK_SPEC}
+              spec={spec}
               view={view}
               data={rows}
               onViewChange={changeView}
+              columnSchema={columnSchema}
+              recordEntityType="task"
               {...(API_TRANSPORT_CONFIGURED
                 ? { onInsert: insertTask, onUpdate: updateTask }
                 : { insertDisabledReason: "The API transport is not configured in this build, so Tasks cannot be created here." })}
@@ -253,26 +406,23 @@ export function TaskManagerPage() {
                 />
               }
               actions={
-                <>
-                  <Button
+                <Button
                     size="sm"
-                    variant={goalsOnly ? "default" : "outline"}
-                    aria-pressed={goalsOnly}
-                    onClick={() => setGoalsOnly((value) => !value)}
+                    variant="outline"
+                    disabled={!API_TRANSPORT_CONFIGURED || importing}
+                    title={
+                      API_TRANSPORT_CONFIGURED
+                        ? "Create Task Records from docs/TASKS.md — Horizon Goal nodes over their Tasks. Safe to repeat."
+                        : "The API transport is not configured in this build, so the ledger cannot be imported here."
+                    }
+                    onClick={() => void importCanonicalLedger()}
                   >
-                    <Target className="size-3.5" /> Goals
+                    <Download className="size-3.5" />
+                    {importing ? "Importing…" : "Import ledger"}
                   </Button>
-                  <Button
-                    size="sm"
-                    variant={candidatesOnly ? "default" : "outline"}
-                    aria-pressed={candidatesOnly}
-                    onClick={() => setCandidatesOnly((value) => !value)}
-                  >
-                    Candidates
-                  </Button>
-                </>
               }
             />
+            </>
           )
         }
         below={

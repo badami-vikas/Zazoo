@@ -2,9 +2,10 @@ import { TRPCError } from "@trpc/server";
 import { join } from "node:path";
 import { z } from "zod";
 import { LEARNING_AGENT, INTERNAL_STRATEGIST_AGENT, resolveAuthorizedCultureSource, computeSourcePolicyHash, materializeCultureSourceFetch, cancelCultureSourceFetch, reconcileIntentChildConsistency, selfHealDeadSynthesisPointer, isResultExpired, CULTURE_SOURCE_REGISTRY, type SynthesizeCultureProfileOutput } from "../wiring.js";
-import { type Action, type DataScope, type ResourceType, createChildAgentRun, hashTaintValue, labelAtSource, type ParentRunEnvelope, uuidv7 } from "@bridge/core";
+import type { Action, DataScope, ResourceType } from "@bridge/core";
+import { createChildAgentRun, hashTaintValue, labelAtSource, type ParentRunEnvelope, type LedgerEntry, uuidv7 } from "@bridge/core";
 import { jobsTableSpec, scoreJobFit, transition, InvalidTransitionError, classifyCultureSource, MAX_CULTURE_SOURCES_PER_RUN, JOB_FUNCTIONS, type ApplicationStage, type CandidateProfile, type JobProfile, type GroundedClaimInput } from "@bridge/jobpilot";
-import { t, procedure, provisionCultureResearchTask, provisionCultureSynthesisTask, paginatedInput, synthesizeCultureProfileOutputSchema } from "../router-shared.js";
+import { assertCultureProposalBindingValid, authenticatedProcedure, organizationGuard, paginatedInput, procedure, provisionCultureResearchTask, provisionCultureSynthesisTask, synthesizeCultureProfileOutputSchema, t } from "../router-shared.js";
 
 /**
  * JobPilot — wires the pure `@bridge/jobpilot` module (scoring, state-machine,
@@ -173,16 +174,16 @@ export const jobpilotRouter = t.router({
      * honest "why is Glassdoor/Reddit/Google reviews skipped" explanation
      * for ineligible sources, matching the disclosure the propose/synthesize
      * flow already builds server-side. */
-    sources: procedure
+    sources: authenticatedProcedure
       .input(z.object({ organizationId: z.string().min(1), company: z.string().min(1) }))
-      .query(async ({ input, ctx }) => {
+      .use(organizationGuard).query(async ({ input, ctx }) => {
         return CULTURE_SOURCE_REGISTRY.filter((s) => s.organizationId === input.organizationId && s.company === input.company).map((s) => {
           const classification = classifyCultureSource(s.sourceType);
           return { id: s.id, sourceLabel: s.sourceLabel, sourceType: s.sourceType, eligibility: classification.eligibility, reason: classification.reason };
         });
       }),
 
-    propose: procedure
+    propose: authenticatedProcedure
       .input(
         z.object({
           organizationId: z.string().min(1),
@@ -190,7 +191,7 @@ export const jobpilotRouter = t.router({
           sourceIds: z.array(z.string().min(1)).min(1),
         }),
       )
-      .mutation(async ({ input, ctx }) => {
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
 
         // Dedupe before anything else — a caller listing the same id many
         // times must not reserve many times the budget/fan-out.
@@ -373,9 +374,9 @@ export const jobpilotRouter = t.router({
      * `proposalId` (re-checked from the ledger here, never trusted from the
      * caller). Idempotent: re-materializing an already-resolved source
      * returns the stored record instead of refetching. */
-    materialize: procedure
+    materialize: authenticatedProcedure
       .input(z.object({ organizationId: z.string().min(1), proposalId: z.string().min(1), childRunId: z.string().min(1) }))
-      .mutation(async ({ input, ctx }) => {
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
         try {
           const record = await materializeCultureSourceFetch(
             {
@@ -397,9 +398,9 @@ export const jobpilotRouter = t.router({
 
     /** Cancels a pending/in-flight source fetch — aborts a REAL in-flight
      * request when one is running, or guarantees one never starts. */
-    cancel: procedure
+    cancel: authenticatedProcedure
       .input(z.object({ organizationId: z.string().min(1), proposalId: z.string().min(1), childRunId: z.string().min(1) }))
-      .mutation(async ({ input, ctx }) => {
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
         try {
           const record = await cancelCultureSourceFetch(
             {
@@ -420,9 +421,9 @@ export const jobpilotRouter = t.router({
         }
       }),
 
-    status: procedure
+    status: authenticatedProcedure
       .input(z.object({ organizationId: z.string().min(1), proposalId: z.string().min(1), childRunId: z.string().min(1) }))
-      .query(async ({ input, ctx }) => {
+      .use(organizationGuard).query(async ({ input, ctx }) => {
         const record = await ctx.wiring.cultureFetchStore.getByProposal(input.organizationId, input.proposalId, input.childRunId);
         if (!record) {
           throw new TRPCError({ code: "NOT_FOUND", message: "unknown culture-research proposal" });
@@ -447,7 +448,7 @@ export const jobpilotRouter = t.router({
      * Skipped sources are recomputed SERVER-SIDE from the registry (never
      * trusted from the client) so the disclosure is authoritative.
      */
-    synthesize: procedure
+    synthesize: authenticatedProcedure
       .input(
         z.object({
           organizationId: z.string().min(1),
@@ -480,7 +481,7 @@ export const jobpilotRouter = t.router({
           ),
         }),
       )
-      .mutation(async ({ input, ctx }) => {
+      .use(organizationGuard).mutation(async ({ input, ctx }) => {
 
         // TASK-011 remediation (2026-07-18 final review, issue 6) — resolve
         // fetched results from THIS EXACT parent Run's own child Runs
@@ -674,9 +675,9 @@ export const jobpilotRouter = t.router({
      * stale/foreign organization). This is what makes "clear storage / change
      * device, still see pending/completed research" possible.
      */
-    latestRun: procedure
+    latestRun: authenticatedProcedure
       .input(z.object({ organizationId: z.string().min(1), company: z.string().min(1) }))
-      .query(async ({ input, ctx }) => {
+      .use(organizationGuard).query(async ({ input, ctx }) => {
         // TASK-011 remediation (2026-07-19 coordinator distributed-defects
         // RE-review, issue 13) — an O(1) durable pointer lookup, NOT a
         // organization-wide scan-then-limit-then-filter (the prior
@@ -719,9 +720,9 @@ export const jobpilotRouter = t.router({
      * alone; the strict `synthesizeCultureProfileOutputSchema` AND a
      * re-derivation of the run's real fetched results must both agree.
      */
-    synthesisResult: procedure
+    synthesisResult: authenticatedProcedure
       .input(z.object({ organizationId: z.string().min(1), company: z.string().min(1), proposalId: z.string().min(1), parentRunId: z.string().min(1) }))
-      .query(async ({ input, ctx }) => {
+      .use(organizationGuard).query(async ({ input, ctx }) => {
         const proposal = await ctx.wiring.ledger.get(input.proposalId);
         if (!proposal || proposal.organizationId !== input.organizationId) {
           return { status: "not_available" as const };

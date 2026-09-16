@@ -59,7 +59,11 @@ function emotionPerformance(emotion: string | undefined) {
 }
 import { tauriInvoke, tauriListen } from "./tauri-internals";
 import { NotchHome, type NotchPose } from "./NotchHome";
-import { companionWindowVisible, type NotchGeometry } from "./notch-home";
+import {
+  companionPresence,
+  companionSummoned,
+  type NotchGeometry,
+} from "./notch-home";
 import {
   CAPTURE_EVENT,
   STATUS_LABEL,
@@ -95,27 +99,23 @@ const GAZE_SATURATION_PX = 520;
  * ponytail: swap for a spoken-finished event if visemes ever matter. */
 const SPEECH_WORDS_PER_SECOND = 175 / 60;
 
-/** Which home Zazoo currently lives in. Persisted, because dragging him out of
- * the notch is a deliberate choice that must survive a restart — waking to find
- * him back in the notch would silently undo the gesture. */
+/**
+ * Which home Zazoo currently lives in — SESSION state, deliberately not persisted.
+ *
+ * It used to be persisted, on the reasoning that "dragging him out of the notch
+ * is a deliberate choice that must survive a restart". The user directed the
+ * opposite (2026-09-11: "But why is he not going into the notch or sitting
+ * inside it at launch?"), and their model is the coherent one: the notch is
+ * where he LIVES, and pulling him onto the desktop is a within-session move,
+ * like taking a book off a shelf. Every launch he is back on the shelf — which
+ * is also what "I want the avatar always present behind my notch" (2026-09-08)
+ * asked for.
+ *
+ * Not persisting IS the implementation: there is no launch-time reset to get
+ * wrong, and a stale `bridge.avatar.home.v1` from an older build is simply
+ * never read again.
+ */
 type AvatarHome = "notch" | "free";
-const HOME_STORAGE_KEY = "bridge.avatar.home.v1";
-
-function loadHome(): AvatarHome {
-  try {
-    return window.localStorage.getItem(HOME_STORAGE_KEY) === "free" ? "free" : "notch";
-  } catch {
-    return "notch";
-  }
-}
-
-function saveHome(home: AvatarHome) {
-  try {
-    window.localStorage.setItem(HOME_STORAGE_KEY, home);
-  } catch {
-    // A companion that cannot persist its home still works; it just forgets.
-  }
-}
 
 /** Full Invoko-spec vocabulary; v1 drives the first four (+ error). */
 export type CompanionState =
@@ -238,6 +238,12 @@ export function OverlayApp() {
   // True while the global push-to-talk shortcut is held (drives CompanionAsk
   // recording).
   const [pttActive, setPttActive] = useState(false);
+  // True while the Ask panel on screen was opened by push-to-talk rather than
+  // a click. Such a panel is a request, not a conversation: once the task is
+  // done (dictation typed, answer delivered and spoken) it dismisses itself so
+  // the companion stops disturbing whatever the user was doing (directive
+  // 2026-09-04: "the avatar should perform the task ... It should disappear").
+  const pttOpened = useRef(false);
   const [hovering, setHovering] = useState(false);
   const [blinking, setBlinking] = useState(false);
   // Zazoo is the companion's face (desktop-companion wiki, Zazoo v1). The
@@ -276,9 +282,7 @@ export function OverlayApp() {
   const [pinned, setPinned] = useState(false);
 
   // --- Notch home (roadmap Z1) -------------------------------------------
-  const [home, setHome] = useState<AvatarHome>(() =>
-    typeof window === "undefined" ? "notch" : loadHome(),
-  );
+  const [home, setHome] = useState<AvatarHome>("notch");
   const [notchGeometry, setNotchGeometry] = useState<NotchGeometry | null>(null);
   const [notchHover, setNotchHover] = useState(false);
   // The Rust cursor poll only tests a small fixed rect around the cutout — it
@@ -369,7 +373,6 @@ export function OverlayApp() {
       unlisten = await tauriListen("bridge:notch-return", () => {
         setNotchPose("bed");
         setHome("notch");
-        saveHome("notch");
       });
     })().catch((error: unknown) => {
       console.error("[companion] notch-return listener failed", error);
@@ -383,42 +386,27 @@ export function OverlayApp() {
   // that), or holding an open composer. Anything else conceals it, so a
   // sleeping Zazoo costs the desktop nothing.
   //
-  // TWO SEPARATE QUESTIONS, and conflating them was the bug (user report
-  // 2026-09-08: "the zazoo is visible even when not explicitly invoked").
-  //
-  //   `notchHome`      — WHOSE contract decides visibility. The stored home,
-  //                      nothing else. Dragging him out is the only opt-out.
-  //   `notchSurface`   — WHAT to draw and where, which genuinely does need the
-  //                      cutout's geometry.
-  //
-  // These used to be one flag, `home === "notch" && notchGeometry !== null`,
-  // driving presentation AND rendering. The geometry probe retries with
-  // backoff and then gives up; when it did, that flag went false, the FREE
-  // home's effect took over, and the window was presented permanently in the
-  // notch home with nothing able to conceal it. Keeping presentation off
-  // geometry is what makes an un-summoned companion stay hidden — see
-  // `companionWindowVisible`, where the rule is pinned by tests.
-  //
-  // The 2026-08-12 report this replaces ("the avatar is missing as Desktop
-  // overlay") stays fixed: without geometry there is no Rust hover signal, but
-  // ⌘⇧Space still opens the ask panel, which reveals him.
-  const notchHome = home === "notch";
-  const notchSurface = notchHome && notchGeometry !== null;
-  const notchVisible = companionWindowVisible({
-    home,
-    sessionReady,
-    notchHover,
-    notchDomHover,
-    notchPose,
-    panel,
+  // GEOMETRY IS PART OF THE CONTRACT. NotchHome renders only once the cutout is
+  // known, so without geometry the free-floating overlay is what is on screen —
+  // but the visibility effect below used to follow the stored `home` preference
+  // instead, keeping the window concealed and waiting for a notch-hover signal
+  // that Rust only ever emits when it HAS geometry. That combination is a
+  // companion that never appears at all (2026-08-12: "the avatar is missing as
+  // Desktop overlay"). One derived flag now drives presentation and rendering
+  // alike, so the two can no longer disagree about which surface is live.
+  const inNotchHome = home === "notch" && notchGeometry !== null;
+  // He lives behind the notch and comes out of it on a hover or the shortcut
+  // (user directive 2026-09-08). The 2026-09-04 complaint that he "activates
+  // on his own" was about the FREE-FLOATING home, which has no notch to
+  // hover — so hover summons only where the notch is actually his home.
+  const summoned = companionSummoned({
+    pttActive,
+    panelOpen: panel !== "none",
+    chatPose: notchPose === "chat",
+    inNotchHome,
+    notchHovered: notchHover || notchDomHover,
   });
-  useEffect(() => {
-    if (!notchHome || !sessionReady) return;
-    void tauriInvoke(notchVisible ? "overlay_present" : "overlay_conceal");
-    // Once concealed, the window's own hover has nothing to report — clear it
-    // so a stale `true` doesn't pin the window open forever the next wake.
-    if (!notchVisible) setNotchDomHover(false);
-  }, [notchHome, sessionReady, notchVisible]);
+  const notchVisible = inNotchHome && summoned;
 
   const expanded = panel !== "none";
 
@@ -482,17 +470,21 @@ export function OverlayApp() {
     };
   }, []);
 
-  // The OS-level window follows the same single gate as the render above:
-  // session readiness only, never onboarding completion (user directive
-  // 2026-08-05). Without this the companion window would stay concealed even
-  // though the component was willing to render.
+  // ONE effect owns the OS window, for both homes. Two of them racing for the
+  // same window is how the companion previously ended up rendered-but-hidden.
+  // The gate is session readiness only, never onboarding completion (user
+  // directive 2026-08-05).
+  const presence = companionPresence({ sessionReady, inNotchHome, summoned });
   useEffect(() => {
-    // In the notch home, visibility is the hover contract's to decide (the
-    // window is concealed at rest so the desktop is untouched). Presenting
-    // here too would race that effect for control of one window.
-    if (notchHome) return;
-    void tauriInvoke(sessionReady ? "overlay_present" : "overlay_conceal");
-  }, [sessionReady, notchHome]);
+    if (presence === "concealed") {
+      void tauriInvoke("overlay_conceal");
+      // The window's own hover has nothing to report once it is off screen —
+      // clear it so a stale `true` doesn't pin it open on the next wake.
+      setNotchDomHover(false);
+      return;
+    }
+    void tauriInvoke("overlay_present", { interactive: presence === "interactive" });
+  }, [presence]);
 
   // Derived companion state (the machine's read model).
   const working =
@@ -580,7 +572,6 @@ export function OverlayApp() {
         // Rust may have force-undocked the window to glide to the target
         // (same reasoning as chase-started above).
         setHome("free");
-        saveHome("free");
         director.perform({ emotion: "curious", attention: "away" });
       });
       unlistenDone = await tauriListen("bridge:point-done", () => {
@@ -610,6 +601,7 @@ export function OverlayApp() {
           setMenuOpen(false);
           setAskSeed(null);
           setPanel("ask");
+          pttOpened.current = true;
           setPttActive(true);
         } else {
           setPttActive(false);
@@ -755,14 +747,28 @@ export function OverlayApp() {
     director.setTalking(false);
   }
 
+  /** A push-to-talk request has been carried out: the panel it opened goes
+   * away and the companion conceals (nothing else keeps it summoned). */
+  function dismissAfterTask() {
+    if (!pttOpened.current) return;
+    pttOpened.current = false;
+    setPanel("none");
+  }
+
   function handleAnswered(text: string, emotion?: string, spoke?: boolean) {
     director.perform(emotionPerformance(emotion));
     stopTalking();
-    if (!spoke) return;
+    if (!spoke) {
+      dismissAfterTask();
+      return;
+    }
     director.setTalking(true);
     const words = text.trim().split(/\s+/).filter(Boolean).length;
     speechTimer.current = setTimeout(
-      () => director.setTalking(false),
+      () => {
+        director.setTalking(false);
+        dismissAfterTask();
+      },
       Math.min(90_000, (words / SPEECH_WORDS_PER_SECOND) * 1000 + 400),
     );
   }
@@ -833,7 +839,7 @@ export function OverlayApp() {
   // idle/resting surface — it only renders once geometry is known, since
   // placing a notch panel from guessed coordinates would put it somewhere
   // arbitrary on the display.
-  if (notchSurface) {
+  if (inNotchHome) {
     if (panel === "ask") {
       return (
         <div
@@ -841,7 +847,7 @@ export function OverlayApp() {
           aria-label={`${name} — screen and voice`}
           style={{
             width: "100vw",
-            height: "100vh",
+            height: "100dvh",
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
@@ -872,7 +878,11 @@ export function OverlayApp() {
             autoQuestion={askSeed}
             onAutoQuestionConsumed={() => setAskSeed(null)}
             onAnswered={handleAnswered}
-            onSpeechStopped={stopTalking}
+            onSpeechStopped={() => {
+              stopTalking();
+              dismissAfterTask();
+            }}
+            onTaskDone={dismissAfterTask}
           />
         </div>
       );
@@ -885,7 +895,7 @@ export function OverlayApp() {
           aria-label={`Chat with ${name}`}
           style={{
             width: "100vw",
-            height: "100vh",
+            height: "100dvh",
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
@@ -948,7 +958,6 @@ export function OverlayApp() {
         onSubmit={openChatWith}
         onLanded={() => {
           setHome("free");
-          saveHome("free");
           setNotchPose("bed");
           // Landing is an arrival, not a state: the settle performance is over,
           // so hand back to the resting meditation the free home defaults to.
@@ -962,7 +971,7 @@ export function OverlayApp() {
     <div
       style={{
         width: "100vw",
-        height: "100vh",
+        height: "100dvh",
         display: "flex",
         flexDirection: "column",
         justifyContent: "flex-end",
@@ -1071,7 +1080,11 @@ export function OverlayApp() {
             autoQuestion={askSeed}
             onAutoQuestionConsumed={() => setAskSeed(null)}
             onAnswered={handleAnswered}
-            onSpeechStopped={stopTalking}
+            onSpeechStopped={() => {
+              stopTalking();
+              dismissAfterTask();
+            }}
+            onTaskDone={dismissAfterTask}
           />
         </div>
       )}

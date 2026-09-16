@@ -1,5 +1,3 @@
-// Shared schemas, middleware, helpers and the tRPC instance for every sub-router.
-// Mechanically extracted from router.ts on 2026-09-11; behaviour unchanged.
 /**
  * tRPC router — the wire surface over the Universal Action Pipeline.
  *
@@ -10,6 +8,7 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import {
@@ -55,15 +54,13 @@ import {
 } from "./relationship-intake-materializer.js";
 import { relationshipDateTimeSchema } from "./relationship-datetime.js";
 import {
+  CAPABILITY_BUILDER_AGENT,
   EGRESS_AGENT,
   LEARNING_AGENT,
   OUTREACH_AGENT,
   INTERNAL_STRATEGIST_AGENT,
   GOVERNANCE_AGENT,
   CHIEF_OF_STAFF_AGENT,
-  MODULE_AUTHORING_SKILL_ID,
-  MODULE_AUTHORING_GOAL_TYPE,
-  MODULE_AUTHORING_TASK_TYPE,
   TASK_ROUTING_CANDIDATE_AGENTS,
   PILOT_ORGANIZATION,
   LEARNING_ROLE_MODEL_GOAL_TYPE,
@@ -110,9 +107,51 @@ import {
   type ParentCandidateTask,
   assertModuleGovernance,
   ModuleGovernanceDenied,
+  readModuleGovernanceOverlay,
+  resolveModuleGovernance,
 } from "@bridge/core";
 import { eq, desc } from "drizzle-orm";
-import { schema as accountingSchema } from "@bridge/accounting";
+import { schema as accountingSchema, validateExpression } from "@bridge/accounting";
+import { VIEW_KINDS } from "@bridge/tables";
+import type { ColumnKind, ColumnOverlay, FilterOp, TableSpec } from "@bridge/tables";
+import {
+  TABLE_SCHEMA_NAMESPACE_PREFIX,
+  applyColumnOp,
+  automationDependencies,
+  formulaDependencies,
+  formulaDependentIds,
+  hasOverlay,
+  moduleDatabaseBaseSpec,
+  moduleRecordsSpecId,
+  readStoredTableSchema,
+  relationDependencies,
+  resolveColumnOverlay,
+  skillDependencies,
+  viewDependencies,
+  type ColumnDependencyPreview,
+} from "./table-schema.js";
+import {
+  RECORD_NOTES_NAMESPACE_PREFIX,
+  RECORD_SECTIONS,
+  RECORD_SECTIONS_NAMESPACE_PREFIX,
+  applyRecordNote,
+  readRecordNotes,
+  readRecordSections,
+} from "./record-sections.js";
+import {
+  deriveRecordMetadata,
+  emptyRecordMetadata,
+} from "./record-metadata.js";
+export {
+  RECORD_NOTES_NAMESPACE_PREFIX,
+  RECORD_SECTIONS,
+  RECORD_SECTIONS_NAMESPACE_PREFIX,
+  applyRecordNote,
+  readRecordNotes,
+  readRecordSections,
+  deriveRecordMetadata,
+  emptyRecordMetadata,
+};
 import { d2cSchema } from "./d2c-store.js";
 import type {
   Action,
@@ -123,6 +162,7 @@ import type {
   EgressTier,
   ModelProvider,
   MemoryEntry,
+  ModuleGovernancePolicy,
   OnBehalfOf,
   PolicyResult,
   ResourceType,
@@ -141,8 +181,6 @@ import {
   assertModelOutputTaint,
   createModelCallReceipt,
   advance,
-  demoteOnDependencyChange,
-  suspendOnFailure,
   resolveActivationApproval,
   compareRuns,
   computeAqv,
@@ -176,14 +214,6 @@ import {
   profileFromRow,
   parseModuleManifest,
   ModuleManifestValidationError,
-  AUTHORABLE_COLUMN_KINDS,
-  AuthoredModuleValidationError,
-  AuthoredRecordValidationError,
-  parseAuthoredColumns,
-  authoredModuleToManifest,
-  parseAuthoredModuleSpec,
-  validateAuthoredRecord,
-  type AuthoredColumnSpec,
   computeModuleRisk,
   maxRisk,
   evaluateSandboxRequirement,
@@ -201,8 +231,15 @@ import {
   failChildAgentRun,
   ResearchRunAlreadyTerminalError,
   ResearchRunNotFoundError,
-  RESEARCH_STEP_TOOLS,
   RESEARCH_STOP_REASONS,
+  atLeast,
+  isGrantUsable,
+  type ShareAccessLevel,
+  type SavedViewRecord,
+  type ResearchRunRecord,
+  type ResearchRunOutcomeUpdate,
+  type ResearchStepRecord,
+  type ResearchStepTool,
   labelFromLegacyTrustOrigin,
   declassifyTaintLabel,
   deriveDeclassifiedLabel,
@@ -250,19 +287,26 @@ import {
   DEFAULT_STALE_AFTER_DAYS,
   planCompletedBaySweep,
   routeTaskByRequiredSkill,
-  classifyTaskChangeBand,
-  calibratedTaskChangeDecision,
   assembleRunContext,
   projectToSystemPrompt,
   ChatCloudGrantError,
   ChatStoreConflictError,
   ChatStoreNotFoundError,
+  ChatStoreScopeError,
+  CHAT_BACKEND_IDS,
+  type ChatBackendTurn,
   type ChatOwnerScope,
   type ChatThread,
   type ChatTurn,
   type ChatTurnRef,
 } from "@bridge/core";
 import { WEB_RESEARCH_SKILL_ID } from "./web-research-skill.js";
+import {
+  createGuardedPageReader,
+  executeResearchRun,
+  type ResearchExecutorHooks,
+} from "./research-executor.js";
+export { createGuardedPageReader, executeResearchRun, type ResearchExecutorHooks };
 import type { ModelBinding } from "@bridge/capability-kit";
 import { createModelRouter, MANAGED_LLAMA_PROVIDER_ID } from "@bridge/models";
 import { authUrl, CALENDAR_SOURCE, GMAIL_SOURCE, type IntakeDirective } from "@bridge/integrations-google";
@@ -293,15 +337,18 @@ import {
   generalizeLearnedPreferences,
   isLearningObservationEntry,
   listPromotionSuggestions,
-  auditAcceptances,
   ClaimGateError,
   hashingEmbed,
   isSuppressedByRejections,
   type RejectionSuppressionVerdict,
   type TextEmbedder,
   recordRejectionFingerprint,
+  classifyClaimContent,
   draftStepsFromEpisodes,
+  draftStructureFromClaims,
   episodesForSkill,
+  type BuilderRefusalReason,
+  type BuilderStepsResult,
   rejectAutomationDraft,
   seedSuggestionsFromArchetypes,
   supportBandRank,
@@ -447,10 +494,16 @@ import {
   isModuleRuntimeAutomationId,
   resolveModuleAgentRuntimeId,
   resolveModuleAutomationRuntimeId,
-} from "./built-in-modules.js";
+} from "@bridge/module-manifests";
 import { assertCommonsEntryContentTrusted } from "./commons-client.js";
 import {
+  MAX_TRANSCRIPTION_AUDIO_BYTES,
+  transcribeAudio,
+  VoiceTranscriptionError,
+} from "./voice-transcription.js";
+import {
   listModuleFiles,
+  renameModuleFolder,
   MAX_MODULE_FILE_BYTES,
   ModuleFileContentConflictError,
   ModuleFilesPathError,
@@ -460,7 +513,12 @@ import {
   saveModuleFile,
   OrganizationFilesConflictError,
   OrganizationFilesRecoveryError,
+  organizationFilesRoot,
+  moduleFilesRoot,
 } from "./module-files.js";
+import { runModuleBuilder } from "./builder/run.js";
+import { BUILDER_AGENT_RUNTIME_ID } from "@bridge/module-manifests";
+import { ClaudeSignInRequiredError } from "./chat/claude-code-backend.js";
 import { listProviderIds, oauthScopesFor } from "./social/registry.js";
 
 // Syncs the groq key to companion.json so the Rust companion can use STT
@@ -483,13 +541,12 @@ export type OutreachDraftResult =
   | {
       id: string;
       status: "already_resolved";
-      decision: "approve" | "veto" | "edit" | "auto";
+      decision: "approve" | "veto" | "edit" | "auto" | "superseded";
     };
 export const outreachDraftsInFlight = new Map<string, Promise<OutreachDraftResult>>();
 
-// M4: server-side OTP proof lives in `wiring.otpProofs` (OtpProofStore over the
-// Local Plane state port): verifyPhoneOtp issues, saveProfile consumes.
-// Single-use, 10 min TTL, survives a process restart.
+// M4: server-side OTP proof — userId → expiry epoch ms. verifyPhoneOtp writes,
+// saveProfile consumes. Proof is single-use and expires in 10 min.
 
 export function stableProposalId(key: string): string {
   const hex = createHash("sha256").update(key).digest("hex").slice(0, 32).split("");
@@ -1017,26 +1074,42 @@ export const enforcePublicCloudBoundary = t.middleware(
 
 // All non-public procedures require a verified identity on hosted/persistent
 // deployments. Helpdesk's token-capability surface is the sole public router.
-// Any input carrying a string `organizationId` is pilot-org-checked and
-// membership-checked here, so handlers do not repeat the guard by hand.
+// Every procedure whose input carries an `organizationId` is pilot-org and
+// membership checked here, once, instead of a pasted assert per handler
+// (ADR 2026-09-11 "Where the architecture actually strains"). `publicProcedure`
+// has no identity and therefore no membership check — its handlers assert.
 export const withOrganizationInput = t.middleware(async ({ ctx, getRawInput, next }) => {
   const raw = await getRawInput();
-  const organizationId =
+  // `getRawInput()` is the input BEFORE zod runs, and `databaseUuidSchema`
+  // lowercases every uuid it parses. Compare on the normalized form or an
+  // upper-case organizationId the handler would have accepted is refused here
+  // as "not the pilot organization" — and membership would miss its row too,
+  // since the store holds the lowercased id.
+  const rawOrganizationId =
     raw && typeof raw === "object" && typeof (raw as { organizationId?: unknown }).organizationId === "string"
       ? (raw as { organizationId: string }).organizationId
       : null;
+  const organizationId = rawOrganizationId === null ? null : rawOrganizationId.toLowerCase();
   if (organizationId !== null) {
     assertPilotOrganization(organizationId);
-    await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+    // Membership is a property of PEOPLE — `assertMembership` takes a userId
+    // and asks `organizationStore.isMember`. An Agent is never a member, so
+    // running this for one would refuse every Agent-callable procedure with
+    // "not a member" and pre-empt the agent floor, whose refusal is the one
+    // that carries the reason ("a schema an Agent can rewrite is not a
+    // schema"). An Agent's authority comes from its scopes and that floor.
+    if (ctx.identity.type === "user") {
+      await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+    }
   }
   return next();
 });
-
 export const procedure = t.procedure
   .use(requireAuthenticatedIdentity)
   .use(enforcePublicCloudBoundary)
   .use(withPilotOrganizationGuard)
   .use(withOrganizationInput);
+export const authenticatedProcedure = procedure;
 export const publicProcedure = t.procedure
   .use(enforcePublicCloudBoundary)
   .use(withPilotOrganizationGuard);
@@ -1047,9 +1120,7 @@ export const publicProcedure = t.procedure
  * Record/Field or File/Result/bullet anchor": `recordId`+`fieldId` addresses a
  * data cell; `bulletPath` addresses a rendered bullet within a Record/Page
  * section or a File/Result (a stable per-item key, the same convention
- * `useLocalEdits`'s `fieldValue` keys already use, e.g. "s2.b1" or
- * "fit.strength.0" — kept legible against that unrelated mechanism even
- * though the two never share storage). At least one of recordId/fileId/
+ * local field edits used, e.g. "s2.b1" or "fit.strength.0"). At least one of recordId/fileId/
  * bulletPath is required so a flag always has a concrete target.
  */
 /**
@@ -1435,8 +1506,7 @@ export class NonPilotOrganizationError extends Error {
 }
 
 export function assertPilotOrganization(organizationId: string): void {
-  // UUIDs are case-insensitive; inputs may arrive upper-cased before zod normalizes them.
-  if (organizationId.toLowerCase() !== PILOT_ORGANIZATION) throw new NonPilotOrganizationError(organizationId);
+  if (organizationId !== PILOT_ORGANIZATION) throw new NonPilotOrganizationError(organizationId);
 }
 
 /**
@@ -1626,6 +1696,14 @@ export async function assertWebResearchModuleBinding(
     organizationId,
     "relationship",
   );
+  // The Egg (ADR 2026-09-04) ships no Relationship Module; its Research Agent
+  // is bound by Task Manager instead. Same contract, different owner: the
+  // Learning Agent must list the Skill and the Skill must hold public
+  // external:fetch read with egress — nothing is relaxed, only who declares it.
+  if (!installed) {
+    await assertTaskManagerWebResearchBinding(wiring, organizationId);
+    return;
+  }
   const manifest = installed
     ? parseModuleManifest({ module: installed.manifest })
     : null;
@@ -2455,6 +2533,19 @@ export async function assertMembership(
   }
 }
 
+/**
+ * The guard every Organization-scoped procedure used to repeat inline: the
+ * single-tenant pilot check and the membership check on `input.organizationId`.
+ * Chain it AFTER `.input()` so zod has already validated the shape and the
+ * error precedence is exactly what the inline pair produced.
+ */
+export const organizationGuard = t.middleware(async ({ ctx, input, next }) => {
+  const { organizationId } = input as { organizationId: string };
+  assertPilotOrganization(organizationId);
+  await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+  return next();
+});
+
 export const dealpilotProcedure = procedure.use(async ({ ctx, next }) => {
   const authenticationRequired =
     ctx.verifying || ctx.wiring.persistent || process.env.NODE_ENV === "production";
@@ -2524,6 +2615,21 @@ export function assertModelProviderKeyStorage(wiring: Pick<Wiring, "publicCloudO
 
 export const actionEnum = z.enum(["read", "write", "execute", "share", "archive"]);
 export const actorTypeEnum = z.enum(["user", "team", "agent"]);
+// NOT `z.enum(RESOURCE_TYPES)`, deliberately. This is the second hand-written
+// mirror of `ResourceType` and it IS behind the kernel — missing `relation`
+// and `claim` — but unlike the `automation-stores.ts` copy it is not purely a
+// drift: it decides what a CLIENT may propose (`proposeInput`) and what a
+// blueprint may declare (`BLUEPRINT_NODE_TYPE_REGISTRY`), and both currently
+// depend on the two absences.
+//
+// Completing it from RESOURCE_TYPES was tried on 2026-09-08 and reverted:
+// `graph-people-communities.test.ts` asserts `action.propose` REFUSES a
+// hand-crafted `relation` write, which is a real boundary — relations are
+// staged through the relationship surface, which validates the payload, while
+// `action.propose` takes arbitrary `inputs` — and the blueprint registry's own
+// comment says edges, not a `relation` node type, are the relationship data.
+// Whether those two should be explicit refusals over a complete enum is a
+// governance decision, not an enum cleanup. See docs/BUGS.md 2026-09-08.
 export const resourceTypeEnum = z.enum([
   "person",
   "community",
@@ -2623,9 +2729,71 @@ export const relationshipSignalEvidenceInput = relationshipSignalEvidencePayload
 export const viewSortSpecInput = z.object({ id: z.string(), dir: z.enum(["asc", "desc"]) });
 export const viewRowFilterInput = z.object({
   field: z.string(),
-  op: z.enum(["contains", "is", "is_not", "is_empty", "is_not_empty", "starts_with"]),
+  op: z.enum([
+    "contains",
+    "does_not_contain",
+    "is",
+    "is_not",
+    "is_empty",
+    "is_not_empty",
+    "starts_with",
+    "ends_with",
+    "is_any_of",
+    "is_none_of",
+  ]),
   value: z.string(),
 });
+/**
+ * The full per-kind operator set (TASK-108). `viewRowFilterInput` above is the
+ * SAVED-VIEW grammar and predates the number/date operators; a Database query
+ * has to express "amount is greater than" and "due is before" or the server is
+ * not a query engine. Bounded exactly the way that one is.
+ */
+export const recordRowFilterInput = z.object({
+  field: z.string().trim().min(1).max(200),
+  op: z.enum([
+    "contains",
+    "does_not_contain",
+    "is",
+    "is_not",
+    "is_empty",
+    "is_not_empty",
+    "starts_with",
+    "ends_with",
+    "gt",
+    "gte",
+    "lt",
+    "lte",
+    "before",
+    "after",
+    "on_or_before",
+    "on_or_after",
+    "is_any_of",
+    "is_none_of",
+    "is_checked",
+    "is_not_checked",
+  ]),
+  value: z.string().max(2_000),
+});
+
+/**
+ * One Database query: filter, search, sort, group, page.
+ *
+ * Every array is BOUNDED — a filter list is a loop over every stored row, so an
+ * unbounded one is a request that costs whatever the caller wants it to. The
+ * page defaults to 50 and caps at 500, which is the number of rows a grid can
+ * hand a browser without the request itself becoming the slow part.
+ */
+export const RECORD_QUERY_INPUT = z.object({
+  rowFilters: z.array(recordRowFilterInput).max(20).optional(),
+  filterMatch: z.enum(["all", "any"]).optional(),
+  sorts: z.array(z.object({ id: z.string().trim().min(1).max(200), dir: z.enum(["asc", "desc"]) })).max(5).optional(),
+  groupBy: z.string().trim().min(1).max(200).nullish(),
+  query: z.string().max(500).optional(),
+  limit: z.number().int().min(1).max(500).default(50),
+  offset: z.number().int().min(0).default(0),
+});
+
 export const humanInteractionFieldsSchema = interactionCreateFieldsSchema.omit({
   source: true,
   sourceRecordId: true,
@@ -2896,6 +3064,42 @@ export async function proposeRelationshipMutation(
     proposal,
     materialization: { status: "applied" as const, value },
   };
+}
+
+/**
+ * Archive ONE Relationship Record — the single-Record form, and the only one.
+ *
+ * TASK-086's constraint: a bulk action obeys the same governance as its
+ * single-Record form, never a second thinner write path. Rather than assert
+ * that by hand, `archivePerson`, `archiveCommunity` and the bulk
+ * `archiveRecords` all call THIS: the ownership check and the governed proposal
+ * are written once, so N Records in a bulk call produce N ledger decisions
+ * indistinguishable from N separate single calls. There is no batch write for a
+ * batch to drift onto.
+ */
+export async function archiveRelationshipRecord(
+  ctx: Pick<ApiContext, "wiring" | "identity" | "run">,
+  organizationId: string,
+  recordType: "person" | "community",
+  id: string,
+) {
+  const record =
+    recordType === "person"
+      ? await ctx.wiring.graphStore.getPerson(organizationId, ctx.identity.id, id)
+      : await ctx.wiring.graphStore.getCommunity(organizationId, ctx.identity.id, id);
+  if (!record?.isOwner) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: recordType === "person" ? "Person not found" : "Community not found",
+    });
+  }
+  const payload = relationshipMutationPayloadSchema.parse({
+    kind: "relationship_record_mutation",
+    recordType,
+    operation: "archive",
+    recordId: id,
+  });
+  return proposeRelationshipMutation(ctx, organizationId, payload);
 }
 
 export async function materializeApprovedCapture(
@@ -3237,7 +3441,6 @@ export const capabilityRegisterInput = z.object({
 });
 
 export const capabilityIdInput = z.object({ manifestId: z.string().min(1) });
-export const capabilitySuspendInput = z.object({ manifestId: z.string().min(1), reason: z.string().min(1) });
 export const capabilityActivateInput = z.object({
   organizationId: z.string().min(1),
   manifestId: z.string().min(1),
@@ -3714,69 +3917,7 @@ export const chatAssistantEnvelopeSchema = z.discriminatedUnion("kind", [
     outcome: z.string().trim().min(1).max(2_000),
     exitTest: z.string().trim().min(1).max(2_000),
   }).strict(),
-  /** "Chief of Staff, build me a Module." The payload is only shape-checked
-   * here; `parseAuthoredModuleSpec` is the real gate and runs at staging,
-   * where the names already taken by installed Modules are known. */
-  z.object({
-    kind: z.literal("create_module"),
-    text: z.string().trim().min(1).max(2_000),
-    module: z.unknown(),
-  }).strict(),
 ]);
-
-/** The authored-Module half of the model's response schema. Every key is
- * `required` because the provider's strict JSON-schema mode admits no optional
- * properties — the same reason `title`/`outcome`/`exitTest` above are required
- * and sent empty when the turn is not creating a Task. */
-export const CHAT_AUTHORED_MODULE_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["name", "displayName", "summary", "description", "databases"],
-  properties: {
-    name: { type: "string" },
-    displayName: { type: "string" },
-    summary: { type: "string" },
-    description: { type: "string" },
-    databases: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["id", "label", "columns"],
-        properties: {
-          id: { type: "string" },
-          label: { type: "string" },
-          columns: {
-            type: "array",
-            items: {
-              type: "object",
-              additionalProperties: false,
-              required: ["id", "label", "kind", "options", "required"],
-              properties: {
-                id: { type: "string" },
-                label: { type: "string" },
-                kind: { type: "string", enum: [...AUTHORABLE_COLUMN_KINDS] },
-                options: { type: "array", items: { type: "string" } },
-                required: { type: "boolean" },
-              },
-            },
-          },
-        },
-      },
-    },
-  },
-} as const;
-
-/** An all-empty module payload — what the model sends on a turn that is not
- * building one, since strict mode cannot omit the key. Recognized by
- * {@link chatModulePayload} and treated as "no Module was requested". */
-export const EMPTY_CHAT_MODULE = {
-  name: "",
-  displayName: "",
-  summary: "",
-  description: "",
-  databases: [] as unknown[],
-} as const;
 
 export const CHAT_ASSISTANT_RESPONSE_SCHEMA = {
   type: "object",
@@ -3788,37 +3929,6 @@ export const CHAT_ASSISTANT_RESPONSE_SCHEMA = {
     outcome: { type: "string" },
     exitTest: { type: "string" },
     text: { type: "string" },
-  },
-} as const;
-
-/** The schema for a turn that may ALSO author a Module. Separate from the
- * Task-only schema above rather than an extension of it, so a surface with no
- * module-authoring capability disclosed cannot be handed a schema whose enum
- * offers `create_module` — the model is never shown a verb it may not use. */
-export const CHAT_MODULE_RESPONSE_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["kind", "title", "outcome", "exitTest", "text", "module"],
-  properties: {
-    kind: { type: "string", enum: ["answer", "clarification", "create_task", "create_module"] },
-    title: { type: "string" },
-    outcome: { type: "string" },
-    exitTest: { type: "string" },
-    text: { type: "string" },
-    module: CHAT_AUTHORED_MODULE_SCHEMA,
-  },
-} as const;
-
-/** The same, for a surface that may author a Module but NOT create a Task
- * (the Task Manager is not installed). */
-export const CHAT_MODULE_ONLY_RESPONSE_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["kind", "text", "module"],
-  properties: {
-    kind: { type: "string", enum: ["answer", "clarification", "create_module"] },
-    text: { type: "string" },
-    module: CHAT_AUTHORED_MODULE_SCHEMA,
   },
 } as const;
 
@@ -3850,6 +3960,10 @@ export const chatSendInput = z.object({
   surface: chatSurfaceInput.optional(),
   cloudGrantId: z.string().uuid().optional(),
   retryTurnId: z.string().uuid().optional(),
+  /** Runtime ids of the Agents the person addressed with `@` (2026-09-05).
+   * Each must be an ACTIVE Agent of the Organization; recorded on the
+   * assistant turn as `addressed_agent` refs. */
+  mentions: z.array(z.string().uuid()).max(5).optional(),
 }).strict();
 
 /** A parent Task the deterministic matcher put forward, carried into the
@@ -4127,60 +4241,6 @@ export async function verifiedCommonsDependencyInstallations(
   return [...found.values()];
 }
 
-/** Resolve one authored Database, refusing anything that is not a Database of
- * an INSTALLED Module — a Record may never be written into a Module that is
- * still pending review, vetoed, or uninstalled. */
-export async function requireAuthoredDatabase(
-  wiring: Wiring,
-  input: { organizationId: string; moduleName: string; databaseId: string },
-) {
-  const installation = await wiring.moduleStore.getAvailable(
-    input.organizationId,
-    input.moduleName,
-  );
-  if (!installation || installation.status !== "installed") {
-    throw new TRPCError({
-      code: "NOT_FOUND",
-      message: `installed Module "${input.moduleName}" not found`,
-    });
-  }
-  const database = await wiring.authoredModules.getDatabase(
-    input.organizationId,
-    input.moduleName,
-    input.databaseId,
-  );
-  if (!database) {
-    throw new TRPCError({
-      code: "NOT_FOUND",
-      message: `"${input.moduleName}" has no authored Database "${input.databaseId}"`,
-    });
-  }
-  return database;
-}
-
-/** Validate a Record against its Database's declared columns, turning a
- * validation refusal into a BAD_REQUEST the person can act on rather than a
- * 500 that says nothing. */
-export function validateAuthoredRecordInput(
-  database: { databaseId: string; columns: unknown },
-  properties: Record<string, unknown>,
-) {
-  try {
-    return validateAuthoredRecord(
-      parseAuthoredColumns(database.columns, database.databaseId),
-      properties,
-    );
-  } catch (error) {
-    if (
-      error instanceof AuthoredRecordValidationError ||
-      error instanceof AuthoredModuleValidationError
-    ) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
-    }
-    throw error;
-  }
-}
-
 export async function activateApprovedModuleInstallation(
   wiring: Wiring,
   organizationId: string,
@@ -4229,84 +4289,7 @@ export async function activateApprovedModuleInstallation(
       message: `module installation cannot activate from state "${installation.state}"`,
     });
   }
-  installation = await materializeAuthoredModule(wiring, installation);
   return installation;
-}
-
-/**
- * Give a newly-activated authored Module the storage its Databases need, and
- * put it where the navigation can see it.
- *
- * A built-in Module's tables arrive with a migration; an authored one's cannot,
- * so its declared shape is written to `authored_databases` here — the single
- * point where an approved Module becomes a Module with somewhere to put data.
- * Idempotent throughout: `createDatabases` is keyed on
- * (organization, module, database) and the promotion below is a no-op once the
- * row is already `available`, so a retried decision cannot double-install.
- *
- * A Module with no authored Databases (every built-in, every Commons install)
- * falls straight through untouched.
- */
-export async function materializeAuthoredModule(
-  wiring: Wiring,
-  installation: ModuleInstallationRow,
-): Promise<ModuleInstallationRow> {
-  const pages = installation.manifest.module?.pages ?? [];
-  const authored = pages.filter((page) =>
-    installation.manifest.capabilities.some(
-      (capability) =>
-        capability.id === page.capabilityId &&
-        capability.capabilityType === "database" &&
-        capability.origin === "ai_generated",
-    ),
-  );
-  if (authored.length === 0) return installation;
-  await wiring.authoredModules.createDatabases(
-    installation.organizationId,
-    installation.moduleName,
-    authored.map((page) => ({
-      databaseId: page.id,
-      capabilityId: page.capabilityId,
-      label: page.name,
-      columns: authoredColumnsForPage(installation.manifest, page.id),
-    })),
-  );
-  // `available` is what `getAvailable` — and therefore the left nav — reads.
-  // Activation alone only reaches `promoted`, which is right for a Commons
-  // Module awaiting promotion and would leave an approved authored Module
-  // invisible to the person who just approved it.
-  if (installation.state === "promoted") {
-    const current = await wiring.moduleStore.getAvailable(
-      installation.organizationId,
-      installation.moduleName,
-    );
-    const promotion = promoteToAvailable(installation, current);
-    const promoted = await wiring.moduleStore.setState(
-      promotion.promoted.installationId,
-      promotion.promoted.nextState,
-    );
-    if (promotion.demoted) {
-      await wiring.moduleStore.setState(
-        promotion.demoted.installationId,
-        promotion.demoted.nextState,
-      );
-    }
-    return promoted;
-  }
-  return installation;
-}
-
-/** The declared columns for one authored Page, read back off the manifest that
- * was reviewed and approved — never off the model's original draft, so what is
- * stored is what the owner actually saw. */
-export function authoredColumnsForPage(
-  manifest: ModuleManifest,
-  pageId: string,
-): AuthoredColumnSpec[] {
-  const stored = manifest.authoredDatabases?.find((database) => database.id === pageId);
-  // Re-validated, never cast: the manifest only shape-checks these, so this is
-  // where a stored column kind this format refuses would be caught.
-  return stored ? parseAuthoredColumns(stored.columns, pageId) : [];
 }
 
 export async function validateDealPilotDiscoveryOutput(wiring: Wiring, inputs: unknown, output: unknown) {
@@ -5011,6 +4994,25 @@ export async function requireInstalledTaskManager(wiring: Wiring, organizationId
   return installation;
 }
 
+/**
+ * The one place a Module's local-Files folder label is decided (TASK-081).
+ *
+ * `~/Documents/Bridge/<Organization>/<label>/` holds the owner's own documents,
+ * so this expression cannot be spelled out at each call site: two sites that
+ * disagree put a Module's Files in two directories, and the one the user is
+ * not looking at appears empty. The precedence is
+ * `displayNameOverride` (what this Organization renamed it to) -> the
+ * manifest's display name -> the canonical Module name.
+ *
+ * `modules.rename` is the only writer of the override, and it MOVES the folder
+ * in the same call — see `renameModuleFolder`.
+ */
+export function moduleFolderLabel(installation: ModuleInstallationRow): string {
+  return installation.displayNameOverride
+    ?? installation.manifest.module?.displayName
+    ?? installation.moduleName;
+}
+
 export async function requireOrganizationNameForFiles(
   wiring: Wiring,
   organizationId: string,
@@ -5050,15 +5052,6 @@ export async function replaceTaskProjectionFile(
 
 export const CHAT_TASK_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000f9";
 export const CHAT_TASK_SKILL_ID = "task-manager.create-task";
-/** The Skill Chief of Staff invokes to draft a Module. Attribution matters
- * here for the reason ADR-203 spells out: a proposal whose actor is "whoever
- * happened to be typing" has no Agent Run behind it and no Skill to point at,
- * so the drafting nobody can see is the drafting nobody can audit.
- *
- * Shared with `wiring.ts`, which owns the SkillManifest and the registered
- * implementation, so the id cannot drift between the two. */
-export const CHAT_MODULE_SKILL_ID = MODULE_AUTHORING_SKILL_ID;
-export const CHAT_MODULE_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000110";
 export const CHAT_MODEL_TIER: ModelTier = "default";
 export const CHAT_TURN_STALE_AFTER_MS = 10 * 60_000;
 export const chatTurnAbortControllers = new Map<string, AbortController>();
@@ -5127,6 +5120,140 @@ export function resolveChatModel(wiring: Wiring, plane: "local" | "cloud"): Mode
   return candidates[0] ?? null;
 }
 
+/**
+ * The conversation so far, rendered for an engine that was not part of it.
+ *
+ * Deliberately bounded and deliberately plain: the most recent completed turns
+ * as `User:`/`Assistant:` lines, oldest first, capped so a long thread cannot
+ * blow the receiving agent's context on turn one. The user's OWN words are
+ * carried verbatim (a paraphrase would put words in their mouth); assistant
+ * turns are truncated, since what matters is what was decided, not every word
+ * of how it was said. Returns null when there is nothing to carry.
+ */
+export async function priorTurnsTranscript(
+  wiring: Wiring,
+  scope: ChatOwnerScope,
+  threadId: string,
+): Promise<string | null> {
+  const CARRY_TURNS = 20;
+  const CARRY_CHARS = 12_000;
+  const recent = await wiring.chatStore.listRecentTurns(scope, threadId, CARRY_TURNS);
+  const lines: string[] = [];
+  for (const turn of recent) {
+    if (turn.state !== "completed" || turn.content.trim().length === 0) continue;
+    const speaker = turn.role === "user" ? "User" : "Assistant";
+    const body =
+      turn.role === "user" ? turn.content : turn.content.slice(0, 1_500);
+    lines.push(`${speaker}: ${body}`);
+  }
+  if (lines.length === 0) return null;
+  let transcript = lines.join("\n\n");
+  while (transcript.length > CARRY_CHARS && lines.length > 1) {
+    lines.shift();
+    transcript = lines.join("\n\n");
+  }
+  return `Earlier in this conversation:\n\n${transcript}`;
+}
+
+/**
+ * The Modules this Organization actually has, as one memory snippet.
+ *
+ * Chat could name every Skill it was allowed to call and not one Module the
+ * person owned, so "install DealPilot" met an offer to design DealPilot. One
+ * line of ground truth is the whole fix; it is deliberately a plain fact in
+ * the memory slot rather than a disclosed capability, because knowing a
+ * Module is installed is not permission to do anything to it.
+ *
+ * Failure is silent by design: a Module list we could not read must degrade to
+ * the old behaviour, never break the turn.
+ */
+export type ChatMemorySnippet = { source: string; text: string; trustOrigin: "user_content" };
+
+export async function chatInstalledModuleSnippets(
+  wiring: Wiring,
+  organizationId: string,
+): Promise<ChatMemorySnippet[]> {
+  const { snippets } = await chatModuleAwareness(wiring, organizationId);
+  return snippets.filter((snippet) => snippet.source === "modules:installed");
+}
+
+/**
+ * Both halves of "what Modules exist", off ONE Module-store read: the ones
+ * installed here, and the ones Commons could add. Returned together because
+ * the catalog is only meaningful minus what is already installed.
+ */
+export async function chatModuleAwareness(
+  wiring: Wiring,
+  organizationId: string,
+): Promise<{ snippets: ChatMemorySnippet[]; installed: ReadonlySet<string> }> {
+  let installedNames = new Set<string>();
+  const snippets: ChatMemorySnippet[] = [];
+  try {
+    const page = await wiring.moduleStore.list(organizationId, { limit: 10_000, offset: 0 });
+    const rows = page.items.filter(
+      (module) => module.status === "installed" && module.state === "available",
+    );
+    installedNames = new Set(rows.map((module) => module.moduleName));
+    // The name in the rail is the name the person will use for it; being told
+    // "deal-pilot" while they say "DealManager" is the same miss again.
+    const labels = [...new Set(rows.map((m) => m.manifest.module?.displayName ?? m.moduleName))].sort();
+    if (labels.length > 0) {
+      snippets.push({
+        source: "modules:installed",
+        text:
+          `Modules already installed in this Organization: ${labels.join(", ")}. ` +
+          "Do not offer to design or build one of these — it exists. " +
+          "To reach one, say where it is; to change one, capture the work as a Task.",
+        trustOrigin: "user_content" as const,
+      });
+    }
+  } catch {
+    // A Module list we could not read degrades to the old behaviour.
+    return { snippets, installed: installedNames };
+  }
+  snippets.push(...(await chatCommonsCatalogSnippets(wiring, installedNames)));
+  return { snippets, installed: installedNames };
+}
+
+/**
+ * The Modules that could be ADDED, as one snippet — the other half of knowing
+ * what exists. Without it Chief of Staff's only honest answer to "install
+ * DealPilot" is that it cannot see a catalog, which is how it ended up
+ * proposing to hand-author a Module that was sitting in the registry.
+ *
+ * Only root Modules: a Commons Skill is installed against a Module's declared
+ * need, not started from a chat sentence, and offering it here would describe
+ * a path that does not exist.
+ */
+export async function chatCommonsCatalogSnippets(
+  wiring: Wiring,
+  installedNames: ReadonlySet<string>,
+): Promise<{ source: string; text: string; trustOrigin: "user_content" }[]> {
+  try {
+    const catalog = await wiring.commonsRegistry.listAvailable({
+      kind: "organization_definition",
+      limit: 50,
+      offset: 0,
+    });
+    const addable = catalog.items
+      .filter((item) => !installedNames.has(item.name))
+      .map((item) => item.name)
+      .sort();
+    if (addable.length === 0) return [];
+    return [{
+      source: "commons:catalog",
+      text:
+        `Modules available to add from Commons: ${addable.join(", ")}. ` +
+        "These already exist and must never be redesigned from scratch — " +
+        "the person adds one from the + New button below their Modules.",
+      trustOrigin: "user_content" as const,
+    }];
+  } catch {
+    // An unreachable registry means we simply do not mention a catalog.
+    return [];
+  }
+}
+
 export async function chatCanCreateTask(
   wiring: Wiring,
   organizationId: string,
@@ -5146,38 +5273,6 @@ export async function chatCanCreateTask(
     await wiring.agents.isActive(INTERNAL_STRATEGIST_AGENT) &&
     (await wiring.agents.allowedSkills(INTERNAL_STRATEGIST_AGENT)).includes(CHAT_TASK_SKILL_ID)
   );
-}
-
-/**
- * May this Chat turn author a Module?
- *
- * Local Plane only — an authored Module's Databases live in the owner's own
- * store and its capabilities are `private`, so proposing one from a cloud
- * thread would be proposing a write the cloud plane may not make. Chief of
- * Staff must additionally be active, belong to this Organization, and hold the
- * Skill: the same four-part check `chatCanCreateTask` makes of Internal
- * Strategist, minus the installed-Module requirement (module authoring is the
- * Engine's own capability, not a Module's).
- */
-export async function chatCanAuthorModule(
-  wiring: Wiring,
-  organizationId: string,
-): Promise<boolean> {
-  return (
-    (await wiring.agents.organizationId(CHIEF_OF_STAFF_AGENT)) === organizationId &&
-    await wiring.agents.isActive(CHIEF_OF_STAFF_AGENT) &&
-    (await wiring.agents.allowedSkills(CHIEF_OF_STAFF_AGENT)).includes(CHAT_MODULE_SKILL_ID)
-  );
-}
-
-/** Every Module name already spoken for in this Organization — passed to
- * `parseAuthoredModuleSpec` so a draft cannot shadow an installed Module. */
-export async function reservedModuleNames(
-  wiring: Wiring,
-  organizationId: string,
-): Promise<string[]> {
-  const page = await wiring.moduleStore.list(organizationId, { limit: 10_000, offset: 0 });
-  return [...new Set(page.items.map((module) => module.moduleName))];
 }
 
 export function resolvedChatSurface(
@@ -5253,15 +5348,11 @@ export async function assembleChatCompletion(
   );
   const canCreateTask = !isCloud &&
     await chatCanCreateTask(ctx.wiring, thread.organizationId);
-  const canAuthorModule = !isCloud &&
-    await chatCanAuthorModule(ctx.wiring, thread.organizationId);
-  const responseSchema = canAuthorModule
-    ? (canCreateTask ? CHAT_MODULE_RESPONSE_SCHEMA : CHAT_MODULE_ONLY_RESPONSE_SCHEMA)
-    : canCreateTask
-      ? CHAT_ASSISTANT_RESPONSE_SCHEMA
-      : provider.id === MANAGED_LLAMA_PROVIDER_ID
-        ? CHAT_LLAMA_PUBLIC_RESPONSE_SCHEMA
-        : CHAT_PUBLIC_RESPONSE_SCHEMA;
+  const responseSchema = canCreateTask
+    ? CHAT_ASSISTANT_RESPONSE_SCHEMA
+    : provider.id === MANAGED_LLAMA_PROVIDER_ID
+      ? CHAT_LLAMA_PUBLIC_RESPONSE_SCHEMA
+      : CHAT_PUBLIC_RESPONSE_SCHEMA;
 
   // LA5 retrieval fusion (flight-gated, Local Plane only): the memory slot
   // is filled by structured+vector+graph RRF fusion instead of the naive
@@ -5314,35 +5405,33 @@ export async function assembleChatCompletion(
         { organizationId: thread.organizationId, userId: thread.ownerUserId },
       )).slice(0, 5);
   const preferenceSnippets = preferencesToMemorySnippets(learnedPreferences);
-  const combinedMemory = [...preferenceSnippets, ...memory];
+  // WHAT THE PERSON ALREADY HAS (user report 2026-09-08: asked to install
+  // DealPilot, and Chief of Staff offered to design one from scratch — a
+  // Module that was already installed, whose own Files folder it could see).
+  // It had no way to look: nothing in this context said which Modules exist,
+  // so every "can you add X" read as a request to invent X. Local Plane only —
+  // the installed-Module list is Organization shape and does not go to a
+  // cloud model.
+  const moduleAwareness = isCloud
+    ? { snippets: [] }
+    : await chatModuleAwareness(ctx.wiring, thread.organizationId);
+  const combinedMemory = [...moduleAwareness.snippets, ...preferenceSnippets, ...memory];
 
   const runContext = assembleRunContext(
     {
       persona,
       request: message,
       surface: resolvedChatSurface(surface),
-      disclosedCapabilities: [
-        ...(canCreateTask
-          ? [{
-              manifestId: CHAT_TASK_SKILL_ID,
-              name: "Create a Task",
-              capabilityType: "skill" as const,
-              audience: "private" as const,
-              reason:
-                "The installed Task Manager exposes a schema-complete create-Task Skill owned by the active Internal Strategist.",
-            }]
-          : []),
-        ...(canAuthorModule
-          ? [{
-              manifestId: CHAT_MODULE_SKILL_ID,
-              name: "Build a Module",
-              capabilityType: "skill" as const,
-              audience: "private" as const,
-              reason:
-                "Chief of Staff is active and holds the Skill that drafts a Module as Databases and the Pages over them. The draft is a proposal and installs nothing until the owner approves it.",
-            }]
-          : []),
-      ],
+      disclosedCapabilities: canCreateTask
+        ? [{
+            manifestId: CHAT_TASK_SKILL_ID,
+            name: "Create a Task",
+            capabilityType: "skill",
+            audience: "private",
+            reason:
+              "The installed Task Manager exposes a schema-complete create-Task Skill owned by the active Internal Strategist.",
+          }]
+        : [],
       governance: {
         approvalRequirement: "explicit_human",
         trustGrants: [],
@@ -5350,24 +5439,9 @@ export async function assembleChatCompletion(
       memory: combinedMemory,
       conversationHistory: history,
       outputContract: {
-        description: [
-          "Return one JSON object matching the supplied schema. Every key in the schema is required; fill the ones your chosen kind does not use with empty strings, false, or empty arrays.",
-          canCreateTask
-            ? "If and only if the person explicitly asks to create a Task, kind MUST be create_task, text MUST explain that the Task proposal is ready for review, and the requested Task title, outcome, and exit test MUST be copied into title, outcome, and exitTest. Never put the Task title in text instead of title. Creating a Task is a proposal and must not be described as already completed."
-            : "",
-          canAuthorModule
-            ? [
-                "If and only if the person asks you to build, create, or set up a Module (or asks for a place to track something that no installed Module covers), kind MUST be create_module and the module object MUST describe it.",
-                "module.name is lower-case kebab-case and must not match an installed Module. module.displayName is what a person reads in the sidebar.",
-                "Give the Module one Database per distinct kind of thing it tracks, and give each Database the columns a person would actually fill in. Column kinds are exactly: " + AUTHORABLE_COLUMN_KINDS.join(", ") + ". Use select or multiselect only with a non-empty options list; leave options as an empty array for every other kind.",
-                "You are describing Databases and the columns in them. You cannot author a Skill, an Agent, an Automation, an integration, or a column that computes itself — do not promise any of those, and say plainly that the Module holds and shows the data rather than acting on it.",
-                "text MUST say what the Module will contain and that it is waiting for the person's approval. Building a Module is a proposal: never describe it as already created.",
-              ].join(" ")
-            : "",
-          !canCreateTask && !canAuthorModule
-            ? "Answer directly or ask one clarification. No mutation capability is available in this context."
-            : "Otherwise kind MUST be answer or clarification and the response goes in text.",
-        ].filter((line) => line.length > 0).join(" "),
+        description: canCreateTask
+         ? "Return one JSON object matching the supplied schema. All five keys are required. kind MUST be create_task whenever the person gives you work to do — an instruction, a request to build, change, fix, find, arrange, follow up on, or remember something, whether or not they use the word Task. Wanting it done later, or delegated, still counts. kind MUST be answer when they are only asking a question, and clarification when you cannot tell what the work is and one question would settle it — never use clarification to avoid capturing work you already understand. For create_task, text MUST explain that the Task proposal is ready for review, and title, outcome, and exitTest MUST describe the work they asked for: title is the work in their own terms, outcome is what is true when it is done, exitTest is how anyone checks that. Never put the Task title in text instead of title. For answer and clarification, put the response in text and set title, outcome, and exitTest to empty strings. Creating a Task is a proposal and must not be described as already completed."
+          : "Return one JSON object matching the supplied schema. Answer directly or ask one clarification. No mutation capability is available in this context.",
         schema: responseSchema,
       },
     },
@@ -5424,7 +5498,6 @@ export async function assembleChatCompletion(
     request,
     contextDigest,
     canCreateTask,
-    canAuthorModule,
     disclosure: {
       providerId: provider.id,
       providerPlane: provider.plane,
@@ -5446,37 +5519,21 @@ export function parseChatAssistantEnvelope(text: string) {
     throw new Error("chat model returned invalid JSON");
   }
   const wireResult = z.object({
-    kind: z.enum(["answer", "clarification", "create_task", "create_module"]),
+    kind: z.enum(["answer", "clarification", "create_task"]),
     text: z.string(),
     title: z.string().optional(),
     outcome: z.string().optional(),
     exitTest: z.string().optional(),
-    module: z.unknown().optional(),
   }).strict().safeParse(parsed);
   if (!wireResult.success) {
     throw new Error("chat model returned an invalid response envelope");
   }
-  // Strict JSON-schema mode forces every key to be present, so the unused
-  // halves arrive filled with empties. Each kind is narrowed to exactly the
-  // fields it means, and nothing else survives into the envelope.
   const candidate = wireResult.data.kind === "create_task"
-    ? {
+    ? wireResult.data
+    : {
         kind: wireResult.data.kind,
         text: wireResult.data.text,
-        title: wireResult.data.title,
-        outcome: wireResult.data.outcome,
-        exitTest: wireResult.data.exitTest,
-      }
-    : wireResult.data.kind === "create_module"
-      ? {
-          kind: wireResult.data.kind,
-          text: wireResult.data.text,
-          module: wireResult.data.module,
-        }
-      : {
-          kind: wireResult.data.kind,
-          text: wireResult.data.text,
-        };
+      };
   const result = chatAssistantEnvelopeSchema.safeParse(candidate);
   if (!result.success) {
     throw new Error("chat model returned an invalid response envelope");
@@ -5499,6 +5556,50 @@ export async function addChatTurnRef(
     kind,
     refId,
   });
+}
+
+/**
+ * Records the files an agentic backend changed on this turn. The backend edits
+ * the user's Bridge folder directly, so without this the only evidence of a
+ * write is the model's own prose — and prose is not a receipt. One ledger row
+ * per turn, referenced from the turn, listing paths only (never contents).
+ */
+export async function appendChatBackendChangedFiles(
+  ctx: Pick<ApiContext, "run" | "wiring">,
+  thread: ChatThread,
+  assistantTurnId: string,
+  changedPaths: readonly string[],
+): Promise<string> {
+  const id = idempotentUuid(`${assistantTurnId}:backend-changed-files`);
+  await ctx.wiring.ledger.append({
+    id,
+    organizationId: thread.organizationId,
+    actorType: "agent",
+    // The ledger's actor column is a uuid, and an agentic backend editing the
+    // user's folder IS the Builder acting — the engine that did it is named in
+    // `inputs.backend`.
+    actorId: BUILDER_AGENT_RUNTIME_ID,
+    action: "write",
+    resourceType: "record",
+    inputs: {
+      operation: "chat_backend_changed_files",
+      threadId: thread.id,
+      assistantTurnId,
+      backend: thread.backend,
+      fileCount: changedPaths.length,
+    },
+    proposedOutput: { changedPaths: [...changedPaths] },
+    userDecision: "auto",
+    policyResults: [],
+    dataScope: thread.dataScope,
+    taintLabel: chatHumanTaint(
+      thread,
+      `chat:${assistantTurnId}:backend-changed-files`,
+      { changedPaths: [...changedPaths] },
+    ),
+    createdAt: ctx.run.clock.nowISO(),
+  });
+  return id;
 }
 
 export async function appendChatRoutingDecision(
@@ -5737,6 +5838,7 @@ export async function stageChatTaskProposal(
         automationId: CHAT_TASK_AUTOMATION_ID,
         organizationId: thread.organizationId,
         agentId: INTERNAL_STRATEGIST_AGENT,
+        taskId: goalTaskRef.taskId,
       },
       ctx.run,
     ),
@@ -5785,175 +5887,6 @@ export async function stageChatTaskProposal(
       alternativesRejected: resolution.alternativesRejected,
     },
   };
-}
-
-/**
- * The Goal/Task assignment the module-authoring Skill runs under.
- *
- * A governed Skill is refused without one (`pipeline.propose`: "requires a
- * resolved Goal/Task assignment") — an Automation starts an Agent Run, and
- * only an attributable Agent may invoke a Skill. This mirrors
- * `ensureTaskManagerAutomation` but mints its OWN Goal rather than borrowing
- * the one titled "Task Manager guard Automations": building a Module is not
- * Task Manager work, and filing it there would make the queue lie about what
- * ran.
- */
-export async function ensureModuleAuthoringAutomation(
-  wiring: Wiring,
-  organizationId: string,
-  run: RunCtx,
-): Promise<{ goalId: string; taskId: string }> {
-  const seam = { nextId: () => run.ids.next(), nowISO: () => run.clock.nowISO() };
-  const goals = await wiring.goalTasks.listGoals(organizationId);
-  const goal =
-    goals.find((candidate) => candidate.type === MODULE_AUTHORING_GOAL_TYPE) ??
-    await wiring.goalTasks.createGoal({
-      organizationId,
-      type: MODULE_AUTHORING_GOAL_TYPE,
-      title: "Modules built on request",
-    }, seam);
-  const existing = (await wiring.goalTasks.listTasksByGoal(organizationId, goal.id))
-    .find((task) =>
-      task.type === MODULE_AUTHORING_TASK_TYPE &&
-      task.assignedAgentId === CHIEF_OF_STAFF_AGENT,
-    );
-  const task = existing ?? await wiring.goalTasks.createTask({
-    organizationId,
-    goalId: goal.id,
-    type: MODULE_AUTHORING_TASK_TYPE,
-    assignedAgentId: CHIEF_OF_STAFF_AGENT,
-    exitTest: "A drafted Module reaches the owner as a reviewable proposal and installs nothing before they approve it",
-  }, seam);
-  await wiring.automationRegistry.save({
-    id: CHAT_MODULE_AUTOMATION_ID,
-    name: "Module authoring",
-    organizationId,
-    agentId: CHIEF_OF_STAFF_AGENT,
-    agentPlane: "local",
-    steps: [{
-      skill: CHAT_MODULE_SKILL_ID,
-      action: "write",
-      resourceType: "module_installation",
-      dataScope: "all",
-      goalTaskRef: { goalId: goal.id, taskId: task.id },
-    }],
-  });
-  return { goalId: goal.id, taskId: task.id };
-}
-
-/**
- * Stage the Module a Chat turn drafted, as a governed proposal that installs
- * nothing until the owner approves it.
- *
- * This deliberately raises the SAME proposal shape `modules.install` raises —
- * same deterministic id (`stableModuleInstallProposalId`), same resource id,
- * same `operation: "module_install"` inputs — so `moduleInstallIdFromProposal`
- * recognizes it and the EXISTING decide path activates it. Chat does not get a
- * second, parallel install route that could drift from the reviewed one.
- *
- * Two things differ from a human-driven install, both on purpose:
- *   - the actor is Chief of Staff, not the person typing. CoS drafted this;
- *     attributing it to the human would put their name on a model's work.
- *   - `requireHumanReview: true` is passed unconditionally. A human-driven
- *     install may auto-resolve at a low risk band; an agent-drafted Module
- *     never may.
- *
- * The registered installation row sits at `state: "private"` /
- * `status: "pending_review"` until approval, exactly where `modules.register`
- * leaves a manifest a human staged.
- */
-export async function stageChatModuleProposal(
-  ctx: Pick<ApiContext, "identity" | "run" | "wiring">,
-  thread: ChatThread,
-  assistantTurnId: string,
-  envelope: Extract<z.infer<typeof chatAssistantEnvelopeSchema>, { kind: "create_module" }>,
-) {
-  const scope = chatOwnerScope(thread.organizationId, thread.ownerUserId);
-  // The real gate. A malformed draft (an invented column kind, a name already
-  // taken, a Database with no columns) is refused HERE with the reason, which
-  // the turn surfaces — never installed as an empty shell.
-  const spec = parseAuthoredModuleSpec(
-    envelope.module,
-    await reservedModuleNames(ctx.wiring, thread.organizationId),
-  );
-  // Round-trip through the same parser every built-in Module passes, so a
-  // manifest that could not have been shipped by hand cannot arrive this way.
-  const manifest = parseModuleManifest({ module: authoredModuleToManifest(spec) });
-
-  // Idempotent on the turn: a retried send must not register a second copy.
-  const existing = (await ctx.wiring.moduleStore.listVersions(
-    thread.organizationId,
-    manifest.name,
-  )).find((row) => row.moduleVersion === manifest.version);
-  const installation = existing ?? await ctx.wiring.moduleStore.create({
-    organizationId: thread.organizationId,
-    moduleName: manifest.name,
-    moduleVersion: manifest.version,
-    manifest,
-    // Databases holding the owner's own private Records, no egress and nothing
-    // executable — `operational` is the honest band, and the decision below is
-    // forced to a Human regardless of what the band would otherwise allow.
-    computedRisk: "operational",
-    state: "private",
-    status: "pending_review",
-    lineageManifestId: null,
-  });
-
-  const goalTaskRef = await ensureModuleAuthoringAutomation(
-    ctx.wiring,
-    thread.organizationId,
-    ctx.run,
-  );
-  const proposalId = stableModuleInstallProposalId(thread.organizationId, installation.id);
-  const alreadyPending = await findPendingProposalById(
-    ctx.wiring,
-    thread.organizationId,
-    proposalId,
-  );
-  const proposal = alreadyPending ?? await ctx.wiring.pipeline.propose(
-    {
-      organizationId: thread.organizationId,
-      actor: { type: "agent", id: CHIEF_OF_STAFF_AGENT },
-      onBehalfOf: { type: "user", id: thread.ownerUserId },
-      action: "write",
-      resourceType: "module_installation",
-      resourceId: moduleInstallationLedgerResourceId(
-        thread.organizationId,
-        installation.id,
-      ),
-      inputs: {
-        operation: "module_install",
-        installationId: installation.id,
-        moduleName: installation.moduleName,
-        effectiveRisk: "operational",
-        // Named, not just referenced by id: this is what the reviewer reads
-        // before approving, and "install module <uuid>" is not a decision
-        // anyone can make.
-        displayName: spec.displayName,
-        summary: spec.summary,
-        databases: spec.databases.map((database) => ({
-          id: database.id,
-          label: database.label,
-          columns: database.columns.length,
-        })),
-      },
-      skill: CHAT_MODULE_SKILL_ID,
-      trustOrigin: "user_content",
-      taintLabel: chatHumanTaint(thread, `chat:${assistantTurnId}:module`, spec),
-      goalTaskRef,
-    },
-    ctx.run,
-    { proposalId, requireHumanReview: true },
-  );
-  await addChatTurnRef(
-    ctx.wiring,
-    scope,
-    thread.id,
-    assistantTurnId,
-    "proposal",
-    proposal.id,
-  );
-  return { proposal, installation, spec };
 }
 
 export async function findChatRetryUser(
@@ -6566,15 +6499,21 @@ export async function ensureTaskManagerAutomation(
     action: Action;
   },
   run: RunCtx,
+  /** Which Goal the anchor Task hangs under. Defaults to the Task Manager's
+   *  own guard Goal; TASK-094's Capability Builder Runs pass their own, so a
+   *  Builder Run is not filed as a Task Manager guard. */
+  goalType = "task-manager",
 ): Promise<{ goalId: string; taskId: string }> {
   const seam = { nextId: () => run.ids.next(), nowISO: () => run.clock.nowISO() };
   const goals = await wiring.goalTasks.listGoals(organizationId);
   const goal =
-    goals.find((candidate) => candidate.type === "task-manager") ??
+    goals.find((candidate) => candidate.type === goalType) ??
     await wiring.goalTasks.createGoal({
       organizationId,
-      type: "task-manager",
-      title: "Task Manager guard Automations",
+      type: goalType,
+      title: goalType === "task-manager"
+        ? "Task Manager guard Automations"
+        : "Capability Builder Automations",
     }, seam);
   const existing = (await wiring.goalTasks.listTasksByGoal(organizationId, goal.id))
     .find((task) => task.type === "task" && task.assignedAgentId === input.agentId);
@@ -6600,6 +6539,123 @@ export async function ensureTaskManagerAutomation(
     }],
   });
   return { goalId: goal.id, taskId: task.id };
+}
+
+/**
+ * TASK-094 — the Capability Builder acts as ITSELF.
+ *
+ * Both Builder lanes (rung 3's `proposeSteps`, rung 4's `proposeStructure`)
+ * used to execute as whichever human pressed the button. The agent identity
+ * existed — `CAPABILITY_BUILDER_AGENT` with `role-capability-builder`, a
+ * `signal:write` scope and seeded governance in both wirings — and nothing
+ * referenced it, so the Builder's own work left nothing attributable behind.
+ * That is a live gap against "only an attributable allowed Agent invokes
+ * them": you could not ask what the Builder had done, or stop it by narrowing
+ * its scope, because as far as the system was concerned it had never acted.
+ *
+ * This wrapper closes it in the two places it is true, with the same two
+ * mechanisms the rest of the codebase uses:
+ *
+ *  1. **Authority first.** `resolveAuthority` for the Builder as actor, on
+ *     behalf of the requesting human. Narrow the agent's scope and the lane
+ *     stops working — which is the point: an attribution you cannot revoke is
+ *     a label, not an authority.
+ *  2. **An Agent Run around the work.** Start before, finish after, `halted`
+ *     with the error when the derivation throws. `automation_runs` carries a
+ *     composite FK to `automations`, so the Run needs a real Automation row
+ *     for this Agent — hence the ensure call, exactly as the chat Task lane
+ *     does for the Internal Strategist.
+ *
+ * What it deliberately does NOT add: a propose/decide gate. Drafting is not
+ * the governed moment in either rung — activation is (rung 3) and
+ * materialization would be (rung 4). Inserting a human approval in front of
+ * "show me what you derived" would gate the explanation instead of the action.
+ */
+/** The rung-3 lane's own result union. Written out because inference across
+ *  the Run wrapper's callback collapses it to whichever branch it sees first,
+ *  and the refusal branch is half of this lane's contract. */
+export type BuilderStepsLaneResult =
+  | { proposed: false; reason: BuilderRefusalReason; detail: string }
+  | {
+      proposed: true;
+      automationId: string;
+      steps: ReturnType<typeof parseAutomationSteps>;
+      evidence: Extract<BuilderStepsResult, { proposed: true }>["evidence"];
+      status: "draft";
+    };
+
+export const CAPABILITY_BUILDER_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000f8";
+export const CAPABILITY_BUILDER_SKILL_ID = "capability-builder.draft";
+
+export async function runAsCapabilityBuilder<T>(
+  ctx: { wiring: Wiring; run: RunCtx; identity: { type: string; id: string } },
+  organizationId: string,
+  lane: string,
+  work: () => Promise<{ result: T; output: Record<string, unknown> }>,
+): Promise<{ result: T; runId: string }> {
+  const authority = await resolveAuthority(
+    {
+      organizationId,
+      actor: { type: "agent", id: CAPABILITY_BUILDER_AGENT, plane: "local" },
+      onBehalfOf: { type: "user", id: ctx.identity.id },
+      action: "write",
+      resourceType: "signal",
+      requestedDataScope: "private",
+    },
+    {
+      roles: ctx.wiring.roles,
+      agents: ctx.wiring.agents,
+      ephemeral: ctx.wiring.ephemeral,
+      nowISO: ctx.run.clock.nowISO(),
+    },
+  );
+  if (!authority.allowed || authority.dataScope === "none") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `the Capability Builder is not authorized to act here: ${authority.reason}`,
+    });
+  }
+  const anchor = await ensureTaskManagerAutomation(
+    ctx.wiring,
+    organizationId,
+    {
+      automationId: CAPABILITY_BUILDER_AUTOMATION_ID,
+      name: "Capability Builder drafting",
+      agentId: CAPABILITY_BUILDER_AGENT,
+      skill: CAPABILITY_BUILDER_SKILL_ID,
+      action: "write",
+    },
+    ctx.run,
+    "capability-builder",
+  );
+  const runId = ctx.run.ids.next();
+  await ctx.wiring.automationRunRecorder.start(
+    {
+      runId,
+      automationId: CAPABILITY_BUILDER_AUTOMATION_ID,
+      organizationId,
+      agentId: CAPABILITY_BUILDER_AGENT,
+      taskId: anchor.taskId,
+    },
+    ctx.run,
+  );
+  try {
+    const { result, output } = await work();
+    await ctx.wiring.automationRunRecorder.finish(
+      { runId, organizationId, status: "completed", output: { lane, ...output } },
+      ctx.run,
+    );
+    return { result, runId };
+  } catch (error) {
+    // A halted Run is the honest record of a Builder that tried and failed.
+    // Swallowing the finish would leave a Run that never ends, which reads as
+    // "still working" forever.
+    await ctx.wiring.automationRunRecorder.finish(
+      { runId, organizationId, status: "halted", output: { lane, error: String(error) } },
+      ctx.run,
+    );
+    throw error;
+  }
 }
 
 /** TASK-032 flight gate — every `learning.*` procedure except `status` fails
@@ -6713,6 +6769,21 @@ export const ACCOUNTING_REPORTS_SPEC = {
   id: "accounting.reports",
   columns: [
     { id: "label", label: "Metric", kind: "text" as const, editable: false },
+    /**
+     * TASK-084's formula column. The cell's own field holds the computed VALUE
+     * (unknown until facts are imported — `null`, never a fabricated figure),
+     * and `expressionField` names the field holding the EXPRESSION the fx
+     * affordance toggles to. This is a real formula, stored in
+     * `accountingSchema.formulas.expression` and evaluated by the Module's own
+     * engine — not a demonstration column.
+     */
+    {
+      id: "value",
+      label: "Value",
+      kind: "formula" as const,
+      expressionField: "expression",
+      editable: true,
+    },
     { id: "unit", label: "Unit", kind: "text" as const, editable: false },
     { id: "description", label: "Description", kind: "text" as const, editable: false },
     { id: "version", label: "Version", kind: "number" as const, editable: false },
@@ -6764,6 +6835,317 @@ export const D2C_NOTES_SPEC = {
   ],
 };
 
+/**
+ * Task Manager's Database (TASK-112).
+ *
+ * User report, 2026-09-07: "why am I still unable to add column in task manager
+ * module?" — and the true answer was broader than the question. `task-manager.
+ * tasks` was neither a shipped spec here nor a manifest-declared Module
+ * Database, so the capability answered `available: false` and RENAME, RETYPE,
+ * LOCK and DELETE were dead there too.
+ *
+ * Reshaping is safe: the overlay changes LABEL, KIND, LOCKED and VISIBILITY,
+ * all keyed by the stable column id, and nothing on the server matches a Task
+ * column by its label — `taskManager.*` addresses `tasks` columns by their
+ * Drizzle field names, which this never touches. ADDING is not safe and stays
+ * refused: a Task row is a real sqlite row, so `canAddColumn` is false here
+ * with `NO_ADD_ON_SHIPPED_SPEC`, exactly as it is for Accounting and D2C.
+ *
+ * The web Page keeps a copy as its pre-load fallback and renders THIS one the
+ * moment `tableSchema.get` answers — the server has the last word on what a
+ * Database's columns are (ADR-247).
+ */
+export const TASK_MANAGER_TASKS_SPEC = {
+  id: "task-manager.tasks",
+  columns: [
+    { id: "path", label: "Path", kind: "formula" as const, editable: false },
+    { id: "title", label: "Task", kind: "text" as const, editable: true },
+    { id: "isGoal", label: "Goal", kind: "checkbox" as const, editable: true },
+    { id: "status", label: "Status", kind: "select" as const, editable: true },
+    { id: "priority", label: "Priority", kind: "select" as const, editable: true },
+    { id: "estimate", label: "Estimate", kind: "text" as const, editable: false },
+    { id: "outcomeTitle", label: "Outcome", kind: "text" as const, editable: true },
+    { id: "outcomeMeasure", label: "Measure", kind: "text" as const, editable: true },
+    { id: "outcomeTarget", label: "Target", kind: "text" as const, editable: true },
+    { id: "exitTest", label: "Exit test", kind: "text" as const, editable: true },
+    { id: "createdTime", label: "Created", kind: "createdTime" as const, editable: false },
+    { id: "createdBy", label: "Created by", kind: "createdBy" as const, editable: false },
+    { id: "lastEditedTime", label: "Last edited", kind: "lastEditedTime" as const, editable: false },
+    { id: "lastEditedBy", label: "Last edited by", kind: "lastEditedBy" as const, editable: false },
+    { id: "parentTaskId", label: "Parent Task", kind: "relation" as const, editable: true },
+    { id: "dependsOn", label: "Depends on", kind: "relation" as const, editable: false },
+    { id: "scheduledFor", label: "Scheduled", kind: "date" as const, editable: true },
+    { id: "ownerId", label: "Owner", kind: "text" as const, editable: false },
+  ],
+};
+
+// ── Governed schema mutation: the shipped specs it knows (TASK-084) ──────────
+//
+// The capability is only offered for a table whose SHIPPED spec this process
+// holds, because a rename has to be validated against the real column list and
+// a dependency preview has to read the real column. Every other table reports
+// the capability unavailable with that reason, and its column menu disables
+// against that answer instead of shipping items that fail at the server
+// (ADR-001 keeps them visible; ADR-247 keeps them honest).
+export const SCHEMA_MUTABLE_SPECS: Record<string, TableSpec> = Object.fromEntries(
+  [
+    ACCOUNTING_CLIENTS_SPEC,
+    ACCOUNTING_REPORTS_SPEC,
+    D2C_ORDERS_SPEC,
+    D2C_INVENTORY_SPEC,
+    D2C_RESEARCH_SPEC,
+    D2C_NOTES_SPEC,
+    // Hand-written surfaces whose rows are real sqlite rows. Reshape yes, add
+    // no — `canAddColumn` is derived from membership of this map (TASK-112).
+    TASK_MANAGER_TASKS_SPEC,
+  ].map((spec) => [spec.id, spec as TableSpec]),
+);
+
+/** Mirrors `ColumnKind` in @bridge/tables. Listed rather than derived because a
+ * Zod enum needs the literals; the typecheck below fails if the two drift. */
+export const COLUMN_KINDS = [
+  "text",
+  "longText",
+  "number",
+  "email",
+  "phone",
+  "person",
+  "files",
+  "status",
+  "rollup",
+  "autoNumber",
+  "button",
+  "select",
+  "multiselect",
+  "date",
+  "checkbox",
+  "url",
+  "relation",
+  "formula",
+  "skill",
+  "location",
+] as const satisfies readonly ColumnKind[];
+
+/** The kinds that offer the user a CHOICE, and so are the only kinds an
+ * `options` list means anything on. One list, checked by both the add op and
+ * the retype op (TASK-112). */
+export const CHOICE_KINDS: readonly ColumnKind[] = ["select", "multiselect", "status"];
+
+/**
+ * Why a shipped spec cannot gain a column. Its rows live in the Module's own
+ * sqlite, whose table has the columns the Module author shipped — an overlay
+ * column would render with nowhere to put its values, which is the exact lie
+ * ADR-247 forbids. The Databases of a Module the Builder made are different:
+ * `moduleRecords.*` stores each Record as a document of the columns the
+ * RESOLVED spec declares, so an added column is storable the moment it exists.
+ */
+const NO_ADD_ON_SHIPPED_SPEC =
+  "This Database's rows live in the Module's own sqlite table, so a new column would have nowhere to put its values.";
+
+/**
+ * The Module Database this spec id names, or null when it is not one.
+ *
+ * Matched by COMPOSING each installed Module's declared spec ids rather than
+ * splitting the string on its first dot: both a Module name and a Database id
+ * may contain one, and a wrong split would resolve the schema of a Database
+ * the user was not looking at.
+ */
+async function resolveModuleDatabaseSpec(
+  wiring: Pick<Wiring, "moduleStore">,
+  organizationId: string,
+  specId: string,
+): Promise<TableSpec | null> {
+  const { items } = await wiring.moduleStore.list(organizationId, { limit: 500, offset: 0 });
+  // Same preference order `moduleRecords.installedManifest` serves the rows
+  // from — the `available` version if there is one, otherwise the newest
+  // installed row (a Module the Builder just made is `promoted`, not yet
+  // `available`). Reading a different version here would resolve a schema for
+  // a Database whose rows another procedure serves from a different manifest.
+  let fallback: TableSpec | null = null;
+  for (const row of items) {
+    if (row.status !== "installed") continue;
+    for (const database of row.manifest.module?.databases ?? []) {
+      if (moduleRecordsSpecId(row.moduleName, database.id) !== specId) continue;
+      const base = moduleDatabaseBaseSpec(row.moduleName, database);
+      if (row.state === "available") return base;
+      fallback = base;
+    }
+  }
+  return fallback;
+}
+
+/** The shipped spec, the user's overlay, and the spec the surface should render
+ * — plus whether the capability exists here at all, and whether this Database
+ * can gain a column as well as reshape the ones it has. */
+export async function readTableSchemaCapability(
+  wiring: Pick<Wiring, "localPlane" | "moduleStore">,
+  organizationId: string,
+  specId: string,
+): Promise<{
+  available: boolean;
+  reason: string | null;
+  spec: TableSpec | null;
+  overlay: ColumnOverlay | null;
+  canUndo: boolean;
+  canAddColumn: boolean;
+  addReason: string | null;
+}> {
+  const shipped = SCHEMA_MUTABLE_SPECS[specId];
+  // A Module the Builder made is not in the shipped map and never will be —
+  // its columns come from the manifest it was installed with (ADR-178), and
+  // the overlay rides over that exactly as it does over a shipped spec.
+  const base = shipped ?? (await resolveModuleDatabaseSpec(wiring, organizationId, specId));
+  if (!base) {
+    return {
+      available: false,
+      reason: `Unavailable: no governed schema-mutation capability is installed for ${specId}`,
+      spec: null,
+      overlay: null,
+      canUndo: false,
+      canAddColumn: false,
+      addReason: `Unavailable: no governed schema-mutation capability is installed for ${specId}`,
+    };
+  }
+  const stored = readStoredTableSchema(
+    await wiring.localPlane.state.read(organizationId, `${TABLE_SCHEMA_NAMESPACE_PREFIX}${specId}`),
+  );
+  return {
+    available: true,
+    reason: null,
+    spec: resolveColumnOverlay(base, stored.overlay),
+    overlay: hasOverlay(stored.overlay) ? stored.overlay : null,
+    canUndo: stored.previous !== null,
+    canAddColumn: !shipped,
+    addReason: shipped ? NO_ADD_ON_SHIPPED_SPEC : null,
+  };
+}
+
+// ── Module governance overlay (TASK-088, ADR-248/ADR-178) ────────────────────
+//
+// The Governance Section has been engine-READ since ADR-248, but nothing could
+// write it: manifests are immutable, so `module.governance.userEdited` was
+// parsed and rendered with no code path able to set it. The overlay is that
+// path — the user's own policy, keyed by Organization + Module, resolved over
+// the manifest's declared default by `resolveModuleGovernance` in @bridge/core.
+//
+// LOCAL PLANE by residency and by trust. It rides the same organization-scoped
+// atomic state store as the learning consent + WhatsApp automation policies
+// above, for the same two reasons: it is one Organization's private policy, and
+// writing it moves a trust boundary — which is exactly why `deployment-boundary`
+// closes the whole `moduleGovernance.` namespace to the public cloud shell.
+export const MODULE_GOVERNANCE_NAMESPACE_PREFIX = "module:governance:";
+
+/** The manifest's DECLARED policy for a Module — the seeded default an overlay
+ * is resolved over. Never mutated; ADR-178 makes manifests immutable. */
+export function declaredModuleGovernance(moduleName: string): ModuleGovernancePolicy | undefined {
+  return BUILT_IN_MODULES.find((entry) => entry.manifest.name === moduleName)?.manifest.governance;
+}
+
+/** Declared policy + stored overlay + the resolved policy the engine enforces. */
+export async function readResolvedModuleGovernance(
+  wiring: Pick<Wiring, "localPlane">,
+  organizationId: string,
+  moduleName: string,
+): Promise<{
+  declared: ModuleGovernancePolicy | null;
+  resolved: ModuleGovernancePolicy | null;
+  userEdited: boolean;
+  updatedAt: string | null;
+}> {
+  const declared = declaredModuleGovernance(moduleName);
+  const overlay = readModuleGovernanceOverlay(
+    await wiring.localPlane.state.read(
+      organizationId,
+      `${MODULE_GOVERNANCE_NAMESPACE_PREFIX}${moduleName}`,
+    ),
+  );
+  return {
+    declared: declared ?? null,
+    resolved: resolveModuleGovernance(declared, overlay) ?? null,
+    userEdited: overlay !== null,
+    updatedAt: overlay?.updatedAt || null,
+  };
+}
+
+/** A typo'd Module name would store an overlay nothing ever reads, and the user
+ * would believe they had governed something. Say so instead. */
+export function assertKnownModule(moduleName: string): void {
+  if (!BUILT_IN_MODULES.some((entry) => entry.manifest.name === moduleName)) {
+    throw new TRPCError({ code: "NOT_FOUND", message: `No installed Module named ${moduleName}` });
+  }
+}
+
+/** One rule as the editor sends it. Same contract the manifest parser enforces:
+ * a rule that cannot explain itself is a rule the user cannot audit, and the
+ * refusal message quotes this text back to them verbatim. */
+export const moduleGovernanceRuleInput = z.object({
+  action: z.string().trim().min(1).max(200),
+  reason: z.string().trim().min(1).max(500),
+});
+
+// ---------------------------------------------------------------------------
+// Chat composer capability (TASK-082)
+//
+// The paperclip and the mic both need something the process may not have: the
+// local Bridge File tree, and a Groq key. Canon says a control that cannot act
+// stays VISIBLE and disabled with a stated reason (ADR-001, rulebook §3a), so
+// the reason is computed HERE and carried to the control rather than being
+// discovered as a failed request after the user has already recorded or picked
+// a file.
+// ---------------------------------------------------------------------------
+
+/** The Module chat attachments land in — Chief of Staff's own Module, which is
+ * also the Module a Chat turn proposes Tasks into. Files land under
+ * `~/Documents/Bridge/<Organization>/TaskManager/` through `modules.addFile`,
+ * the one Module File path (ADR-125/178). */
+export const CHAT_ATTACHMENT_MODULE = "task-manager";
+
+export interface ComposerCapability {
+  available: boolean;
+  reason: string | null;
+}
+
+export function composerCapability(input: {
+  publicCloudOnly: boolean;
+  groqKeySaved: boolean;
+}): { attachments: ComposerCapability; voice: ComposerCapability } {
+  const attachments: ComposerCapability = input.publicCloudOnly
+    ? {
+        available: false,
+        // Not a missing feature — a residency boundary. Module Files live in
+        // the user's own Documents folder, which a shared cloud shell has no
+        // access to.
+        reason: "Attachments are saved to this device — use the Bridge desktop app",
+      }
+    : { available: true, reason: null };
+  const voice: ComposerCapability = input.publicCloudOnly
+    ? {
+        available: false,
+        reason: "Voice input runs on this device — use the Bridge desktop app",
+      }
+    : input.groqKeySaved
+      ? { available: true, reason: null }
+      : {
+          available: false,
+          reason: "Voice input needs a Groq key (Settings → API Keys)",
+        };
+  return { attachments, voice };
+}
+
+/**
+ * The transcription key: the environment wins, exactly as it does at boot
+ * (`wiring.ts`), otherwise the governed vault Settings → API Keys writes to.
+ * The value is used for one Authorization header and never returned.
+ */
+export async function transcriptionApiKey(
+  wiring: Wiring,
+  organizationId: string,
+): Promise<string | null> {
+  const fromEnvironment = process.env.GROQ_API_KEY?.trim();
+  if (fromEnvironment) return fromEnvironment;
+  if (wiring.publicCloudOnly) return null;
+  return wiring.modelProviderKeys.read(organizationId, "groq");
+}
 
 /** Normalize a persisted state row's `evidence` jsonb into the core
  * `CapabilityEvidence` shape lifecycle.ts's guards expect (defaults for any
@@ -6787,3 +7169,489 @@ export function toEvidence(evidence: {
   };
 }
 
+/**
+ * TASK-062 — the stored shape of a saved View: `ViewConfig` from
+ * @bridge/tables, validated at this edge because the kinds own the shape and a
+ * column that encoded it would migrate on every field they add. `.strict()`
+ * is the point: an unknown key is a client sending something this server does
+ * not understand, and storing it would make the config a place to smuggle
+ * state past every validator that follows.
+ */
+export const savedViewConfigSchema = z
+  .object({
+    id: z.string().trim().min(1).max(200),
+    kind: z.enum(VIEW_KINDS as readonly [string, ...string[]]),
+    sorts: z
+      .array(
+        z
+          .object({ id: z.string().trim().min(1).max(200), dir: z.enum(["asc", "desc"]) })
+          .strict(),
+      )
+      .max(20),
+    rowFilters: z
+      .array(
+        z
+          .object({
+            field: z.string().trim().min(1).max(200),
+            op: z.enum([
+              "contains",
+              "does_not_contain",
+              "is",
+              "is_not",
+              "is_empty",
+              "is_not_empty",
+              "starts_with",
+              "ends_with",
+              "gt",
+              "gte",
+              "lt",
+              "lte",
+              "before",
+              "after",
+              "on_or_before",
+              "on_or_after",
+              "is_any_of",
+              "is_none_of",
+              "is_checked",
+              "is_not_checked",
+            ] as const satisfies readonly FilterOp[]),
+            value: z.string().max(1_000),
+          })
+          .strict(),
+      )
+      .max(50),
+    filterMatch: z.enum(["all", "any"]),
+    groupBy: z.string().trim().min(1).max(200).nullable(),
+    dateBy: z.string().trim().min(1).max(200).optional(),
+    locationBy: z.string().trim().min(1).max(200).optional(),
+    relationBy: z.string().trim().min(1).max(200).optional(),
+    parentBy: z.string().trim().min(1).max(200).optional(),
+    graphScope: z.enum(["single_database", "multi_database", "full"]).optional(),
+    graphDatabaseIds: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+    formDefaults: z.record(z.unknown()).optional(),
+    // Notion-parity view mechanics (2026-09-06). Every one is optional, so a
+    // config written before they existed still validates unchanged.
+    subGroupBy: z.string().trim().min(1).max(200).nullable().optional(),
+    collapsedGroups: z.array(z.string().max(400)).max(500).optional(),
+    rowHeight: z.enum(["short", "medium", "tall"]).optional(),
+    wrapCells: z.boolean().optional(),
+    columnWidths: z.record(z.number().int().min(48).max(1_200)).optional(),
+    columnOrder: z.array(z.string().trim().min(1).max(200)).max(500).optional(),
+    frozenColumnId: z.string().trim().min(1).max(200).nullable().optional(),
+    aggregates: z.record(z.string().trim().min(1).max(40)).optional(),
+    pageSize: z.number().int().min(10).max(500).optional(),
+    cardSize: z.enum(["small", "medium", "large"]).optional(),
+    cardPreviewField: z.string().trim().min(1).max(200).optional(),
+    cardProperties: z.array(z.string().trim().min(1).max(200)).max(200).optional(),
+    endDateBy: z.string().trim().min(1).max(200).optional(),
+    timelineZoom: z.enum(["day", "week", "month"]).optional(),
+    chartShape: z.enum(["bar", "line", "donut"]).optional(),
+    chartAggregate: z.string().trim().min(1).max(40).optional(),
+    chartValueField: z.string().trim().min(1).max(200).optional(),
+  })
+  .strict();
+
+/**
+ * TASK-028 — the governed `web-research` Skill invocation itself, extracted so
+ * the `skill.webResearch` procedure and the server-side Research Run executor
+ * share ONE egress posture. Two copies of this would be two chances to drift
+ * apart on rights, quarantine, or persistence.
+ */
+export async function runWebResearchSkill(
+  ctx: Pick<ApiContext, "wiring" | "run" | "identity">,
+  organizationId: string,
+  input: {
+    objective: string;
+    scope: "public_web";
+    searchQueries: readonly string[];
+    budget: {
+      maxResults: number;
+      maxResponseBytes: number;
+      maxProviderAttempts: number;
+      timeoutMs: number;
+    };
+  },
+) {
+  await assertWebResearchModuleBinding(ctx.wiring, organizationId);
+  const goalTaskRef = await provisionWebResearchTask(ctx.wiring, organizationId);
+  try {
+    const proposal = await ctx.wiring.pipeline.propose(
+      {
+        organizationId,
+        actor: { type: "agent", id: LEARNING_AGENT, plane: "cloud" },
+        onBehalfOf: { type: "user", id: ctx.identity.id },
+        action: "read",
+        resourceType: "external:fetch",
+        inputs: {
+          objective: input.objective,
+          scope: input.scope,
+          searchQueries: [...input.searchQueries],
+          budget: input.budget,
+        },
+        taintLabel: labelAtSource("human_input", {
+          ref: `web-research:${ctx.identity.id}:${goalTaskRef.taskId}`,
+          valueHash: hashTaintValue({
+            objective: input.objective,
+            searchQueries: [...input.searchQueries],
+          }),
+          sensitivity: "public",
+          instructionRisk: "instruction_like",
+        }),
+        skill: WEB_RESEARCH_SKILL_ID,
+        dataScope: "public",
+        goalTaskRef,
+        context: { type: "record", id: goalTaskRef.taskId, runId: ctx.run.ids.next() },
+      },
+      ctx.run,
+    );
+    if (proposal.status === "rejected") {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: proposal.rejectionReason ?? "web research was rejected before persistence",
+      });
+    }
+    const resultEvidence = await persistWebResearchOutcome(
+      ctx.wiring,
+      ctx.run,
+      ctx.identity.id,
+      organizationId,
+      goalTaskRef,
+      proposal,
+    );
+    return { ...proposal, resultEvidence };
+  } catch (error) {
+    if (error instanceof SearchProvidersUnavailableError) {
+      const attempts = error.attempts
+        .map((attempt) => `${attempt.providerId}:${attempt.status}`)
+        .join(", ");
+      throw new TRPCError({
+        code: "BAD_GATEWAY",
+        message: `web research unavailable (${attempts})`,
+        cause: error,
+      });
+    }
+    throw error;
+  }
+}
+
+/**
+ * TASK-028 — record one executed engine step against a Research Run: a
+ * TERMINAL child Agent Run (so the timeline is inspectable through the same
+ * `childRun.*` surface every other delegation uses) plus the append-only step
+ * evidence BR4 resume replays. Shared by the `research.recordStep` procedure
+ * (the desktop overlay executor) and the server-side executor.
+ */
+export async function recordResearchStep(
+  ctx: Pick<ApiContext, "wiring" | "run" | "identity">,
+  organizationId: string,
+  run: ResearchRunRecord,
+  input: {
+    stepIndex: number;
+    tool: ResearchStepTool;
+    summary: string;
+    sourceUrl?: string | null | undefined;
+    quarantined?: { sourceUrl: string; text: string } | null | undefined;
+    failed?: boolean | undefined;
+  },
+): Promise<{ step: ResearchStepRecord; childRunId: string }> {
+  const onBehalfOf = {
+    type: (ctx.identity.type === "team" ? "team" : "user") as "user" | "team",
+    id: ctx.identity.id,
+  };
+  const [learningScope, learningDataScope] = await Promise.all([
+    ctx.wiring.agents.capabilityScope(LEARNING_AGENT),
+    ctx.wiring.agents.dataScope(LEARNING_AGENT),
+  ]);
+  // The step already executed under the engine's green-tier authority
+  // (AP-088): reading the public web is autonomous, so the child Run
+  // records at "notify", never a retroactive "approve" that would
+  // imply a Human decision existed. Steps run on the user's machine —
+  // the LOCAL plane; the quarantined text they carry is untrusted web.
+  const parentEnvelope: ParentRunEnvelope = {
+    runId: run.parentRunId,
+    agentId: LEARNING_AGENT,
+    organizationId,
+    authorityScope: learningScope,
+    eligibleSkills: [WEB_RESEARCH_SKILL_ID],
+    dataScope: learningDataScope,
+    plane: "local",
+    budgetRemaining: { calls: 1_000, cost: 1_000 },
+    reviewMode: "notify",
+    childRunPolicy: "allowed",
+    delegationDepth: 0,
+    onBehalfOf,
+    taintLabel: labelAtSource("human_input", {
+      ref: `research-run:${run.id}`,
+      valueHash: hashTaintValue({ objective: run.objective }),
+      sensitivity: "public",
+      instructionRisk: "instruction_like",
+    }),
+  };
+  const childRun = await createChildAgentRun(
+    { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
+    parentEnvelope,
+    {
+      goalId: run.goalId,
+      taskId: run.taskId,
+      delegatedScope: ["external:fetch:read"],
+      selectedSkills: [WEB_RESEARCH_SKILL_ID],
+      budget: { maxCalls: 1, maxCost: 1 },
+      deadline: new Date(Date.now() + 10 * 60_000).toISOString(),
+      stopCondition: `record one ${input.tool} step of Research Run ${run.id} and stop`,
+      requestedDataScope: "public",
+      ...(input.quarantined
+        ? {
+            requestedTaintLabel: labelAtSource("web_search", {
+              ref: input.quarantined.sourceUrl,
+              valueHash: hashTaintValue({ text: input.quarantined.text }),
+              sensitivity: "public",
+              instructionRisk: "instruction_like",
+            }),
+          }
+        : {}),
+    },
+    ctx.run,
+  );
+  const transition = input.failed ? failChildAgentRun : completeChildAgentRun;
+  await transition(
+    { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
+    organizationId,
+    childRun.id,
+    { type: "agent", id: LEARNING_AGENT },
+    ctx.run,
+  );
+
+  const step = await ctx.wiring.researchRuns.appendStep({
+    id: ctx.run.ids.next(),
+    runId: run.id,
+    organizationId,
+    ownerUserId: ctx.identity.id,
+    stepIndex: input.stepIndex,
+    tool: input.tool,
+    summary: input.summary,
+    sourceUrl: input.sourceUrl ?? null,
+    childRunId: childRun.id,
+    quarantinedText: input.quarantined?.text ?? null,
+    quarantinedSourceUrl: input.quarantined?.sourceUrl ?? null,
+    createdAt: ctx.run.clock.nowISO(),
+  });
+  return { step, childRunId: childRun.id };
+}
+
+/** TASK-028 — mint the durable Run record plus its Goal/Task and parent-Run
+ * envelope id. Shared by `research.start` (an executor lives elsewhere) and
+ * `research.execute` (the kernel drives the loop itself). */
+export async function startResearchRun(
+  ctx: Pick<ApiContext, "wiring" | "run" | "identity">,
+  organizationId: string,
+  objective: string,
+): Promise<ResearchRunRecord> {
+  const goalTaskRef = await provisionResearchRunTask(ctx.wiring, organizationId);
+  return ctx.wiring.researchRuns.create({
+    id: ctx.run.ids.next(),
+    organizationId,
+    ownerUserId: ctx.identity.id,
+    objective,
+    status: "running",
+    stopRequested: false,
+    parentRunId: ctx.run.ids.next(),
+    goalId: goalTaskRef.goalId,
+    taskId: goalTaskRef.taskId,
+    stopReason: null,
+    brief: null,
+    citations: [],
+    blockedActions: [],
+    injectionReports: [],
+    stepsTaken: 0,
+    startedAt: ctx.run.clock.nowISO(),
+    endedAt: null,
+  });
+}
+
+/**
+ * TASK-028 — freeze a Research Run's outcome, and land its brief as a governed
+ * RESULT rather than a column nobody else can see: a Memory owned by the human
+ * who started the Run and an Event on the Learning Agent's Task, both carrying
+ * `untrusted_external` taint because a brief synthesized from fetched pages is
+ * exactly as trustworthy as the pages it summarizes.
+ *
+ * The Run row is authoritative and is frozen FIRST — complete-once is enforced
+ * by the store (and the 0035 trigger), so a lost Result write can never leave
+ * two different terminal outcomes recorded for one Run.
+ */
+export async function completeResearchRun(
+  ctx: Pick<ApiContext, "wiring" | "run" | "identity">,
+  organizationId: string,
+  researchRunId: string,
+  outcome: ResearchRunOutcomeUpdate,
+): Promise<ResearchRunRecord & { resultEvidence: { resultId: string; memoryId: string; eventId: string } | null }> {
+  const frozen = await ctx.wiring.researchRuns.complete(
+    organizationId,
+    ctx.identity.id,
+    researchRunId,
+    outcome,
+    ctx.run.clock.nowISO(),
+  );
+  const brief = frozen.brief?.trim();
+  if (!brief) return { ...frozen, resultEvidence: null };
+
+  const memoryId = ctx.run.ids.next();
+  const eventId = ctx.run.ids.next();
+  const taintLabel = labelAtSource("web_search", {
+    ref: `research-run:${frozen.id}`,
+    valueHash: hashTaintValue({ brief, citations: [...frozen.citations] }),
+    sensitivity: "public",
+    instructionRisk: "data",
+  });
+  await ctx.wiring.memoryStore.write({
+    id: memoryId,
+    organizationId,
+    type: "semantic",
+    subjectRecordId: frozen.taskId,
+    scope: "private",
+    content: JSON.stringify({
+      kind: "research_run_brief_memory",
+      moduleName: "relationship",
+      researchRunId: frozen.id,
+      objective: frozen.objective,
+      brief,
+      citations: [...frozen.citations],
+      stopReason: frozen.stopReason,
+      stepsTaken: frozen.stepsTaken,
+      blockedActions: [...frozen.blockedActions],
+      injectionReports: [...frozen.injectionReports],
+    }),
+    sourceRefType: "ledger",
+    sourceRefId: frozen.parentRunId,
+    confidence: 1,
+    trustOrigin: "untrusted_external",
+    taintLabel,
+    plane: "local",
+    createdBy: LEARNING_AGENT,
+    ownerUserId: ctx.identity.id,
+    createdAt: ctx.run.clock.nowISO(),
+  });
+  await ctx.wiring.graphStore.recordWebResearchResultEvent({
+    organizationId,
+    userId: ctx.identity.id,
+    eventId,
+    resultId: frozen.id,
+    memoryId,
+    taskId: frozen.taskId,
+    moduleName: "relationship",
+    payload: {
+      researchRunId: frozen.id,
+      objective: frozen.objective,
+      stopReason: frozen.stopReason,
+      stepsTaken: frozen.stepsTaken,
+      citations: [...frozen.citations],
+      blockedActions: [...frozen.blockedActions],
+      injectionReports: [...frozen.injectionReports],
+    },
+    taintLabel,
+  });
+  return { ...frozen, resultEvidence: { resultId: frozen.id, memoryId, eventId } };
+}
+
+/**
+ * Share helpers (TASK-064). They live beside the router because both the Share
+ * panel's procedures and the recipient's `resolve` need exactly one answer to
+ * "what may this person do with this View", and two copies of that answer is
+ * how a share surface ends up disagreeing with the server.
+ */
+
+/** The View, as this caller may see it. Not-visible reads as not-found. */
+export type ShareCtx = Pick<ApiContext, "wiring" | "identity" | "run">;
+
+export async function findSharedView(
+  ctx: ShareCtx,
+  organizationId: string,
+  viewId: string,
+): Promise<SavedViewRecord> {
+  const view = await ctx.wiring.viewConfigs.get(organizationId, ctx.identity.id, viewId);
+  if (!view) {
+    throw new TRPCError({ code: "NOT_FOUND", message: `unknown saved View ${viewId}` });
+  }
+  return view;
+}
+
+/** What a non-owner holds on this View right now, or null. */
+export async function resolveShareLevel(
+  ctx: ShareCtx,
+  organizationId: string,
+  viewId: string,
+): Promise<ShareAccessLevel | null> {
+  const view = await ctx.wiring.viewConfigs.get(organizationId, ctx.identity.id, viewId);
+  if (!view) return null;
+  // Ownership is not a share: the owner holds everything without a grant row.
+  if (view.ownerUserId === ctx.identity.id) return "coowner";
+  const grants = await ctx.wiring.shareGrants.listForTarget(
+    organizationId,
+    ctx.identity.id,
+    "view",
+    viewId,
+  );
+  const now = ctx.run.clock.nowISO();
+  let best: ShareAccessLevel | null = null;
+  for (const grant of grants) {
+    if (grant.granteeUserId !== ctx.identity.id) continue;
+    if (!isGrantUsable(grant, now)) continue;
+    if (best === null || atLeast(grant.accessLevel, best)) best = grant.accessLevel;
+  }
+  // An `organization`-scoped View is readable by every member by its own scope,
+  // with no grant involved — the same answer the store's read predicate gives.
+  if (best === null && view.scope === "organization") return "view";
+  return best;
+}
+
+/** Refuse unless the caller reaches `required` on this View. */
+export async function assertSharableView(
+  ctx: ShareCtx,
+  organizationId: string,
+  viewId: string,
+  required: ShareAccessLevel,
+): Promise<void> {
+  const level = await resolveShareLevel(ctx, organizationId, viewId);
+  if (level === null) {
+    throw new TRPCError({ code: "NOT_FOUND", message: `unknown saved View ${viewId}` });
+  }
+  if (!atLeast(level, required)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `This View is shared with you at ${level} access; ${required} is required.`,
+    });
+  }
+}
+
+/** The Egg-profile owner of the web-research Skill: Task Manager's Learning Agent. */
+async function assertTaskManagerWebResearchBinding(
+  wiring: Wiring,
+  organizationId: string,
+): Promise<void> {
+  const installed = await wiring.moduleStore.getAvailable(organizationId, "task-manager");
+  const manifest = installed ? parseModuleManifest({ module: installed.manifest }) : null;
+  const learningAgent = manifest?.module?.agents.find(
+    (agent) => resolveModuleAgentRuntimeId(manifest.name, agent.id) === LEARNING_AGENT,
+  );
+  const skillId = `task-manager.skill.${WEB_RESEARCH_SKILL_ID}`;
+  const skill = manifest?.capabilities.find(
+    (capability) => capability.id === skillId && capability.capabilityType === "skill",
+  );
+  if (
+    installed?.status !== "installed" ||
+    !learningAgent?.skillIds.includes(skillId) ||
+    !skill ||
+    !skill.permissions.some(
+      (permission) =>
+        permission.resourceType === "external:fetch" &&
+        permission.action === "read" &&
+        permission.dataScope === "public" &&
+        permission.egress,
+    )
+  ) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "No installed Module binds web-research to the Learning Agent",
+    });
+  }
+}

@@ -4,8 +4,7 @@ import { z } from "zod";
 import { assertModuleGovernance, ModuleGovernanceDenied } from "@bridge/core";
 import { desc } from "drizzle-orm";
 import { schema as accountingSchema } from "@bridge/accounting";
-import { BUILT_IN_MODULES } from "../built-in-modules.js";
-import { t, procedure, ACCOUNTING_CLIENTS_SPEC, ACCOUNTING_REPORTS_SPEC } from "../router-shared.js";
+import { ACCOUNTING_CLIENTS_SPEC, ACCOUNTING_REPORTS_SPEC, procedure, readResolvedModuleGovernance, t } from "../router-shared.js";
 
 /**
  * Accounting — wires the imported `@bridge/accounting` domain layer
@@ -72,10 +71,18 @@ export const accountingRouter = t.router({
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        const accountingManifest = BUILT_IN_MODULES.find((entry) => entry.manifest.name === "accounting")?.manifest;
         const action = input.actor.type === "model" ? "books.write.model" : "books.write.human";
+        // TASK-088: enforce against the RESOLVED policy — the user's overlay
+        // if they wrote one, otherwise the manifest's seeded default. Reading
+        // the manifest directly here would make the Governance editor a
+        // display that changes nothing.
+        const { resolved } = await readResolvedModuleGovernance(
+          ctx.wiring,
+          input.organizationId,
+          "accounting",
+        );
         try {
-          assertModuleGovernance("accounting", accountingManifest?.governance, action);
+          assertModuleGovernance("accounting", resolved ?? undefined, action);
         } catch (error) {
           if (error instanceof ModuleGovernanceDenied) {
             throw new TRPCError({ code: "FORBIDDEN", message: error.message });

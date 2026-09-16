@@ -1,8 +1,8 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { LEARNING_AGENT } from "../wiring.js";
+import { LEARNING_AGENT, PILOT_ORGANIZATION } from "../wiring.js";
 import type { DataScope } from "@bridge/core";
-import { t, procedure, provisionCaptureTask, withCaptureStageLock, findPendingCaptureProposal, pendingProposalFromLedger, putCaptureReviewEnvelope, getCaptureReviewEnvelope } from "../router-shared.js";
+import { authenticatedProcedure, findPendingCaptureProposal, getCaptureReviewEnvelope, organizationGuard, pendingProposalFromLedger, procedure, provisionCaptureTask, putCaptureReviewEnvelope, t, withCaptureStageLock } from "../router-shared.js";
 
 /** Gmail + Google Calendar integration — connect, sync (read), send (write). */
 /** Gmail + Google Calendar — connect, sync (read), draft (write). Distinct from the
@@ -30,7 +30,7 @@ import { t, procedure, provisionCaptureTask, withCaptureStageLock, findPendingCa
  * STAGE_CAPTURE_SKILL_MANIFEST).
  */
 export const captureRouter = t.router({
-  stage: procedure
+  stage: authenticatedProcedure
     .input(
       z.object({
         organizationId: z.string().min(1),
@@ -41,7 +41,7 @@ export const captureRouter = t.router({
         capturedAt: z.string().datetime({ offset: true }),
       }),
     )
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       return withCaptureStageLock(
         `${input.organizationId}:${ctx.identity.id}:${input.localMediaId}`,
         async () => {
@@ -160,12 +160,12 @@ export const captureRouter = t.router({
         },
       );
     }),
-  status: procedure
+  status: authenticatedProcedure
     .input(z.object({
       organizationId: z.string().min(1),
       localMediaIds: z.array(z.string().trim().min(1).max(500)).max(100),
     }))
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const items = await Promise.all(
         input.localMediaIds.map(async (localMediaId) => {
           const envelope = await getCaptureReviewEnvelope(

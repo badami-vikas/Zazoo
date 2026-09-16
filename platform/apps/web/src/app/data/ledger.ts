@@ -58,14 +58,19 @@ function normalizeDecision(value: unknown): Decision {
     case 'auto':
     case 'auto_approved':
       return 'auto_approved';
+    case 'superseded':
+    case 'withdrawn':
+      return 'withdrawn';
     default:
       return null;
   }
 }
 
+/** A decision row that closes its proposal — a Human review, or the machine's
+ * `superseded` withdrawal, which resolves the row without anyone deciding it. */
 function isReviewDecision(value: unknown): boolean {
   const decision = normalizeDecision(value);
-  return decision === 'approved' || decision === 'vetoed' || decision === 'edited_approved';
+  return decision === 'approved' || decision === 'vetoed' || decision === 'edited_approved' || decision === 'withdrawn';
 }
 
 function isRejectedAuditRow(row: { diff?: unknown }): boolean {
@@ -298,7 +303,9 @@ function proposalToEntry(proposal: PendingProposal): LedgerEntry {
       : null,
     delegationId: asString(inputs?.delegationId),
     runId: asString(inputs?.runId),
-    action: asString(display?.action) ?? proposal.request.action,
+    // The server's plain-language sentence first (directive 2026-09-05), then a
+    // Skill-supplied display verb, then the raw action.
+    action: proposal.copy?.title ?? asString(display?.action) ?? proposal.request.action,
     resourceType: displayResourceType(proposal.request.resourceType),
     resource,
     policy,
@@ -381,48 +388,6 @@ export async function loadPendingApprovals(): Promise<{
       error: cause instanceof Error ? cause.message : String(cause),
     };
   }
-}
-
-export type OutstandingRelationshipMaterialization = Awaited<
-  ReturnType<typeof trpc.relationship.outstandingMaterializations.query>
->['items'][number];
-
-export async function loadOutstandingRelationshipMaterializations(): Promise<{
-  items: OutstandingRelationshipMaterialization[];
-  error?: string;
-}> {
-  try {
-    const items: OutstandingRelationshipMaterialization[] = [];
-    const seenCursors = new Set<string>();
-    let cursor: { id: string } | undefined;
-    do {
-      const page = await trpc.relationship.outstandingMaterializations.query({
-        organizationId: PILOT_ORGANIZATION,
-        limit: 100,
-        ...(cursor ? { cursor } : {}),
-      });
-      items.push(...page.items);
-      if (!page.nextCursor) return { items };
-      if (seenCursors.has(page.nextCursor.id)) {
-        throw new Error("Outstanding Relationship pagination did not advance");
-      }
-      seenCursors.add(page.nextCursor.id);
-      cursor = page.nextCursor;
-    } while (cursor);
-    return { items };
-  } catch (cause) {
-    return {
-      items: [],
-      error: cause instanceof Error ? cause.message : String(cause),
-    };
-  }
-}
-
-export async function retryRelationshipMaterialization(proposalId: string) {
-  return trpc.relationship.retryMaterialization.mutate({
-    organizationId: PILOT_ORGANIZATION,
-    proposalId,
-  });
 }
 
 function editedProposalOutput(

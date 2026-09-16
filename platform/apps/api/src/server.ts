@@ -9,9 +9,9 @@ import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from "@trpc/server/adapters/fastify";
-import { appRouter, type AppRouter } from "./router.js";
+import { appRouter, eggRouter, type AppRouter } from "./router.js";
 import { makeContextFactory } from "./context.js";
-import { isVerifierConfigured } from "./identity.js";
+import { isVerifierConfigured, missingVerifierNotice } from "./identity.js";
 import { buildWiring, PILOT_ORGANIZATION } from "./wiring.js";
 import { createDb, DrizzleJobLeaseStore, DrizzleRateLimitStore } from "@bridge/db";
 import { withLease } from "./job-lease.js";
@@ -31,6 +31,7 @@ import {
   isPublicCloudScratchPath,
   renderWebOrigin,
 } from "./deployment-boundary.js";
+import { startEmbeddedCommons } from "./commons-embedded.js";
 
 /**
  * CORS origin resolution. `API_ALLOWED_ORIGINS` (comma-separated) is the explicit
@@ -463,12 +464,13 @@ export async function buildServer() {
     `identity: verifier ${verifierConfigured ? "CONFIGURED" : "not configured (pilot fallback for tokenless requests)"}; ` +
       `stores ${wiring.persistent ? "persistent" : "in-memory"}`,
   );
-  if (!verifierConfigured && (wiring.persistent || process.env.NODE_ENV === "production")) {
-    app.log.warn(
-      "identity: NO verifier configured on a persistent/production deploy — every mutation will be " +
-        "REJECTED with 401 (SEC-1 fail-closed). Set SUPABASE_JWT_SECRET or SUPABASE_URL to enable auth.",
-    );
-  }
+  const verifierNotice = missingVerifierNotice({
+    verifierConfigured,
+    persistent: wiring.persistent,
+    production: process.env.NODE_ENV === "production",
+    sidecarToken: process.env.BRIDGE_SIDECAR_TOKEN,
+  });
+  if (verifierNotice) app.log[verifierNotice.level](verifierNotice.message);
 
   // SEC-2: bound request rates per client IP. A global cap plus a much tighter,
   // independently-counted cap on sensitive procedures (cost/quota-spending mutations,
@@ -542,7 +544,12 @@ export async function buildServer() {
   await app.register(fastifyTRPCPlugin, {
     prefix: "/trpc",
     trpcOptions: {
-      router: appRouter,
+      // The Egg mounts the kernel alone; Commons Module namespaces are absent
+      // until installed from the registry (ADR 2026-09-04). The client type
+      // stays AppRouter — a missing namespace is a NOT_FOUND, not a type gap.
+      // `eggRouter` is a structural subset of `appRouter`; the cast keeps the
+      // plugin typed against the full contract the client compiles against.
+      router: (wiring.profile === "egg" ? eggRouter : appRouter) as AppRouter,
       createContext,
       allowMethodOverride: true,
       onError({ path, error }) {
@@ -618,6 +625,7 @@ export async function buildServer() {
   if (wiring.learningObservationEnabled && !wiring.publicCloudOnly) {
     automationScheduler = startAutomationScheduler({
       registry: wiring.automationRegistry,
+      pipeline: wiring.pipeline,
       runRecorder: wiring.automationRunRecorder,
       executor: wiring.automationExecutor,
       organizationId: PILOT_ORGANIZATION,
@@ -844,6 +852,10 @@ if (isMain) {
       }
       const addr = await listenServer(app, port);
       console.log(`bridge-api listening at ${addr}`);
+      // After the API is up, so a slow registry boot never delays serving.
+      // Never awaited for correctness: `commons.*` reports its own failures.
+      const commons = await startEmbeddedCommons();
+      if (commons) process.once("exit", () => void commons.close());
     })
     .catch((err) => {
       console.error(err);

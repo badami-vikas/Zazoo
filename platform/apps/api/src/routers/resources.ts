@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { t, procedure, paginatedInput } from "../router-shared.js";
+import { paginatedInput, procedure, t } from "../router-shared.js";
 
 /**
  * Resources — replaces the prototype's Supabase-direct `resources_canonical`

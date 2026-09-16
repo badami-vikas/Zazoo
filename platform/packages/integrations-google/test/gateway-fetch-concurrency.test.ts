@@ -26,7 +26,7 @@ interface FakeThreadsGetCall {
 }
 
 /** Re-imports gateway-google.ts with a cache-busting query so each test picks up ITS
- * OWN `t.mock.module("googleapis", ...)` rather than a previous test's cached mock
+ * OWN `t.mock.module("@googleapis/gmail", ...)` rather than a previous test's cached mock
  * (the dynamic import is otherwise memoized by specifier). Typed explicitly since a
  * templated specifier loses static type inference. */
 async function freshGatewayModule(): Promise<{ GoogleApiGateway: typeof GoogleApiGatewayType }> {
@@ -108,14 +108,20 @@ test("fetchThreads runs per-thread fetches CONCURRENTLY (bounded), tolerating a 
   const failOnceIds = new Set([threadIds[3]!]);
   const fakeGmailClient = buildFakeGmailClient({ threadIds, getDelayMs: 40, failOnceIds, calls, inFlight });
 
-  const googleapisMock = t.mock.module("googleapis", {
-    namedExports: {
-      google: {
-        gmail: () => fakeGmailClient,
-        calendar: () => ({ events: { list: async () => ({ data: { items: [] } }) } }),
-      },
-    },
+  // Two per-API packages now, not the `googleapis` umbrella — see
+  // gateway-google.ts. `restore()` fans out so call sites below are unchanged.
+  const googleapisMock_gmail = t.mock.module("@googleapis/gmail", {
+    namedExports: { gmail: () => fakeGmailClient },
   });
+  const googleapisMock_calendar = t.mock.module("@googleapis/calendar", {
+    namedExports: { calendar: () => ({ events: { list: async () => ({ data: { items: [] } }) } }) },
+  });
+  const googleapisMock = {
+    restore: () => {
+      googleapisMock_gmail.restore();
+      googleapisMock_calendar.restore();
+    },
+  };
 
   const { GoogleApiGateway } = await freshGatewayModule();
   const gw = new GoogleApiGateway({} as never);
@@ -152,14 +158,20 @@ test("fetchThreads skips a thread that fails every retry attempt instead of abor
   const alwaysFailIds = new Set(["test_fixture_thread_bad"]);
   const fakeGmailClient = buildFakeGmailClient({ threadIds, getDelayMs: 5, alwaysFailIds, calls, inFlight });
 
-  const googleapisMock = t.mock.module("googleapis", {
-    namedExports: {
-      google: {
-        gmail: () => fakeGmailClient,
-        calendar: () => ({ events: { list: async () => ({ data: { items: [] } }) } }),
-      },
-    },
+  // Two per-API packages now, not the `googleapis` umbrella — see
+  // gateway-google.ts. `restore()` fans out so call sites below are unchanged.
+  const googleapisMock_gmail = t.mock.module("@googleapis/gmail", {
+    namedExports: { gmail: () => fakeGmailClient },
   });
+  const googleapisMock_calendar = t.mock.module("@googleapis/calendar", {
+    namedExports: { calendar: () => ({ events: { list: async () => ({ data: { items: [] } }) } }) },
+  });
+  const googleapisMock = {
+    restore: () => {
+      googleapisMock_gmail.restore();
+      googleapisMock_calendar.restore();
+    },
+  };
 
   const { GoogleApiGateway } = await freshGatewayModule();
   const gw = new GoogleApiGateway({} as never);

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { desc } from "drizzle-orm";
 import { d2cSchema } from "../d2c-store.js";
-import { t, procedure, D2C_ORDERS_SPEC, D2C_INVENTORY_SPEC } from "../router-shared.js";
+import { D2C_INVENTORY_SPEC, D2C_ORDERS_SPEC, procedure, t } from "../router-shared.js";
 
 /**
  * D2C — wires the imported `@bridge/d2c` domain types (ADR-246)

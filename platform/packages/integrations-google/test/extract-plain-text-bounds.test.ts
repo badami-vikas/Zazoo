@@ -72,14 +72,20 @@ test("extractPlainText does not crash/hang on multipart nesting far beyond the d
   // recursion; a naive implementation risks a stack overflow here.
   const deeplyNested = nestedMultipart(500, "test_fixture_ leaf text that is unreachable past the depth cap");
 
-  const googleapisMock = t.mock.module("googleapis", {
-    namedExports: {
-      google: {
-        gmail: () => fakeGmailClientForPayload(deeplyNested),
-        calendar: () => ({ events: { list: async () => ({ data: { items: [] } }) } }),
-      },
-    },
+  // Two per-API packages now, not the `googleapis` umbrella — see
+  // gateway-google.ts. `restore()` fans out so call sites below are unchanged.
+  const googleapisMock_gmail = t.mock.module("@googleapis/gmail", {
+    namedExports: { gmail: () => fakeGmailClientForPayload(deeplyNested) },
   });
+  const googleapisMock_calendar = t.mock.module("@googleapis/calendar", {
+    namedExports: { calendar: () => ({ events: { list: async () => ({ data: { items: [] } }) } }) },
+  });
+  const googleapisMock = {
+    restore: () => {
+      googleapisMock_gmail.restore();
+      googleapisMock_calendar.restore();
+    },
+  };
 
   const { GoogleApiGateway } = await freshGatewayModule();
   const gw = new GoogleApiGateway({} as never);
@@ -104,14 +110,20 @@ test("extractPlainText does not fully materialize an oversized body part in memo
   const hugeText = "A".repeat(8 * 1024 * 1024);
   const payload: GmailPayloadPartLike = { mimeType: "text/plain", body: { data: b64(hugeText) } };
 
-  const googleapisMock = t.mock.module("googleapis", {
-    namedExports: {
-      google: {
-        gmail: () => fakeGmailClientForPayload(payload),
-        calendar: () => ({ events: { list: async () => ({ data: { items: [] } }) } }),
-      },
-    },
+  // Two per-API packages now, not the `googleapis` umbrella — see
+  // gateway-google.ts. `restore()` fans out so call sites below are unchanged.
+  const googleapisMock_gmail = t.mock.module("@googleapis/gmail", {
+    namedExports: { gmail: () => fakeGmailClientForPayload(payload) },
   });
+  const googleapisMock_calendar = t.mock.module("@googleapis/calendar", {
+    namedExports: { calendar: () => ({ events: { list: async () => ({ data: { items: [] } }) } }) },
+  });
+  const googleapisMock = {
+    restore: () => {
+      googleapisMock_gmail.restore();
+      googleapisMock_calendar.restore();
+    },
+  };
 
   const { GoogleApiGateway } = await freshGatewayModule();
   const gw = new GoogleApiGateway({} as never);
@@ -132,14 +144,20 @@ test("extractPlainText does not fully materialize an oversized body part in memo
 test("extractPlainText handles a payload nested within the depth cap normally (no regression)", async (t) => {
   const nested = nestedMultipart(5, "test_fixture_ this text IS reachable, well within the depth cap");
 
-  const googleapisMock = t.mock.module("googleapis", {
-    namedExports: {
-      google: {
-        gmail: () => fakeGmailClientForPayload(nested),
-        calendar: () => ({ events: { list: async () => ({ data: { items: [] } }) } }),
-      },
-    },
+  // Two per-API packages now, not the `googleapis` umbrella — see
+  // gateway-google.ts. `restore()` fans out so call sites below are unchanged.
+  const googleapisMock_gmail = t.mock.module("@googleapis/gmail", {
+    namedExports: { gmail: () => fakeGmailClientForPayload(nested) },
   });
+  const googleapisMock_calendar = t.mock.module("@googleapis/calendar", {
+    namedExports: { calendar: () => ({ events: { list: async () => ({ data: { items: [] } }) } }) },
+  });
+  const googleapisMock = {
+    restore: () => {
+      googleapisMock_gmail.restore();
+      googleapisMock_calendar.restore();
+    },
+  };
 
   const { GoogleApiGateway } = await freshGatewayModule();
   const gw = new GoogleApiGateway({} as never);

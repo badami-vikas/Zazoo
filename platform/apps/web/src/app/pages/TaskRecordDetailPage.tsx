@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, CheckCircle2, GitBranch, Link2, ShieldCheck, UserCog } from "lucide-react";
 import { Link, useParams } from "react-router";
+import { RecordSections } from "../components/shared/RecordSections";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { PlanningProposalReview } from "../components/shared/PlanningProposalReview";
 import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
@@ -227,7 +228,22 @@ export function TaskRecordDetailPage() {
     });
   }
 
-  if (error && !task) return <p role="alert" className="p-6 text-sm text-red-600">{error}</p>;
+  // An Automation's anchor Task is a kernel Task with no Task Manager Record
+  // behind it. Its approvals still belong here (ADR 2026-09-04), so the page
+  // renders that section with the Record's absence stated, not a dead end.
+  if (error && !task) {
+    return (
+      <div className="h-full overflow-auto bg-white">
+        <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
+          <Link to="/task-manager" className="inline-flex items-center gap-1 text-sm text-[var(--color-steel)]">
+            <ArrowLeft className="size-4" /> Queue
+          </Link>
+          <p role="alert" className="text-sm text-muted-foreground">{error}</p>
+          <TaskApprovalsSection taskId={taskId} />
+        </div>
+      </div>
+    );
+  }
   if (!task) return <p role="status" className="p-6 text-sm text-muted-foreground">Loading Task Record…</p>;
 
   return (
@@ -282,6 +298,8 @@ export function TaskRecordDetailPage() {
             </div>
           </div>
         </section>
+
+        <TaskApprovalsSection taskId={taskId} />
 
         <section className="rounded-lg border p-4">
           <div className="mb-3 flex items-center gap-2">
@@ -437,7 +455,92 @@ export function TaskRecordDetailPage() {
           </dl>
         </section>
         <ModuleFilesSection moduleName="task-manager" />
+        {/* The Sections this Database's Record pages show, chosen once for the
+            whole Database from the Tasks toolbar's ⋮ → Records (TASK-083). */}
+        <RecordSections specId="task-manager.tasks" moduleName="task-manager" recordId={taskId} />
       </div>
     </div>
+  );
+}
+
+type PendingForTask = Awaited<ReturnType<typeof trpc.action.listPendingForTask.query>>["items"][number];
+
+/**
+ * Approvals belong to Tasks (ADR 2026-09-04): every undecided proposal an
+ * Automation Run raised under this Task, decided right here. The section is
+ * present with nothing in it when nothing waits — the same surface, empty.
+ *
+ * `taskId: null` is the queue's own copy: proposals with no Task behind them
+ * (a direct Human action has no Automation Run). Those render at the top of
+ * the Task Manager index and only when something waits, so the queue is not
+ * headed by an empty box every morning.
+ */
+export function TaskApprovalsSection({ taskId }: { taskId: string | null }) {
+  const [items, setItems] = useState<PendingForTask[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [deciding, setDeciding] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      const result = await trpc.action.listPendingForTask.query({ organizationId: PILOT_ORGANIZATION, taskId });
+      setItems(result.items);
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  useEffect(() => {
+    void load();
+  }, [taskId]);
+
+  async function decide(proposalId: string, decision: "approve" | "veto") {
+    setDeciding(proposalId);
+    try {
+      await trpc.action.decide.mutate({ proposalId, decision });
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setDeciding(null);
+    }
+  }
+
+  if (taskId === null && !error && (items?.length ?? 0) === 0) return null;
+
+  return (
+    <section id="approvals" className="rounded-lg border p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <ShieldCheck className="size-4 text-[var(--color-steel)]" />
+        <h2 className="text-sm font-semibold">{taskId === null ? "Waiting for your yes" : "Approvals"}</h2>
+        {items && items.length > 0 && (
+          <span className="text-xs text-muted-foreground">{items.length} waiting on you</span>
+        )}
+      </div>
+      {error && <p role="alert" className="mb-2 text-xs text-red-700">{error}</p>}
+      {items === null ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : items.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Nothing waits on this Task.</p>
+      ) : (
+        <ul className="space-y-2">
+          {items.map((item) => (
+            <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+              <div className="min-w-0">
+                <p className="font-medium">{item.copy.title}</p>
+                <p className="text-xs text-muted-foreground">{item.copy.detail}</p>
+                <p className="text-xs text-muted-foreground">
+                  Proposed {new Date(item.createdAt).toLocaleString()} by {item.request.actor.type} {item.request.actor.id.slice(-4)}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button type="button" disabled={deciding === item.id} onClick={() => void decide(item.id, "approve")} className="rounded-md border px-3 py-1.5 text-xs font-semibold">Approve</button>
+                <button type="button" disabled={deciding === item.id} onClick={() => void decide(item.id, "veto")} className="rounded-md border px-3 py-1.5 text-xs">Veto</button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

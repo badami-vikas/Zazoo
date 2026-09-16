@@ -1,9 +1,10 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { LEARNING_AGENT } from "../wiring.js";
 import { desc } from "drizzle-orm";
 import { uuidv7 } from "@bridge/core";
 import { deterministicUuid } from "../deterministic-uuid.js";
-import { t, procedure, redFlagAnchorInput, canonicalAnchorString, anchorLineageKey, monotonicRedFlagNowISO, type LearningMemoryContent, parseLearningMemory, isRedFlagContent, isPreferenceAdjustmentContent, encodeRedFlagCursor, decodeRedFlagCursor, validateAnchorTarget, withdrawPendingRedFlagProposal, revokePreferenceAdjustmentPermanently, attemptGovernedLearningStep, assertMembership } from "../router-shared.js";
+import { anchorLineageKey, assertMembership, attemptGovernedLearningStep, authenticatedProcedure, canonicalAnchorString, decodeRedFlagCursor, encodeRedFlagCursor, isPreferenceAdjustmentContent, isRedFlagContent, monotonicRedFlagNowISO, organizationGuard, parseLearningMemory, procedure, redFlagAnchorInput, revokePreferenceAdjustmentPermanently, t, validateAnchorTarget, withdrawPendingRedFlagProposal, type LearningMemoryContent } from "../router-shared.js";
 
 /**
  * TASK-010 — platform red-flag correction feedback (docs/raw/ui-
@@ -13,7 +14,7 @@ import { t, procedure, redFlagAnchorInput, canonicalAnchorString, anchorLineageK
  * mechanism — a Red Flag targets ANY eligible data cell or rendered
  * bullet across Modules, not onboarding-specific state.
  *
- * Every procedure here is `procedure` + `assertMembership` —
+ * Every procedure here is `authenticatedProcedure` + `assertMembership` —
  * review remediation item 1: a red flag is always `scope: "private"`, so
  * its owner MUST be the real caller (`ctx.identity.id`), never the
  * pilot/demo constant. `get()`'s own authority-scoped visibility predicate
@@ -51,7 +52,7 @@ export const redFlagRouter = t.router({
    * survive learning failure," but the learning attempt itself is
    * retryable evidence-bearing state, not silently dropped.
    */
-  create: procedure
+  create: authenticatedProcedure
     .input(
       z.object({
         organizationId: z.string().min(1),
@@ -62,7 +63,7 @@ export const redFlagRouter = t.router({
         reason: z.string().trim().max(500).optional(),
       }),
     )
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const ownerId = ctx.identity.id;
       const authScope = { organizationId: input.organizationId, userId: ownerId };
       await validateAnchorTarget(ctx.wiring, input.organizationId, ownerId, input.anchor);
@@ -146,9 +147,9 @@ export const redFlagRouter = t.router({
    * outcome never reached ledger append for its OLD seed (review item 4's
    * `attemptGovernedLearningStep` fix), so there is nothing to reconcile
    * against there; a fresh seed simply starts over cleanly. */
-  retryLearning: procedure
+  retryLearning: authenticatedProcedure
     .input(z.object({ organizationId: z.string().min(1), flagId: z.string().uuid(), operationId: z.string().min(1) }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const ownerId = ctx.identity.id;
       const auth = { organizationId: input.organizationId, userId: ownerId };
       const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
@@ -168,9 +169,9 @@ export const redFlagRouter = t.router({
    * CAS-protected (review item 4): a stale `flagId` (already superseded by
    * some other action) is rejected with CONFLICT rather than silently
    * forking the lineage. */
-  clear: procedure
+  clear: authenticatedProcedure
     .input(z.object({ organizationId: z.string().min(1), flagId: z.string().uuid() }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const ownerId = ctx.identity.id;
       const auth = { organizationId: input.organizationId, userId: ownerId };
       const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
@@ -225,9 +226,9 @@ export const redFlagRouter = t.router({
    * review for this newly-active version — it never resurrects a prior
    * (vetoed/withdrawn/revoked) proposal, which stays permanently resolved
    * exactly as it was. */
-  reopen: procedure
+  reopen: authenticatedProcedure
     .input(z.object({ organizationId: z.string().min(1), flagId: z.string().uuid() }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const ownerId = ctx.identity.id;
       const auth = { organizationId: input.organizationId, userId: ownerId };
       const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
@@ -269,9 +270,9 @@ export const redFlagRouter = t.router({
 
   /** The "edit" half of inspect/edit/clear (§5d). CAS-protected like
    * clear/reopen above. */
-  updateReason: procedure
+  updateReason: authenticatedProcedure
     .input(z.object({ organizationId: z.string().min(1), flagId: z.string().uuid(), reason: z.string().trim().min(1).max(500) }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const ownerId = ctx.identity.id;
       const auth = { organizationId: input.organizationId, userId: ownerId };
       const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
@@ -308,9 +309,9 @@ export const redFlagRouter = t.router({
    * `learningStatus` to "applied," the ONLY state where `RedFlagControl`
    * visibly withholds the flagged rendered value. Idempotent (already-
    * applied is a no-op); fully reversible via `revokeCorrection`. */
-  enactCorrection: procedure
+  enactCorrection: authenticatedProcedure
     .input(z.object({ organizationId: z.string().min(1), flagId: z.string().uuid() }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const ownerId = ctx.identity.id;
       const auth = { organizationId: input.organizationId, userId: ownerId };
       const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
@@ -379,9 +380,9 @@ export const redFlagRouter = t.router({
    * owner must `clear`+`reopen` to submit a fresh correction) and reverts
    * the flag's `learningStatus` to "dismissed," the same terminal state
    * `clear`'s own withdrawal path uses. */
-  revokeCorrection: procedure
+  revokeCorrection: authenticatedProcedure
     .input(z.object({ organizationId: z.string().min(1), flagId: z.string().uuid() }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const ownerId = ctx.identity.id;
       const auth = { organizationId: input.organizationId, userId: ownerId };
       const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
@@ -424,9 +425,9 @@ export const redFlagRouter = t.router({
    * still be withdrawn/revoked) and withdraws/revokes every distinct
    * proposal/preference-adjustment id found, so nothing actionable can
    * survive referencing evidence that no longer exists. */
-  forget: procedure
+  forget: authenticatedProcedure
     .input(z.object({ organizationId: z.string().min(1), flagId: z.string().uuid() }))
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const ownerId = ctx.identity.id;
       const auth = { organizationId: input.organizationId, userId: ownerId };
       const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
@@ -470,9 +471,9 @@ export const redFlagRouter = t.router({
    * full-table content scan). Powers a single cell/bullet's own
    * hover/focus state when a batched `listForScope` fetch isn't already
    * available. */
-  listForAnchor: procedure
+  listForAnchor: authenticatedProcedure
     .input(z.object({ organizationId: z.string().min(1), anchor: redFlagAnchorInput }))
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const rows = await ctx.wiring.memoryStore.retrieve(
         { subjectRecordId: anchorLineageKey(input.anchor), sourceRefType: "feedback", contentPathEquals: [{ path: "kind", equals: "red_flag" }], limit: 1 },
         { organizationId: input.organizationId, userId: ctx.identity.id },
@@ -503,7 +504,7 @@ export const redFlagRouter = t.router({
    * it needs an OR across the cell/bullet shapes a single equality
    * predicate can't express.
    */
-  listForScope: procedure
+  listForScope: authenticatedProcedure
     .input(
       z.object({
         organizationId: z.string().min(1),
@@ -514,7 +515,7 @@ export const redFlagRouter = t.router({
         resultId: z.string().min(1).optional(),
       }),
     )
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const rows = await ctx.wiring.memoryStore.retrieve(
         {
           sourceRefType: "feedback",
@@ -554,7 +555,7 @@ export const redFlagRouter = t.router({
    * `(createdAt, id)` cursor (review round-4 item 8) immune to a flag
    * inserted/superseded between page fetches.
    */
-  listAll: procedure
+  listAll: authenticatedProcedure
     .input(
       z.object({
         organizationId: z.string().min(1),
@@ -563,7 +564,7 @@ export const redFlagRouter = t.router({
         cursor: z.string().optional(),
       }),
     )
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const cursor = decodeRedFlagCursor(input.cursor);
       const rows = await ctx.wiring.memoryStore.retrieve(
         {
@@ -592,7 +593,7 @@ export const redFlagRouter = t.router({
    * keyset cursor (review round-4 item 8) removes the prior 200-version
    * silent cap: a lineage with more versions than one page simply returns
    * a `nextCursor` rather than truncating. */
-  history: procedure
+  history: authenticatedProcedure
     .input(
       z.object({
         organizationId: z.string().min(1),
@@ -601,7 +602,7 @@ export const redFlagRouter = t.router({
         cursor: z.string().optional(),
       }),
     )
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const ownerId = ctx.identity.id;
       const auth = { organizationId: input.organizationId, userId: ownerId };
       const current = await ctx.wiring.memoryStore.get(input.flagId, auth);

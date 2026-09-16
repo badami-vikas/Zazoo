@@ -1,7 +1,8 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { computeRisk, advance, demoteOnDependencyChange, suspendOnFailure, resolveActivationApproval, compareRuns, computeAqv, buildWhyBetterCard, resolveGates, classifyApprovalBand, canGovernanceAutoApprove, rollupOrgHealth, InvalidTransitionError as CapabilityInvalidTransitionError, EvidenceThresholdError, type CapabilityManifestRow, type WhyBetterCard, type CapabilityHealthRecord, type PendingProposalRecord } from "@bridge/core";
-import { t, procedure, paginatedInput, capabilityRegisterInput, capabilityIdInput, capabilitySuspendInput, capabilityActivateInput, toCoreManifest, resolverFrom, toEvidence } from "../router-shared.js";
+import { computeRisk, advance, resolveActivationApproval, compareRuns, computeAqv, buildWhyBetterCard, resolveGates, classifyApprovalBand, canGovernanceAutoApprove, rollupOrgHealth, InvalidTransitionError as CapabilityInvalidTransitionError, EvidenceThresholdError, type CapabilityManifestRow, type WhyBetterCard, type CapabilityHealthRecord, type PendingProposalRecord } from "@bridge/core";
+import { transition } from "@bridge/jobpilot";
+import { capabilityActivateInput, capabilityIdInput, capabilityRegisterInput, paginatedInput, procedure, resolverFrom, t, toCoreManifest, toEvidence } from "../router-shared.js";
 
 /**
  * Capability Trust Model (docs/wiki/vision.md). Register creates a `draft`
@@ -48,31 +49,6 @@ export const capabilityRouter = t.router({
       evidence: {},
     });
     return { manifest: created, state };
-  }),
-
-  /** draft -> validated. A plain forward step; no evidence gate at this stage. */
-  submitForValidation: procedure.input(capabilityIdInput).mutation(async ({ input, ctx }) => {
-    const state = await ctx.wiring.capabilityStore.getState(input.manifestId);
-    if (!state) throw new TRPCError({ code: "NOT_FOUND", message: "unknown capability manifest" });
-    try {
-      const result = advance(state.state, toEvidence(state.evidence), ctx.run.clock.nowISO(), {
-        creationRequiredApproval: false,
-      });
-      return ctx.wiring.capabilityStore.upsertState({
-        manifestId: input.manifestId,
-        organizationId: state.organizationId,
-        state: result.nextState,
-        ...(result.trustedUntil ? { trustedUntil: result.trustedUntil } : {}),
-        suspended: state.suspended,
-        ...(state.suspendReason ? { suspendReason: state.suspendReason } : {}),
-        evidence: state.evidence,
-      });
-    } catch (err) {
-      if (err instanceof CapabilityInvalidTransitionError) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
-      }
-      throw err;
-    }
   }),
 
   /**
@@ -255,37 +231,6 @@ export const capabilityRouter = t.router({
       evidence: state.evidence,
     });
     return { activated: true, decision, state: nextState };
-  }),
-
-  /** Failure -> suspend immediately. No approval needed — safety never queues. */
-  suspend: procedure.input(capabilitySuspendInput).mutation(async ({ input, ctx }) => {
-    const state = await ctx.wiring.capabilityStore.getState(input.manifestId);
-    if (!state) throw new TRPCError({ code: "NOT_FOUND", message: "unknown capability manifest" });
-    const result = suspendOnFailure(input.reason);
-    return ctx.wiring.capabilityStore.upsertState({
-      manifestId: input.manifestId,
-      organizationId: state.organizationId,
-      state: state.state,
-      ...(state.trustedUntil ? { trustedUntil: state.trustedUntil } : {}),
-      suspended: result.suspended,
-      suspendReason: result.reason,
-      evidence: state.evidence,
-    });
-  }),
-
-  /** A dependency changed — demote trusted -> validated (no-op otherwise). */
-  demoteOnDependencyChange: procedure.input(capabilityIdInput).mutation(async ({ input, ctx }) => {
-    const state = await ctx.wiring.capabilityStore.getState(input.manifestId);
-    if (!state) throw new TRPCError({ code: "NOT_FOUND", message: "unknown capability manifest" });
-    const result = demoteOnDependencyChange(state.state, { creationRequiredApproval: false });
-    return ctx.wiring.capabilityStore.upsertState({
-      manifestId: input.manifestId,
-      organizationId: state.organizationId,
-      state: result.nextState,
-      suspended: state.suspended,
-      ...(state.suspendReason ? { suspendReason: state.suspendReason } : {}),
-      evidence: state.evidence,
-    });
   }),
 
   list: procedure.input(paginatedInput).query(async ({ input, ctx }) => {

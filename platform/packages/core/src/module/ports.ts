@@ -81,11 +81,41 @@ export interface ModuleStore {
   setStatus(id: string, status: ModuleInstallationRow["status"]): Promise<ModuleInstallationRow>;
   setCommonsSource(id: string, source: CommonsInstallationSource): Promise<ModuleInstallationRow>;
   setNormalizedManifest(id: string, manifest: ModuleInstallationRow["manifest"]): Promise<ModuleInstallationRow>;
+  /** Rename a Module for one Organization, across EVERY version row it has.
+   * Not keyed by installation id like the setters above, deliberately: the name
+   * belongs to the Module in this Organization, not to the version that happens
+   * to be `available` today, so promote/rollback must not lose it. `null`
+   * clears the override and restores the manifest's display name. Returns the
+   * rows it changed. */
+  setDisplayNameOverride(
+    organizationId: string,
+    moduleName: string,
+    displayNameOverride: string | null,
+  ): Promise<ModuleInstallationRow[]>;
+  /**
+   * Remove EVERY version row a Module has in one Organization, returning what
+   * was removed.
+   *
+   * Not a state transition: `deprecated` is a Module that still exists and can
+   * be rolled back to, and a Module the user deleted is one that does not.
+   * Keyed by (organization, module name) for the same reason the rename is —
+   * the user is deleting the Module, not the version that happens to be
+   * available today (2026-09-07).
+   */
+  deleteVersions(organizationId: string, moduleName: string): Promise<ModuleInstallationRow[]>;
 }
 
 /** In-memory `ModuleStore` — dev/test default, mirrors InMemoryCapabilityStore's shape. */
 export class InMemoryModuleStore implements ModuleStore {
   readonly rows = new Map<string, ModuleInstallationRow>();
+
+  async deleteVersions(organizationId: string, moduleName: string): Promise<ModuleInstallationRow[]> {
+    const removed = [...this.rows.values()].filter(
+      (row) => row.organizationId === organizationId && row.moduleName === moduleName,
+    );
+    for (const row of removed) this.rows.delete(row.id);
+    return removed;
+  }
 
   async create(row: Omit<ModuleInstallationRow, "id" | "createdAt">): Promise<ModuleInstallationRow> {
     const existing = [...this.rows.values()].find(
@@ -182,6 +212,21 @@ export class InMemoryModuleStore implements ModuleStore {
     }
     const updated: ModuleInstallationRow = { ...existing, commonsSource: source };
     this.rows.set(id, updated);
+    return updated;
+  }
+
+  async setDisplayNameOverride(
+    organizationId: string,
+    moduleName: string,
+    displayNameOverride: string | null,
+  ): Promise<ModuleInstallationRow[]> {
+    const updated: ModuleInstallationRow[] = [];
+    for (const [id, row] of this.rows) {
+      if (row.organizationId !== organizationId || row.moduleName !== moduleName) continue;
+      const next: ModuleInstallationRow = { ...row, displayNameOverride };
+      this.rows.set(id, next);
+      updated.push(next);
+    }
     return updated;
   }
 

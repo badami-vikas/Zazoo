@@ -22,6 +22,14 @@ const BUCKET_LABELS = [
  * hint only preselects when exactly one Person matches), Accept materializes
  * through the governed pipeline, Reject silences that sentence forever.
  */
+/** The count opens the one Task every waiting approval shares; otherwise the
+ * queue, whose top section holds the unanchored ones. */
+function approvalsQueueLink({ items, total }: MorningBrief["approvals"]): string {
+  const taskIds = new Set(items.map((item) => item.task?.taskId ?? null));
+  const [only] = taskIds;
+  return taskIds.size === 1 && only && total === items.length ? `/task-manager/${only}#approvals` : "/task-manager";
+}
+
 function MorningBriefCard() {
   const [brief, setBrief] = useState<MorningBrief | null>(null);
   const [people, setPeople] = useState<BriefPerson[]>([]);
@@ -188,12 +196,36 @@ function MorningBriefCard() {
             </div>
           )}
 
-          <div className="flex flex-wrap items-center gap-3 text-xs" style={{ color: "var(--color-warm-gray)" }}>
-            {brief.approvals.total > 0 && (
-              <Link to="/settings?section=governance" className="font-semibold" style={{ color: "var(--color-steel)" }}>
+          {/* Approvals belong to Tasks (ADR 2026-09-04): each one waiting is named
+              with its Task and opens there; the count links to the full queue.
+              TASK-097: ordered by the brief's `importance` (external > write >
+              read, untrusted first, oldest first) and labelled with its tier. */}
+          {brief.approvals.total > 0 && (
+            <div className="flex flex-col gap-1 text-xs">
+              {[...brief.approvals.items]
+                .sort((a, b) => a.importance.rank - b.importance.rank || a.createdAt.localeCompare(b.createdAt))
+                .slice(0, 5)
+                .map((item) => (
+                <Link
+                  key={item.proposalId}
+                  to={item.task ? `/task-manager/${item.task.taskId}#approvals` : "/task-manager"}
+                  className="no-underline hover:underline"
+                  style={{ color: "var(--color-navy)" }}
+                >
+                  <span className="font-semibold">{item.copy.title}</span>
+                  {item.task ? ` · ${item.task.title}` : item.resource ? ` · ${item.resource}` : ""}
+                  <span className="ml-1.5 uppercase tracking-wide" style={{ color: "var(--color-warm-gray)" }}>
+                    {item.importance.tier}{item.importance.untrusted ? " · untrusted" : ""}
+                  </span>
+                </Link>
+              ))}
+              <Link to={approvalsQueueLink(brief.approvals)} className="font-semibold" style={{ color: "var(--color-steel)" }}>
                 {brief.approvals.total} approval{brief.approvals.total === 1 ? "" : "s"} waiting →
               </Link>
-            )}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3 text-xs" style={{ color: "var(--color-warm-gray)" }}>
             {brief.recentActivity.map((activity) => (
               <span key={activity.moduleId}>
                 {activity.moduleId}: {activity.count} signal{activity.count === 1 ? "" : "s"} in 24h

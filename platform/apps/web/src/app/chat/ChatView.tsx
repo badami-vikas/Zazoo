@@ -15,7 +15,7 @@ import {
 import { Link } from "react-router";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { tauriInvoke, tauriInvokeJob, tauriInvokeStrict } from "../avatar/tauri-internals";
+import { tauriInvoke, tauriInvokeJob } from "../avatar/tauri-internals";
 import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
 import {
   AskSessionView,
@@ -31,15 +31,19 @@ import {
   type AskHistorySession,
 } from "./ask-history";
 import { isNearChatBottom } from "./chat-state.mjs";
-import { type ChatSurfaceKind, type ChatTurn, useChat } from "./useChat";
-
-/** Same capability shape `companion_capabilities` returns (see
- * `avatar/CompanionAsk.tsx`) — only the STT flag is read here. */
-interface VoiceCapabilities {
-  cloudStt: boolean;
-}
+import { type ChatSurfaceKind, type ChatThread, type ChatTurn, useChat } from "./useChat";
 
 const RECORDER_MIME_PREFERENCE = ["audio/mp4", "audio/webm", "audio/ogg"];
+
+/** Chat attachments ride `modules.addFile` — the one Module File path — into
+ * Chief of Staff's own Module, landing under
+ * `~/Documents/Bridge/<Organization>/TaskManager/` (ADR-125/178). Mirrors
+ * `CHAT_ATTACHMENT_MODULE` in the API router. */
+const ATTACHMENT_MODULE = "task-manager";
+
+/** The same 10 MB ceiling `modules.addFile` enforces server-side, checked here
+ * so a too-large file is refused before it is base64-encoded. */
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
 /** "let's play a game" / "catch me if you can" starts the chase game
  * (`chase.rs`) — the companion's own on-screen pointer flees the real
@@ -65,17 +69,10 @@ async function blobToBase64(blob: Blob): Promise<string> {
   return btoa(binary);
 }
 
-/** True only inside the Tauri desktop shell, where `companion_transcribe`
- * (Groq Whisper STT, same command the companion's push-to-talk uses) is
- * registered as a real app-wide command. Plain-browser web renders of
- * ChatView have no such command to call, so the mic honestly disables there
- * instead of pretending to capture audio (AP-021). */
-function isDesktopShell(): boolean {
-  return typeof window !== "undefined" && Boolean(window.__TAURI_INTERNALS__?.invoke);
-}
-
 interface ChatViewProps {
   surface: ChatSurfaceKind;
+  /** Binds this view to a Module's own conversation (ADR-267e). */
+  moduleName?: string;
   compact?: boolean;
   className?: string;
   onOpenTask?: (taskId: string) => void;
@@ -443,13 +440,14 @@ function ProposalCard({
 
 export function ChatView({
   surface,
+  moduleName,
   compact = false,
   className = "",
   onOpenTask,
   initialDraft,
   autoSend = false,
 }: ChatViewProps) {
-  const chat = useChat(surface);
+  const chat = useChat(surface, moduleName);
   const [draft, setDraft] = useState(initialDraft ?? "");
   // Past companion sessions listed alongside the Chat threads in the history
   // dropdown (user directive 2026-08-16). Selecting one shows a read-only
@@ -465,6 +463,12 @@ export function ChatView({
   const [openSession, setOpenSession] = useState<
     { kind: "research" | "ask"; id: string } | null
   >(null);
+  // TASK-093: one conversation can span several Modules. The thread already
+  // carries them server-side (`moduleName` + `attachedModules`); this is the
+  // control that puts a second one on, and the list that shows which are on.
+  const [installedModules, setInstalledModules] = useState<
+    readonly { moduleName: string; displayName: string }[]
+  >([]);
   const listRef = useRef<HTMLDivElement>(null);
   const nearBottomRef = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -473,14 +477,116 @@ export function ChatView({
   const autoSentRef = useRef(false);
   const lastTurn = chat.view?.turns.at(-1);
 
-  // ---- voice input (desktop shell only, real Groq Whisper STT — see the
-  // `isDesktopShell` doc comment above) --------------------------------
-  const desktopShell = useMemo(() => isDesktopShell(), []);
+  // Installed Modules, for the session name. Same filter the nav uses, so
+  // the display name here is exactly the one the sidebar shows.
+  useEffect(() => {
+    let active = true;
+    trpc.modules.list
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
+      .then((result) => {
+        if (!active) return;
+        setInstalledModules(
+          result.items
+            .filter(
+              (item) =>
+                item.state === "available" &&
+                item.status === "installed" &&
+                item.manifest?.module !== undefined &&
+                item.moduleAttachment === undefined,
+            )
+            .map((item) => ({
+              moduleName: item.moduleName,
+              displayName:
+                item.displayNameOverride ??
+                item.manifest?.module?.displayName ??
+                item.manifest?.name ??
+                item.moduleName,
+            })),
+        );
+      })
+      .catch(() => {
+        // The session name falls back to the Module id; the Chat still works.
+        if (active) setInstalledModules([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const moduleLabel = (name: string) =>
+    installedModules.find((module) => module.moduleName === name)?.displayName ?? name;
+
+  /** Session name: the thread's own title, else "<Module display name> · <date>"
+   * (the same name the sidebar shows) or "Chief of Staff · <date>" for the
+   * standalone Chat. The Module is said here, once, instead of a footer and a
+   * dropdown in the composer (BUGS 2026-09-05). */
+  const sessionLabel = (thread: ChatThread) =>
+    thread.title ??
+    `${thread.moduleName ? moduleLabel(thread.moduleName) : "Chief of Staff"} · ${new Date(thread.createdAt).toLocaleDateString()}`;
+
+  // ---- `@` mentions (2026-09-05) ----------------------------------------
+  // Chief of Staff is the one face of this panel. Another Agent is reached by
+  // typing `@`, which opens a picker over a REAL read of the Organization's
+  // active Agents; picking one inserts `@Name` and the send carries its id.
+  const [agents, setAgents] = useState<
+    readonly { id: string; name: string; role: string }[]
+  >([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentioned, setMentioned] = useState<readonly { id: string; name: string }[]>([]);
+  useEffect(() => {
+    let active = true;
+    trpc.chat.agents.list.query({ organizationId: PILOT_ORGANIZATION })
+      .then((result) => {
+        if (active) setAgents(result);
+      })
+      .catch(() => {
+        // `@` then simply offers nobody; the Chat still works.
+        if (active) setAgents([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const mentionMatches = useMemo(() => {
+    if (mentionQuery === null) return [] as typeof agents;
+    const query = mentionQuery.toLowerCase();
+    return agents.filter((agent) => agent.name.toLowerCase().includes(query));
+  }, [agents, mentionQuery]);
+  const agentName = (id: string) => agents.find((agent) => agent.id === id)?.name ?? "an Agent";
+  /** Sets the draft and opens/closes the picker from the `@word` at the caret. */
+  const updateDraft = (value: string) => {
+    setDraft(value);
+    const caret = inputRef.current?.selectionStart ?? value.length;
+    const match = /(?:^|\s)@([^\s@]*)$/.exec(value.slice(0, caret));
+    setMentionQuery(match ? match[1] ?? "" : null);
+    setMentionIndex(0);
+  };
+  const insertMention = (agent: { id: string; name: string }) => {
+    const field = inputRef.current;
+    const caret = field?.selectionStart ?? draft.length;
+    const before = draft.slice(0, caret).replace(/@[^\s@]*$/, `@${agent.name} `);
+    setDraft(before + draft.slice(caret));
+    setMentionQuery(null);
+    setMentioned((current) =>
+      current.some((entry) => entry.id === agent.id) ? current : [...current, agent],
+    );
+    requestAnimationFrame(() => {
+      field?.focus();
+      field?.setSelectionRange(before.length, before.length);
+    });
+  };
+
+  // ---- voice input (every surface — `chat.voice.transcribe` is a server
+  // procedure, so there is no desktop-only branch left; TASK-082) --------
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
-  const [voiceNote, setVoiceNote] = useState<string | null>(null);
+  const [composerNote, setComposerNote] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // ---- attachments (TASK-082) ----------------------------------------
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
 
   // An ask answered in the floating companion has to show up in the Chat panel
   // that is already open: same-webview writes announce themselves, and the
@@ -526,16 +632,9 @@ export function ChatView({
   }, []);
 
   const startRecording = async () => {
-    if (!desktopShell || recording || transcribing) return;
-    const capabilities = (await tauriInvoke("companion_capabilities")) as
-      | VoiceCapabilities
-      | undefined;
-    if (!capabilities?.cloudStt) {
-      setVoiceNote("Voice input needs a configured Groq key (Settings → API Keys).");
-      return;
-    }
+    if (recording || transcribing) return;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      setVoiceNote("Microphone capture is unavailable here — type instead.");
+      setComposerNote("Microphone capture is unavailable here — type instead.");
       return;
     }
     try {
@@ -562,10 +661,11 @@ export function ChatView({
         setTranscribing(true);
         void (async () => {
           try {
-            const base64 = await blobToBase64(blob);
-            const transcript = (await tauriInvokeStrict("companion_transcribe", {
-              request: { audioBase64: base64, mime: blobType },
-            })) as string;
+            const { text: transcript } = await trpc.chat.voice.transcribe.mutate({
+              organizationId: PILOT_ORGANIZATION,
+              audioBase64: await blobToBase64(blob),
+              mime: blobType,
+            });
             // Dictation fills the composer rather than auto-sending — a Chat
             // turn can trigger governed Task proposals, so the human still
             // reviews the text before it becomes a message (AP-021/AP-105).
@@ -574,7 +674,7 @@ export function ChatView({
               inputRef.current?.focus();
             }
           } catch (raised) {
-            setVoiceNote(raised instanceof Error ? raised.message : String(raised));
+            setComposerNote(raised instanceof Error ? raised.message : String(raised));
           } finally {
             setTranscribing(false);
           }
@@ -582,14 +682,14 @@ export function ChatView({
       };
       recorderRef.current = recorder;
       recorder.start();
-      setVoiceNote(null);
+      setComposerNote(null);
       setRecording(true);
     } catch {
       if (streamRef.current) {
         for (const track of streamRef.current.getTracks()) track.stop();
         streamRef.current = null;
       }
-      setVoiceNote("Microphone permission was declined — type instead.");
+      setComposerNote("Microphone permission was declined — type instead.");
     }
   };
 
@@ -602,9 +702,50 @@ export function ChatView({
     }
   };
 
-  const voiceUnavailableReason = !desktopShell
-    ? "Voice input is available in the Bridge desktop app"
-    : null;
+  // Both composer controls stay VISIBLE and state their own reason when they
+  // cannot act (ADR-001, rulebook §3a). The reason is the SERVER's — a missing
+  // Groq key, or a public-cloud shell with no local File tree — so the control
+  // never has to guess from the shell it happens to be running in.
+  const voiceUnavailableReason = chat.model
+    ? chat.model.composer.voice.reason
+    : "Checking whether voice input is available…";
+  const attachmentUnavailableReason = chat.model
+    ? chat.model.composer.attachments.reason
+    : "Checking whether attachments can be saved…";
+
+  /** One attachment, through the one Module File path. The saved path is
+   * appended to the draft so the message the user sends carries the reference
+   * — the Chat turn is plain text, so the reference lives in the text rather
+   * than in a second attachment store. */
+  const attachFiles = async (chosen: readonly File[]) => {
+    if (chosen.length === 0) return;
+    setUploading(true);
+    setComposerNote(null);
+    try {
+      const saved: string[] = [];
+      for (const file of chosen) {
+        if (file.size > MAX_ATTACHMENT_BYTES) {
+          throw new Error(`${file.name} exceeds the 10 MB local File limit.`);
+        }
+        const stored = await trpc.modules.addFile.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          moduleName: ATTACHMENT_MODULE,
+          fileName: file.name,
+          contentBase64: await blobToBase64(file),
+        });
+        saved.push(stored.path);
+      }
+      const reference = saved
+        .map((path) => `[Attachment: Bridge/TaskManager/${path}]`)
+        .join(" ");
+      setDraft((current) => (current ? `${current} ${reference}` : reference));
+      inputRef.current?.focus();
+    } catch (raised) {
+      setComposerNote(raised instanceof Error ? raised.message : String(raised));
+    } finally {
+      setUploading(false);
+    }
+  };
 
   useEffect(() => {
     const list = listRef.current;
@@ -651,7 +792,12 @@ export function ChatView({
         timeoutMs: 20_000,
       }).catch((error: unknown) => console.error("[companion] point-at failed", error));
     }
-    const accepted = await chat.send(message);
+    // Only the `@Name` tokens still in the text are sent — a mention the user
+    // deleted is not addressed.
+    const mentions = mentioned
+      .filter((entry) => message.includes(`@${entry.name}`))
+      .map((entry) => entry.id);
+    const accepted = await chat.send(message, mentions);
     if (accepted) setDraft("");
   };
 
@@ -674,7 +820,10 @@ export function ChatView({
     ? askSessions.find((entry) => entry.id === openSession.id) ?? null
     : null;
   const openHistory = openRun ?? openAsk;
-  const localThread = chat.view?.thread.plane === "local";
+  // An agentic thread never touches the managed local model, so the local
+  // model's setup state must not gate its composer.
+  const agenticThread = Boolean(chat.view && chat.view.thread.backend !== "bridge");
+  const localThread = !agenticThread && chat.view?.thread.plane === "local";
   const modelReady = !localThread || chat.model?.local.state === "ready";
 
   return (
@@ -709,7 +858,7 @@ export function ChatView({
             {!chat.view && <option value="">No chat selected</option>}
             {chat.threads.map((thread) => (
               <option key={thread.id} value={thread.id}>
-                {thread.title ?? `Chat · ${new Date(thread.createdAt).toLocaleDateString()}`}
+                {sessionLabel(thread)}
               </option>
             ))}
           </optgroup>
@@ -815,6 +964,13 @@ export function ChatView({
             {turn.role === "assistant" && (
               <div className="mt-1 flex flex-wrap items-center gap-1 text-xs">
                 <Badge variant="outline">{turn.state.replace(/_/g, " ")}</Badge>
+                {turn.refs
+                  .filter((ref) => ref.kind === "addressed_agent")
+                  .map((ref) => (
+                    <Badge key={ref.id} variant="secondary">
+                      Addressed to {agentName(ref.refId)} · answered by Chief of Staff
+                    </Badge>
+                  ))}
                 {turn.refs.some((ref) => ref.kind === "model_receipt") && (
                   <Badge variant="outline">model receipt</Badge>
                 )}
@@ -937,20 +1093,70 @@ export function ChatView({
             compact ? "p-1.5" : "p-2"
           }`}
         >
+          {mentionQuery !== null && mentionMatches.length > 0 && (
+            <ul
+              role="listbox"
+              aria-label="Agents you can address"
+              className="max-h-40 overflow-auto rounded-md border bg-background p-1 text-xs"
+            >
+              {mentionMatches.map((agent, index) => (
+                <li
+                  key={agent.id}
+                  role="option"
+                  aria-selected={index === mentionIndex}
+                  className={`flex cursor-pointer flex-wrap items-baseline gap-x-2 rounded px-2 py-1 ${
+                    index === mentionIndex ? "bg-muted" : ""
+                  }`}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    insertMention(agent);
+                  }}
+                >
+                  <span className="font-medium">{agent.name}</span>
+                  <span className="text-[var(--color-navy-mid)]">{agent.role}</span>
+                </li>
+              ))}
+            </ul>
+          )}
           <textarea
             ref={inputRef}
             aria-label="Chat message"
             className="max-h-32 min-h-8 w-full resize-none border-0 bg-transparent px-1.5 py-1 text-sm outline-none focus-visible:outline-none disabled:opacity-50"
             placeholder={
               modelReady
-                ? "Ask Chief of Staff…"
+                ? "Ask Chief of Staff… type @ to address another Agent"
                 : chat.model?.cloud.available
                   ? "Set up the local model, or pick Cloud in the model menu"
                   : "Set up the local model first"
             }
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => updateDraft(event.target.value)}
             onKeyDown={(event) => {
+              if (mentionQuery !== null && mentionMatches.length > 0) {
+                switch (event.key) {
+                  case "ArrowDown":
+                    event.preventDefault();
+                    setMentionIndex((index) => (index + 1) % mentionMatches.length);
+                    return;
+                  case "ArrowUp":
+                    event.preventDefault();
+                    setMentionIndex((index) => (index + mentionMatches.length - 1) % mentionMatches.length);
+                    return;
+                  case "Enter":
+                  case "Tab": {
+                    event.preventDefault();
+                    const chosen = mentionMatches[mentionIndex] ?? mentionMatches[0];
+                    if (chosen) insertMention(chosen);
+                    return;
+                  }
+                  case "Escape":
+                    event.preventDefault();
+                    setMentionQuery(null);
+                    return;
+                  default:
+                    break;
+                }
+              }
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
                 void submit();
@@ -961,26 +1167,57 @@ export function ChatView({
           />
           <div className="flex items-center justify-between gap-1">
             <div className="flex min-w-0 items-center gap-1">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(event) => {
+                  const chosen = [...(event.currentTarget.files ?? [])];
+                  event.currentTarget.value = "";
+                  void attachFiles(chosen);
+                }}
+              />
               <Button
                 type="button"
                 size="icon"
                 variant="ghost"
                 className={compact ? "size-7" : "size-8"}
                 aria-label="Add attachment"
-                title="Attachments aren't supported yet — this Chat doesn't have an upload pipeline"
-                disabled
+                title={attachmentUnavailableReason ?? "Add attachment"}
+                disabled={Boolean(attachmentUnavailableReason) || uploading || chat.sending}
+                onClick={() => fileInputRef.current?.click()}
               >
-                <Paperclip className={compact ? "size-3.5" : "size-4"} />
+                {uploading ? (
+                  <Loader2 className={`${compact ? "size-3.5" : "size-4"} animate-spin`} />
+                ) : (
+                  <Paperclip className={compact ? "size-3.5" : "size-4"} />
+                )}
               </Button>
               <select
                 aria-label="Chat model"
-                className="min-w-0 max-w-[9.5rem] truncate rounded-full border bg-background px-2 py-1 text-xs disabled:opacity-50"
-                value={chat.view?.thread.plane ?? "local"}
+                className="min-w-0 max-w-[11rem] truncate rounded-full border bg-background px-2 py-1 text-xs disabled:opacity-50"
+                value={
+                  chat.view && chat.view.thread.backend !== "bridge"
+                    ? `backend:${chat.view.thread.backend}`
+                    : chat.view?.thread.plane ?? "local"
+                }
                 disabled={chat.sending}
                 onChange={(event) => {
-                  void chat.newChat(event.target.value === "cloud" ? "cloud" : "local");
+                  const selected = event.target.value;
+                  // Switching the model repoints THIS conversation — Bridge
+                  // holds the context, so the thread and its turns survive.
+                  // An agentic backend picks its own plane server-side, so the
+                  // two option families are exclusive rather than combinable.
+                  if (selected.startsWith("backend:")) {
+                    void chat.switchBackend(
+                      selected.slice("backend:".length) as "claude_code",
+                    );
+                    return;
+                  }
+                  void chat.switchBackend("bridge", selected === "cloud" ? "cloud" : "local");
                 }}
-                title="Starts a new Chat on the selected model"
+                title="Switches this Chat to the selected model — the conversation is kept"
               >
                 <option value="local">Local model</option>
                 {chat.model?.cloud.available ? (
@@ -993,6 +1230,17 @@ export function ChatView({
                 ) : chat.model?.cloud.configured === false ? (
                   <option value="cloud" disabled>Cloud — add a key in Settings</option>
                 ) : null}
+                {/* Agentic backends — present only when this deployment
+                    actually wired one, so an offered option always runs. */}
+                {(chat.model?.backends ?? []).map((backend) => (
+                  <option
+                    key={backend.id}
+                    value={`backend:${backend.id}`}
+                    disabled={!backend.ready}
+                  >
+                    {backend.ready ? backend.label : `${backend.label} — sign in`}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="flex items-center gap-1">
@@ -1030,9 +1278,9 @@ export function ChatView({
             </div>
           </div>
         </div>
-        {voiceNote && (
+        {composerNote && (
           <p className="mt-1 px-1 text-xs text-[var(--color-navy-mid)]" role="status">
-            {voiceNote}
+            {composerNote}
           </p>
         )}
       </form>

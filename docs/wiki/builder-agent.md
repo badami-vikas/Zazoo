@@ -69,3 +69,77 @@ research; PromptAssembler = shared build with LA1.
 
 BA0/BA1 refine existing P0–P1 tracks (ADR-017/019/026/036), do NOT reorder
 H2 sequencer. Pull-forward → APPROVALS.
+
+## 2026-09-02 — BA0 STARTED. Builder can act now.
+
+**Before**: `builder-primitives.ts` classified risk since F2, zero callers.
+Persona + text draft = whole agent. Roadmap `proposed`, no TASK rows.
+
+**Now shipped** (45 tests):
+- `primitive-policy.ts` — execute / approve / refuse. NOT two outcomes.
+  execute = reads + declared writePaths + allowed commands (empty policy
+  → execute, ADR-263). approve = leaves machine / credentials / outside
+  declared. refuse = push·merge·rebase·reset --hard·main·rm -rf·sudo,
+  unlockable by nobody. Refuse list scoped to REVIEWABILITY not danger.
+- `builder-loop.ts` — 1 action/step, constrained JSON on existing
+  ModelProvider (no port change, runs local llama). Named stops only.
+  needs_approval HALTS loop (else model narrates work that never ran).
+- `primitive-executor.ts` (api) — first code that actually executes. 2 path gates,
+  minimal spawn env, audits execute+escalate+refuse alike.
+
+**Execution-first** (user directive): governance ≠ blocking. Roadmap's
+implicit propose-everything is REVERSED → ADR-266.
+
+**ADR-027 scoped, not weakened**: container/microVM still mandatory for
+UNTRUSTED bodies (Commons/import/generated). HostPrimitiveExecutor covers the
+other case — user's own folder, own machine, own request; boundary =
+allow/deny + branch-and-merge (myzazoo model). `isolation:
+"host-process"`, not assignable to SandboxProvider.
+
+**Chat gained a BACKEND axis** beside plane (ADR-265): Claude Code =
+Agent SDK headless in API process, terminal never shown. OAuth PKCE →
+Local Plane vault. Backend declares residency → cloud thread. NO cloud
+grant (can't disclose a context the external agent chose). Codex/Cursor
+= registry rows. Avatar inherits via same ChatView.
+
+**NOT done**: no container adapter · no CI containment suite · zero
+browser evidence. → TASK-092.
+Plan: [../raw/builder-agent-execution-plan-2026-09.md](../raw/builder-agent-execution-plan-2026-09.md)
+
+## 2026-09-02 (later) — chat continuity + Module sessions
+
+Model switch NO LONGER clears chat. `setBackend` repoints LIVE thread,
+turns stay. New engine gets `priorTurnsTranscript` (20 turns / 12k, user
+words verbatim, assistant truncated) — else it answers as if nothing
+was said. Clearing predates agentic backend: plane selector always did
+`newChat`. Both fixed.
+
+Cross-plane switch relabels private→public = export to Anthropic. User
+chose **carry silently** (offered: prompt-once / silent / summary).
+ADR-267(c) names the revisit trigger: first non-owner user. Store still
+records; only the PROMPT is gone.
+
+Module sessions: `module_name` + `attached_modules` (mig 0045),
+`forModule` resumes live thread, `attachModule` = multi-project session.
+**UI does not call either yet** → TASK-093.
+
+## 2026-09-02 (wiring pass) — built ≠ shipped (ADR-268, AP-174)
+
+`builder.run` procedure = the Run seam. Module governance answers
+`builder.run` FIRST (refuses in user's own words). One executor per Run;
+its audit hook → ledger, every call (ran / escalated / refused). Run
+closes with ONE receipt: stop reason, model, calls, tokens. Loop now
+counts usage per step + per run. Local Plane only.
+
+Empty `ModulePrimitivePolicy` on purpose: dotted governance selectors ≠
+shell globs, don't collapse them. ABSOLUTE_DENY still bites.
+
+Builder has a uuid identity now (`BUILDER_AGENT_RUNTIME_ID`) — ledger
+`actor_id` is uuid, `builder:task-manager` is not an actor.
+
+Chat panel on a Module opens THAT Module's thread (Layout → AgentPanel →
+ChatView → `useChat(surface, moduleName)`). Agentic turn's
+`changedPaths` = a turn ref, not prose.
+
+Standing rule in CLAUDE.md: wire in the same run you build, or write
+NOT LANDED.

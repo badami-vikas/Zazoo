@@ -42,8 +42,13 @@ export const BUILT_IN_SOURCE_REFS: Readonly<Record<string, string>> = {
   "deal-pilot": "platform/modules/dealpilot/src/manifest.ts",
   "job-pilot": "platform/modules/jobpilot/src/manifest.ts",
   relationship: "platform/apps/web/src/app/pages/RelationshipPage.tsx",
-  academics: "platform/apps/web/src/app/pages/AcademicsPage.tsx",
+  // Academics ships no code: the manifest's declared Databases ARE the Module.
+  academics: "platform/packages/module-manifests/src/index.ts",
   events: "platform/apps/web/src/app/pages/EventsPage.tsx",
+  // Added when the Commons exclusions were lifted (ADR 2026-09-11). Verified
+  // to exist at INSPECTED_COMMIT — provenance names where the code was
+  // inspected, so a path that only exists today would be a false record.
+  helpdesk: "platform/apps/web/src/app/pages/RelationshipHelpdeskPage.tsx",
   "task-manager": "platform/packages/core/src/task-manager.ts",
   whatsapp: "platform/modules/whatsapp/src/index.ts",
   devpilot: "platform/modules/devpilot/src/index.ts",

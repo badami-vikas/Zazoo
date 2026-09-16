@@ -258,7 +258,7 @@ test("allowlist drops only the exempted family under the exempted path prefix", 
   const inventory = {
     tool: {
       "packages/research/src/chat-planner.ts": { identifier: { abc: 1 } },
-      "modules/whatsapp/src/tools.ts": { identifier: { def: 1 } },
+      "commons/whatsapp/src/tools.ts": { identifier: { def: 1 } },
     },
     element: { "packages/research/src/http-reader.ts": { identifier: { ghi: 1 } } },
   };
@@ -267,7 +267,7 @@ test("allowlist drops only the exempted family under the exempted path prefix", 
   ]);
   // The exempt file is gone; the SAME family elsewhere is untouched, so an
   // exemption can never quietly cover Bridge-owned vocabulary in another module.
-  assert.deepEqual(Object.keys(filtered.tool), ["modules/whatsapp/src/tools.ts"]);
+  assert.deepEqual(Object.keys(filtered.tool), ["commons/whatsapp/src/tools.ts"]);
   // A different family under the same prefix is untouched too.
   assert.ok(filtered.element["packages/research/src/http-reader.ts"]);
 });

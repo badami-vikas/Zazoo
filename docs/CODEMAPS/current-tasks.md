@@ -15,21 +15,36 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-031 | in_progress | P2 | Platform bloat cleanup and table-renderer standardization | TASK-027, TASK-028 |
 | TASK-032 | in_progress | P2 | Deal Copilot learning observation loop (generic Egg baseline v1) | TASK-002 |
 | TASK-033 | in_progress | P2 | Universal Commons capability archetypes (roadmap-v2 Phase 4) | TASK-032 |
-| TASK-037 | ready | P3 | Repository hygiene and unlanded work recovery | TASK-007 |
-| TASK-069 | ready | P2 | Academics Module — Subjects/Lecture Sessions/Assignments vault | none |
 | TASK-070 | ready | P2 | Events sub-module (NetworkManager) — speaker extraction + LinkedIn outreach queue | none |
 | TASK-073 | ready | P2 | Retrofit the newly-adopted UI conventions against every pre-existing Module | none |
 | TASK-040 | in_progress | P2 | LA3 Phase 2 — credentialed SearchProvider tier for the research lane | TASK-023 |
 | TASK-041 | ready | P2 | Pending Tests — live verification backlog | non-task gate (see TASKS.md) |
 | TASK-054 | in_progress | P3 | K11 — EG4 sensor tier: input, screen, ambient voice | TASK-043, TASK-051 |
-| TASK-055 | ready | P3 | Companion trigger and capture parity — Fn hold, double-click listen, on-request recording | TASK-027 |
+| TASK-055 | in_progress | P3 | Companion trigger and capture parity — Fn hold, double-click listen, on-request recording | TASK-027 |
 | TASK-056 | ready | P2 | Multi-app automation for the background agent | TASK-028 |
 | TASK-057 | ready | P2 | Companion-triggered integrations | TASK-026, TASK-027 |
 | TASK-058 | ready | P3 | Companion as Bridge's universal expression surface (convergence) | TASK-056, TASK-057 |
 | TASK-059 | ready | P3 | Avatar text replacement | TASK-027 |
 | TASK-060 | ready | P3 | opensrc-backed code research for Builder Agent and Learning Agent | TASK-023 |
-| TASK-061 | ready | P1 | UI standardization convergence — one toolbar, one shell, one dropdown | none |
-| TASK-062 | ready | P1 | Persist ViewConfig — the unlock behind saved views, lists, sharing and linked views | none |
-| TASK-063 | ready | P2 | Record metadata columns from the Event log | none |
-| TASK-064 | ready | P1 | Scoped share grants — wire the built Share panel to Views and Forms | TASK-062 |
+| TASK-062 | in_progress | P1 | Persist ViewConfig — the unlock behind saved views, lists, sharing and linked views | none |
+| TASK-064 | in_progress | P1 | Scoped share grants — wire the built Share panel to Views and Forms | TASK-062 |
 | TASK-065 | ready | P2 | Notes and Governance Sections on every Record | none |
+| TASK-082 | in_progress | P2 | Chat composer — the paperclip uploads, and the mic works everywhere | none |
+| TASK-084 | in_progress | P2 | A governed schema-mutation capability, so the column menu stops lying | non-task gate (see TASKS.md) |
+| TASK-086 | in_progress | P2 | Multi-select on every table, entered by long-press on touch | none |
+| TASK-087 | ready | P2 | Grouping on every table, and Databases that link by column | none |
+| TASK-088 | in_progress | P1 | Governance becomes editable — an engine-held overlay, never a mutated manifest | none |
+| TASK-089 | in_progress | P2 | Admin is Organization ownership and membership | none |
+| TASK-090 | in_progress | P1 | Chat gets a swappable backend axis, and Claude Code answers turns in the panel and the Avatar | none |
+| TASK-091 | in_progress | P1 | The Builder Agent executes: primitive executor, loop, and the execution-first gate (BA0, first half) | none |
+| TASK-092 | in_progress | P1 | BA0 completion: governed Builder Runs, ledger receipts, and the container sandbox for untrusted bodies | TASK-091 |
+| TASK-093 | in_progress | P1 | The conversation survives a model switch, and each Module reopens its own session | TASK-090 |
+| TASK-095 | in_progress | P1 | The Avatar has hands — Hey Clicky parity: a real pointer that glides, clicks, and types, behind explicit control consent | TASK-027, TASK-054 |
+| TASK-096 | in_progress | P1 | The installable Egg: kernel-only profile, Commons directory, and the Builder's standard build process | TASK-092, TASK-031 |
+| TASK-101 | in_progress | P1 | `@` in Chat addresses another Agent; the footer names Modules as Modules | TASK-093 |
+| TASK-103 | in_progress | P0 | The Builder finishes the job: repairs a rejected definition, installs the Module, speaks plainly | TASK-102, TASK-098 |
+| TASK-108 | in_progress | P1 | Module Databases get a real query and a real gate on what is written to them | TASK-104 |
+| TASK-109 | in_progress | P1 | Cells look like what they hold, and columns can be shaped | TASK-084, TASK-104 |
+| TASK-110 | in_progress | P1 | Filters, sorts and Lists a person can actually build | TASK-062, TASK-064 |
+| TASK-111 | in_progress | P2 | List, Timeline and Chart Views, and a Gallery worth the name | TASK-062, TASK-100 |
+| TASK-114 | ready | P1 | Every intelligence element opens on its own page and is editable there | TASK-084, TASK-096, TASK-113 |

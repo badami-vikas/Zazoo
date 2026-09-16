@@ -21,3 +21,7 @@ export function canApplyChatResponse(input: {
   desiredThreadId: string | null;
   selectsThread: boolean;
 }): boolean;
+
+export function needsCloudGrant(
+  thread: { plane: string; backend?: string } | null | undefined,
+): boolean;

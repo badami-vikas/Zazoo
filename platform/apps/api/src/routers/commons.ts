@@ -3,9 +3,9 @@ import { join } from "node:path";
 import { z } from "zod";
 import { LEARNING_AGENT } from "../wiring.js";
 import { canonicalizeManifest, canonicalizeJson, findOrganizationDataPaths, normalizeCommonsTags, parseModuleManifest, ModuleManifestValidationError, labelAtSource, type ModuleInstallationRow, type ModuleCapabilityNeed, type ModuleManifest, type CommonsModuleEntry, type CommonsListQuery, type CommonsModuleDetail } from "@bridge/core";
-import { COMMONS_BUILT_IN_MODULES, LEARNING_RECOMMENDATION_SKILL_ID, resolveModuleAgentRuntimeId } from "../built-in-modules.js";
+import { COMMONS_BUILT_IN_MODULES, LEARNING_RECOMMENDATION_SKILL_ID, resolveModuleAgentRuntimeId } from "@bridge/module-manifests";
 import { assertCommonsEntryContentTrusted } from "../commons-client.js";
-import { t, moduleManifestHash, isSupportedCitedRoleModelManifest, isSupportedCitedRoleModelInstallation, currentSupportedRelationshipOwner, procedure, stageRoleModelRecommendation, latestApprovedRoleModelRecommendation, assertCurrentCommonsAttachment, sha256Content } from "../router-shared.js";
+import { assertCurrentCommonsAttachment, currentSupportedRelationshipOwner, isSupportedCitedRoleModelInstallation, isSupportedCitedRoleModelManifest, latestApprovedRoleModelRecommendation, moduleManifestHash, organizationGuard, procedure, sha256Content, stageRoleModelRecommendation, t, withPilotOrganizationGuard } from "../router-shared.js";
 
 // ---------------------------------------------------------------------------
 // CM0 — Universal Commons registry tRPC surface (egg-commons-feature-roadmap
@@ -92,7 +92,7 @@ export const commonsRouter = t.router({
         needId: z.string().min(1).optional(),
       }),
     )
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
 
       // Fetch from registry — HttpCommonsClient verifies the publisher signature (PKG-2).
       const entry = input.version
@@ -322,7 +322,7 @@ export const commonsRouter = t.router({
         installationId: z.string().min(1),
       }),
     )
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       const installation = await ctx.wiring.moduleStore.get(input.installationId);
       if (!installation || installation.organizationId !== input.organizationId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "unknown Commons installation" });

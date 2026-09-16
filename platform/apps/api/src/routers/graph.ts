@@ -1,17 +1,17 @@
 import { z } from "zod";
 import { taskIsOpen } from "@bridge/core";
-import { t, procedure, paginatedInput } from "../router-shared.js";
+import { authenticatedProcedure, organizationGuard, paginatedInput, procedure, t } from "../router-shared.js";
 
 /** Cross-Module graph and generic Record reads. */
 export const graphRouter = t.router({
-  full: procedure
+  full: authenticatedProcedure
     .input(
       z.object({
         organizationId: z.string().uuid(),
         limit: z.number().int().min(1).max(200).default(100),
       }),
     )
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const loadModuleInstallations = async () => {
         const items = [];
         let offset = 0;
@@ -286,8 +286,5 @@ export const graphRouter = t.router({
       return { items, total, hasMore: input.offset + items.length < total };
     }),
 
-  getRecord: procedure.input(z.object({ id: z.string().uuid() })).query(async ({ input, ctx }) => {
-    return ctx.wiring.graphStore.getRecord(input.id);
-  }),
 
 });

@@ -250,54 +250,97 @@ export function squashSettled(t: number): boolean {
 }
 
 /**
- * Is the companion window on screen right now?
- *
- * Zazoo lives in the notch and stays THERE. He is on screen only while he is
- * wanted: the cursor is at the cutout, the cursor is on his own revealed
- * panel, a composer is open, or the push-to-talk shortcut summoned him.
- * Anything else conceals the window, so a sleeping companion costs the desktop
- * nothing (user directive 2026-09-08: "it should stay hidden in notch and when
- * not hovered over notch or when shortcut isnt pressed, it should disappear
- * into notch (unless explicitly dragged outside the notch)").
- *
- * DRAGGING HIM OUT IS THE OPT-OUT. `home: "free"` is a deliberate gesture that
- * survives restarts, and a free-floating companion is meant to be visible — so
- * that home presents whenever the session is ready and this contract does not
- * apply to it.
- *
- * GEOMETRY IS NOT PART OF THIS DECISION, and that is the fix for the reported
- * bug. `inNotchHome` used to mean "notch home AND we know where the cutout is",
- * and drove presentation as well as rendering. When the geometry probe gave up
- * (it retries with backoff and then stops), that one flag went false and the
- * FREE home's effect took over — presenting the window permanently, in the
- * notch home, with nothing able to conceal it. Whether we know where the cutout
- * is decides what to DRAW and where; it must never decide whether an
- * un-summoned companion is on screen. Without geometry there is no Rust hover
- * signal, so ⌘⇧Space (`panel: "ask"`) is what summons him — still reachable,
- * no longer permanently parked on the desktop.
+ * How much of Zazoo shows below the cutout while he is asleep behind it
+ * (user directive 2026-09-08: "I want the avatar always present behind my
+ * notch"). The window is only this much taller than the cutout, so the rest
+ * of him is clipped by the window itself — what the eye gets is the top of a
+ * head poking out from under the notch, on a black strip that continues the
+ * cutout's own shape.
  */
-export interface CompanionVisibilityInputs {
-  home: "notch" | "free";
-  sessionReady: boolean;
-  /** Rust cursor poll says the pointer is in the cutout's hot zone. */
-  notchHover: boolean;
-  /** The revealed panel's own DOM hover — the geometric wake zone is
-   * deliberately smaller than the drawn content. */
-  notchDomHover: boolean;
-  /** Zazoo is sitting up in his chat pose rather than asleep on the bed. */
-  notchPose: string;
-  /** Which composer is open, if any. "ask" is what ⌘⇧Space opens. */
-  panel: string;
+export const NOTCH_REST_PEEK = 16;
+
+/**
+ * The window box while he rests: the cutout's own width (so `overlay_dock_notch`'s
+ * flush-right rule parks it exactly over the notch) and the peek below it.
+ * On a flat panel there is no cutout to hide behind, so the strip is a fixed
+ * width centred at the top of the screen — the same fallback the dock command
+ * already uses.
+ */
+export function restingNotchBox(geometry: NotchGeometry): NotchBox {
+  return {
+    width: geometry.hasNotch ? geometry.width : 120,
+    height: (geometry.hasNotch ? geometry.height : 0) + NOTCH_REST_PEEK,
+  };
 }
 
-export function companionWindowVisible(input: CompanionVisibilityInputs): boolean {
-  if (!input.sessionReady) return false;
-  if (input.home === "free") return true;
+/**
+ * What the companion window should be doing right now.
+ *
+ * Three states, not two. `interactive` is summoned — shown AND taking the
+ * mouse. `resting` is the notch home's steady state: shown, but click-through,
+ * because the strip beside and below the cutout is the menu bar, and a window
+ * that swallowed clicks there would cost the user their own menus.
+ * `concealed` is off screen entirely, which is what the free-floating home
+ * does at rest and what any home does before the session is ready.
+ */
+export type CompanionPresence = "interactive" | "resting" | "concealed";
+
+export function companionPresence(input: {
+  sessionReady: boolean;
+  inNotchHome: boolean;
+  summoned: boolean;
+}): CompanionPresence {
+  if (!input.sessionReady) return "concealed";
+  if (input.summoned) return "interactive";
+  // A DRAGGED-OUT companion rests INTERACTIVE, not concealed and not
+  // click-through (user report 2026-09-09: "The avatar vanished when I pulled
+  // it out of notch, it was meant to slide to bottom right of screen"). The
+  // slide was running fine; `onLanded` flips the home to "free", and a free
+  // home at rest used to resolve to `concealed`, so the window hid itself on
+  // the last frame of its own landing.
+  //
+  // Interactive rather than resting, because click-through is a concession the
+  // NOTCH needs — that window overlaps the menu bar and must not eat clicks
+  // meant for the user's own menus. The landed avatar sits on the desktop in
+  // the bottom-right corner, is dragged by a Tauri drag region and opened by a
+  // pointer gesture, so a click-through free home would be visible and dead:
+  // impossible to move, impossible to click, reachable only by ⌘⇧Space.
+  return input.inNotchHome ? "resting" : "interactive";
+}
+
+/**
+ * Summoning rules. Hovering the notch wakes him only when the notch IS his
+ * home — the free-floating avatar lives elsewhere on screen and has no
+ * business reacting to a cursor at the top of the display. The shortcut and
+ * an open panel summon him from either home.
+ */
+export function companionSummoned(input: {
+  pttActive: boolean;
+  panelOpen: boolean;
+  chatPose: boolean;
+  inNotchHome: boolean;
+  notchHovered: boolean;
+}): boolean {
   return (
-    input.notchHover ||
-    input.notchDomHover ||
-    input.notchPose === "chat" ||
-    input.panel === "ask" ||
-    input.panel === "chat"
+    input.pttActive ||
+    input.panelOpen ||
+    input.chatPose ||
+    (input.inNotchHome && input.notchHovered)
   );
+}
+
+/**
+ * Where the drawn ink starts inside the rig's box, as a fraction of its
+ * height: `BODY_PATH`'s topmost point is y=76.16 on the 310-unit viewBox, so
+ * the top quarter of the box is empty space above his crown. Placing the box
+ * top at the cutout's edge therefore shows nothing at all — the first attempt
+ * at the peek was a plain black strip (verified in `overlay.html?lab=1`).
+ */
+export const AVATAR_INK_TOP = 76.16 / 310;
+
+/** Vertical offset that puts his CROWN at the cutout's lower edge, so the
+ * peek strip below it is filled with head rather than with the empty margin
+ * the rig draws above him. */
+export function restingAvatarY(cutoutHeight: number, avatarWidth: number): number {
+  return cutoutHeight - Math.round(avatarDrawnHeight(avatarWidth) * AVATAR_INK_TOP);
 }

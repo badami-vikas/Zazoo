@@ -1,12 +1,17 @@
 /**
- * GoogleApiGateway — the REAL egress adapter (googleapis). Binds the GoogleGateway
- * port to Gmail v1 + Calendar v3. Constructed with an authenticated OAuth client;
+ * GoogleApiGateway — the REAL egress adapter. Binds the GoogleGateway
+ * port to Gmail v1 + Calendar v3, through the two per-API packages rather than
+ * the `googleapis` umbrella: that one ships generated clients for every Google
+ * API (113MB of `build/`, ~15% of the whole desktop bundle) to give us the two
+ * we call. Constructed with an authenticated OAuth client;
  * the factory loads + refreshes tokens from the LOCAL SecretStore.
  *
  * This is the only file that talks to the Google internet APIs. Everything upstream
  * is governed by the pipeline/gate.
  */
-import { google, type Auth } from "googleapis";
+import { gmail as gmailApi } from "@googleapis/gmail";
+import { calendar as calendarApi } from "@googleapis/calendar";
+import type { OAuth2Client } from "google-auth-library";
 import type { SecretStore } from "@bridge/local";
 import type {
   CalendarEvent,
@@ -176,9 +181,9 @@ function uniqueParticipants(messages: GmailMessage[]): EmailAddress[] {
 export class GoogleApiGateway implements GoogleGateway {
   #gmail;
   #calendar;
-  constructor(auth: Auth.OAuth2Client) {
-    this.#gmail = google.gmail({ version: "v1", auth });
-    this.#calendar = google.calendar({ version: "v3", auth });
+  constructor(auth: OAuth2Client) {
+    this.#gmail = gmailApi({ version: "v1", auth });
+    this.#calendar = calendarApi({ version: "v3", auth });
   }
 
   async fetchThreads(opts: FetchThreadsOpts): Promise<FetchThreadsResult> {

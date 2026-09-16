@@ -56,14 +56,20 @@ const cfg = {
 
 test("token refresh persist failures are logged and do not become unhandled rejections", async (t) => {
   const fakeClient = new EventEmitter();
-  const googleapisMock = t.mock.module("googleapis", {
-    namedExports: {
-      google: {
-        gmail: () => ({ users: { threads: { list: async () => ({ data: {} }), get: async () => ({ data: {} }) } } }),
-        calendar: () => ({ events: { list: async () => ({ data: { items: [] } }) } }),
-      },
-    },
+  // Two per-API packages now, not the `googleapis` umbrella — see
+  // gateway-google.ts. `restore()` fans out so call sites below are unchanged.
+  const googleapisMock_gmail = t.mock.module("@googleapis/gmail", {
+    namedExports: { gmail: () => ({ users: { threads: { list: async () => ({ data: {} }), get: async () => ({ data: {} }) } } }) },
   });
+  const googleapisMock_calendar = t.mock.module("@googleapis/calendar", {
+    namedExports: { calendar: () => ({ events: { list: async () => ({ data: { items: [] } }) } }) },
+  });
+  const googleapisMock = {
+    restore: () => {
+      googleapisMock_gmail.restore();
+      googleapisMock_calendar.restore();
+    },
+  };
   const oauthMock = t.mock.module("../src/oauth.js", {
     namedExports: {
       clientFromToken: () => fakeClient,

@@ -6,7 +6,7 @@ import {
   DEALPILOT_SOURCE_AUTOMATION_ID,
   DEALPILOT_SOURCE_AUTOMATION_KEY,
   DEALPILOT_SOURCING_AGENT_ID,
-} from "../src/built-in-modules.js";
+} from "@bridge/module-manifests";
 import {
   DRAFT_OUTREACH_TASK_TYPE,
   RELATIONSHIP_OUTREACH_GOAL_TYPE,
@@ -15,22 +15,7 @@ import {
   PILOT_ORGANIZATION,
   type Wiring,
 } from "../src/wiring.js";
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(41);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-function makeCaller(wiring: Wiring) {
-  return appRouter.createCaller({
-    wiring,
-    run: makeRun(),
-    identity: { type: "user" as const, id: PILOT_USER },
-    authenticated: true,
-    verifying: false,
-  });
-}
+import { makeCaller, makeRun } from "./caller.js";
 
 async function seedOutreachGoalTask(caller: ReturnType<typeof makeCaller>, agentId: string) {
   const goal = await caller.agentOrchestration.goal.create({

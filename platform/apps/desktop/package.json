@@ -14,7 +14,8 @@
     "test:bundle": "node --test scripts/prepare-bundle.test.mjs",
     "check": "cargo check --manifest-path src-tauri/Cargo.toml",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
-    "build:tauri": "node scripts/build-tauri.mjs"
+    "build:tauri": "node scripts/build-tauri.mjs",
+    "build:tauri:egg": "VITE_BRIDGE_PROFILE=egg BRIDGE_PROFILE=egg node scripts/build-tauri.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.1.0"

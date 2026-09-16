@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   MAC_NATIVE_KEYRING_LOADER,
+  MAC_NATIVE_SQLITE_LOADER,
   macRuntimeSigningArgs,
   macRuntimeSigningConfig,
   sensitiveRuntimeFileReason,
@@ -17,7 +18,11 @@ import {
   isReleaseSigningIdentity,
 } from "./verify-macos-bundle.mjs";
 import { firstCodesignIdentity } from "./import-macos-certificate.mjs";
-import { detectLocalSigningIdentity, localMacSigningConfig } from "./build-tauri.mjs";
+import {
+  detectLocalSigningIdentity,
+  localMacSigningConfig,
+  updaterBundleConfig,
+} from "./build-tauri.mjs";
 
 const modelRuntimeManifest = JSON.parse(
   readFileSync(new URL("../model-runtime-manifest.json", import.meta.url), "utf8"),
@@ -239,4 +244,33 @@ test("managed model manifest pins provenance, bytes, digest, and redirect origin
     "https://huggingface.co",
     "https://us.aws.cdn.hf.co",
   ]);
+});
+
+test("macOS sqlite loader delegates to the signed Framework and keeps better-sqlite3's binding contract", () => {
+  assert.match(MAC_NATIVE_SQLITE_LOADER, /BRIDGE_SQLITE3_NATIVE_LIBRARY/);
+  assert.match(MAC_NATIVE_SQLITE_LOADER, /process\.dlopen/);
+  // better-sqlite3's lib/index.js consumes require("./binding").getBinding —
+  // the replacement file must keep that exact contract.
+  assert.match(MAC_NATIVE_SQLITE_LOADER, /exports\.getBinding/);
+  assert.doesNotMatch(MAC_NATIVE_SQLITE_LOADER, /NAPI_RS_NATIVE_LIBRARY_PATH/);
+});
+
+test("every native Node addon ships as a signed Framework in the macOS bundle", () => {
+  assert.deepEqual(tauriConfig.bundle.macOS.frameworks, [
+    "generated/native/bridge-keyring.dylib",
+    "generated/native/bridge-sqlite3.dylib",
+  ]);
+});
+
+test("local builds without the updater private key skip the signed updater bundle while CI keeps it", () => {
+  assert.deepEqual(updaterBundleConfig({}), {
+    bundle: { createUpdaterArtifacts: false },
+  });
+  assert.deepEqual(updaterBundleConfig({ TAURI_SIGNING_PRIVATE_KEY: "  " }), {
+    bundle: { createUpdaterArtifacts: false },
+  });
+  assert.equal(
+    updaterBundleConfig({ TAURI_SIGNING_PRIVATE_KEY: "dW50cnVzdGVk" }),
+    null,
+  );
 });

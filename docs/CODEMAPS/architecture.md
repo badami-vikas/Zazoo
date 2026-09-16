@@ -1,4 +1,4 @@
-<!-- Updated: 2026-09-11 | Files scanned: platform/apps/{api,web,desktop}, platform/modules, platform/packages/{core,db,local}, platform/tools | Token estimate: ~800 -->
+<!-- Updated: 2026-09-11 | Files scanned: platform/apps/{api,web,desktop}, platform/commons, platform/packages/{core,db,local}, platform/tools | Token estimate: ~800 -->
 
 # Architecture Codemap
 
@@ -50,8 +50,10 @@ see `docs/BUGS.md` for stores that remain process-local.
 
 ## Module and Engine boundaries
 
-`platform/modules/manifests/src/index.ts` is the aggregate Module catalog. Since ADR-258 each packaged Module (DealPilot, JobPilot, WhatsApp, DevPilot, Accounting, D2C) owns its entry in `modules/<x>/src/module.ts` (browser-safe `./module` subpath); the catalog imports them and exports every entry by name — there is no string lookup (`requireBuiltInModule` is gone). Kernel Modules with no package stay inline. API installation, Commons publication, and web routes derive from the named exports. Runtime ids live in the `MODULE_RUNTIME_IDS` table (values pinned by test; they are persisted identity).
-DealPilot and JobPilot implementation packages live in `platform/modules/{dealpilot,jobpilot}`.
+`platform/packages/module-manifests/src/index.ts` is the one built-in Module catalog. API installation,
+Commons publication, executable DealPilot/JobPilot manifests, and web routes derive from it.
+Module implementation packages live in `platform/commons/*` (Commons content; ADR 2026-09-04). `BRIDGE_PROFILE=egg` mounts the kernel router only and seeds `EGG_MODULES`.
+Since ADR-281 (2026-09-11) each packaged Module under `platform/commons/*` exports its own catalog entry from `src/module.ts`; `module-manifests` imports and aggregates them, and the runtime-id lookups are one data table.
 People/company sourcing and recording remain internal Engine packages under the existing
 `platform/tools/` workspace path; no standalone legacy application is a production entrypoint.
 `@bridge/capability-kit` remains the gated intake seam used by DealPilot.

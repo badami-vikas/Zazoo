@@ -2,7 +2,7 @@
 
 # Backend Codemap
 
-Fastify + tRPC (`apps/api/src/server.ts` → `createContext` in `context.ts` → `router.ts`, which since 2026-09-11 (ADR-258) only composes `routers/<domain>.ts` (35 files) over `router-shared.ts` — schemas, middleware, helpers, the `t` instance). `procedure` = identity → public-cloud boundary → pilot guard → `withOrganizationInput` (pilot-org + membership check whenever the input carries an `organizationId`); `publicProcedure` skips identity and the org guard (helpdesk token surface only).
+Fastify + tRPC (`apps/api/src/server.ts` → `createContext` in `context.ts` → `router.ts`, which since 2026-09-11 (ADR-281) only composes `routers/<domain>.ts` (35 files) over `router-shared.ts` — schemas, middleware, helpers, the `t` instance). `procedure` = identity → public-cloud boundary → pilot guard → `withOrganizationInput` (pilot-org + membership check whenever the input carries an `organizationId`); `publicProcedure` skips identity and the org guard (helpdesk token surface only).
 No REST layer — tRPC is the sole API surface. `onError` in server.ts only logs; no typed-error
 → HTTP-status mapping (see known-issues: everything bubbles as 500).
 

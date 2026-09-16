@@ -162,23 +162,6 @@ export {
   type HelpdeskPage,
 } from "./helpdesk-store.js";
 export { DrizzleResourcesStore, type ResourceRow, type CreateResourceInput as CreateResourceStoreInput } from "./resources-store.js";
-export {
-  DrizzleAcademicsStore,
-  type SubjectRow,
-  type LectureSessionRow,
-  type AssignmentRow,
-  type CreateSubjectInput,
-  type CreateLectureSessionInput,
-  type CreateAssignmentInput,
-} from "./academics-store.js";
-export {
-  DrizzleAuthoredModuleStore,
-  type AuthoredModuleStore,
-  type AuthoredDatabaseRow,
-  type AuthoredRecordRow,
-  type AuthoredDatabaseInput,
-  type AuthoredRecordPage,
-} from "./authored-module-store.js";
 export { DrizzleEventsStore, type ConferenceEventRow, type CreateConferenceEventInput } from "./events-store.js";
 export {
   DrizzleCapabilityStore,
@@ -200,6 +183,14 @@ export { DrizzleTaskManagerStore } from "./task-manager-store.js";
 export { DrizzleSkillManifestRegistry, seedSkillManifests } from "./skill-manifest-store.js";
 export { DrizzleChildAgentRunStore } from "./child-agent-run-store.js";
 export { DrizzleResearchRunStore } from "./research-run-store.js";
+export { DrizzleViewConfigStore } from "./view-config-store.js";
+export { DrizzleShareGrantStore } from "./share-grant-store.js";
+export {
+  DrizzleRecordMetadataStore,
+  EmptyRecordMetadataSource,
+  type RecordMetadataEvent,
+  type RecordMetadataSource,
+} from "./record-metadata-store.js";
 
 import type { Database as Db } from "./client.js";
 import { DrizzleLedgerStore } from "./ledger-store.js";

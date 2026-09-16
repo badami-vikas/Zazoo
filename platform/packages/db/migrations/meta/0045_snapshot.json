@@ -1,6 +1,6 @@
 {
-  "id": "ffbbf410-80cf-4fcc-bca3-56178738c569",
-  "prevId": "289dd98f-8464-4cea-a317-ceec1aae499d",
+  "id": "cd291ced-ca11-44b3-ac26-05ca18d648a0",
+  "prevId": "e50b8a97-f5e1-4826-9001-d725d97d5168",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -500,247 +500,6 @@
           ]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.authored_databases": {
-      "name": "authored_databases",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "module_name": {
-          "name": "module_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "database_id": {
-          "name": "database_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "capability_id": {
-          "name": "capability_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "label": {
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "columns": {
-          "name": "columns",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "archived_at": {
-          "name": "archived_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "authored_databases_module_database_uq": {
-          "name": "authored_databases_module_database_uq",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "module_name",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "database_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "authored_databases_organization_idx": {
-          "name": "authored_databases_organization_idx",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "module_name",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "authored_databases_organization_id_organizations_id_fk": {
-          "name": "authored_databases_organization_id_organizations_id_fk",
-          "tableFrom": "authored_databases",
-          "tableTo": "organizations",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.authored_records": {
-      "name": "authored_records",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "database_row_id": {
-          "name": "database_row_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "properties": {
-          "name": "properties",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "archived_at": {
-          "name": "archived_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "authored_records_database_idx": {
-          "name": "authored_records_database_idx",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "database_row_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "authored_records_organization_id_organizations_id_fk": {
-          "name": "authored_records_organization_id_organizations_id_fk",
-          "tableFrom": "authored_records",
-          "tableTo": "organizations",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "authored_records_database_row_id_authored_databases_id_fk": {
-          "name": "authored_records_database_row_id_authored_databases_id_fk",
-          "tableFrom": "authored_records",
-          "tableTo": "authored_databases",
-          "columnsFrom": [
-            "database_row_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1535,6 +1294,32 @@
           "primaryKey": false,
           "notNull": false
         },
+        "backend": {
+          "name": "backend",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'bridge'"
+        },
+        "backend_session_id": {
+          "name": "backend_session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "module_name": {
+          "name": "module_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attached_modules": {
+          "name": "attached_modules",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp (3) with time zone",
@@ -1551,6 +1336,45 @@
         }
       },
       "indexes": {
+        "chat_threads_module_live_idx": {
+          "name": "chat_threads_module_live_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "owner_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "module_name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "chat_threads_owner_updated_idx": {
           "name": "chat_threads_owner_updated_idx",
           "columns": [
@@ -1644,6 +1468,22 @@
         "chat_threads_status_check": {
           "name": "chat_threads_status_check",
           "value": "\"chat_threads\".\"status\" IN ('active', 'archived')"
+        },
+        "chat_threads_backend_check": {
+          "name": "chat_threads_backend_check",
+          "value": "\"chat_threads\".\"backend\" IN ('bridge', 'claude_code')"
+        },
+        "chat_threads_module_name_check": {
+          "name": "chat_threads_module_name_check",
+          "value": "\"chat_threads\".\"module_name\" IS NULL OR length(btrim(\"chat_threads\".\"module_name\")) > 0"
+        },
+        "chat_threads_attached_modules_check": {
+          "name": "chat_threads_attached_modules_check",
+          "value": "jsonb_typeof(\"chat_threads\".\"attached_modules\") = 'array'"
+        },
+        "chat_threads_backend_session_check": {
+          "name": "chat_threads_backend_session_check",
+          "value": "\"chat_threads\".\"backend_session_id\" IS NULL OR (\"chat_threads\".\"backend\" <> 'bridge' AND length(btrim(\"chat_threads\".\"backend_session_id\")) > 0)"
         },
         "chat_threads_plane_scope_check": {
           "name": "chat_threads_plane_scope_check",
@@ -5981,37 +5821,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.job_leases": {
-      "name": "job_leases",
-      "schema": "",
-      "columns": {
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "holder": {
-          "name": "holder",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.jobpilot_applications": {
       "name": "jobpilot_applications",
       "schema": "",
@@ -7924,37 +7733,6 @@
           ]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.rate_limit_buckets": {
-      "name": "rate_limit_buckets",
-      "schema": "",
-      "columns": {
-        "key": {
-          "name": "key",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "count": {
-          "name": "count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reset_at": {
-          "name": "reset_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

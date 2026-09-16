@@ -25,14 +25,14 @@ const ACCESSORIES = ["tie", "bowtie", "scarf", "none"] as const;
 
 const S: Record<string, React.CSSProperties> = {
   page: {
-    minHeight: "100vh", display: "flex", alignItems: "stretch",
+    minHeight: "100dvh", display: "flex", alignItems: "stretch",
     background: "radial-gradient(1200px 700px at 50% 20%, #2A2620 0%, #1C1915 60%, #14120F 100%)",
     color: "#EFE6D6", fontFamily: "'Avenir Next', 'Segoe UI', system-ui, sans-serif",
   },
   stage: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, position: "relative" },
   panel: {
     width: 330, padding: "24px 22px", background: "rgba(255,250,240,0.04)",
-    borderLeft: "1px solid rgba(255,250,240,0.08)", display: "flex", flexDirection: "column", gap: 16, overflowY: "auto", maxHeight: "100vh",
+    borderLeft: "1px solid rgba(255,250,240,0.08)", display: "flex", flexDirection: "column", gap: 16, overflowY: "auto", maxHeight: "100dvh",
   },
   h1: { fontSize: 21, fontWeight: 600, margin: 0, letterSpacing: 0.3 },
   sub: { fontSize: 12, opacity: 0.55, lineHeight: 1.5, margin: 0 },

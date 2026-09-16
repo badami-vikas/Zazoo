@@ -25,7 +25,17 @@ const PANEL_MAX_WIDTH = 520;
 const WIDTH_KEY = `bridge.${PILOT_ORGANIZATION}.chatPanel.width.v3`;
 const COLLAPSE_KEY = `bridge.${PILOT_ORGANIZATION}.chatPanel.collapsed.v3`;
 
-export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onClose?: () => void }) {
+export function AgentPanel({
+  mobile = false,
+  moduleName,
+  onClose,
+}: {
+  mobile?: boolean;
+  /** The Module the user is on. The panel then shows THAT Module's own
+   * conversation, resumed with its history (ADR-267e). */
+  moduleName?: string;
+  onClose?: () => void;
+}) {
   // §5b: shared usePanelControl — same semantics as the left sidebar but
   // continuous width (no snap), right-side drag direction.
   const panel = usePanelControl({
@@ -137,7 +147,7 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
         <div className="w-9" />
       </div>
 
-      <ChatView surface="chat_panel" compact />
+      <ChatView surface="chat_panel" compact moduleName={moduleName} />
     </aside>
   );
 }

@@ -21,7 +21,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -42,10 +42,18 @@ const EXEMPT = {
   "PublicHelpdesk.tsx": "Unauthenticated surface outside the authed nav shell entirely.",
   "SettingsPage.tsx": "Preferences form; not a Database view.",
   "TaskRecordDetailPage.tsx": "Record Detail surface (§3b) — sections, not a landing view.",
+  "ModuleRecordDetailPage.tsx": "Record Detail surface (§3b, C-15) of a Builder-built Module — fields + Sections, not a landing view.",
+  "ModuleNewRecordPage.tsx": "The new-Record page (C-34) of a declared Page — the Database's fields before Save, not a view of its rows.",
   "IntelligencePage.tsx": "Agents/Automations/Integrations inventory (§4b), manifest-sourced.",
   "ChiefOfStaffPage.tsx": "Agent conversation surface, not a Database page.",
   "WhatsAppPage.tsx": "Live session surface driven by the WhatsApp engine, not a table.",
   "RelationshipHelpdeskPage.tsx": "Ticket thread surface; Record Detail shape (§3b).",
+  "OrganizationPage.tsx":
+    "Compiled-Organization preview that stacks SEVERAL Databases down one auto-height page; <ModuleSurfaceLayout>'s first screen holds exactly one table region, and each preview already renders through <DataViews fill={false}>.",
+  "RelationshipSubmodulePage.tsx":
+    "Signpost for a sub-module whose Records live on another Page — it owns no Database rows, only links and the Module Sections.",
+  "AgentDetailPage.tsx":
+    "One Agent's manifest-sourced, read-only detail with the ADR-250 Zazoo room rig — no Database rows, like IntelligencePage it reads modules.list.",
 };
 
 /**
@@ -61,9 +69,13 @@ const REINVENTIONS = [
     rule: "§5e — dropdowns render through <StandardDropdown> (search + pinned Add), never hand-rolled",
   },
   {
-    // A bespoke toolbar row: the standard one is <StandardToolbar>.
-    pattern: /placeholder=["'`]Search\s/i,
-    rule: "§5 — the search slot belongs to <StandardToolbar>/<DataViews>, not a page-local input",
+    // A bespoke toolbar row: the standard one is <DataViews>'s.
+    // Anchored: `searchPlaceholder="Search jobs…"` is a page handing <DataViews>
+    // its placeholder — the compliant path — and the unanchored form matched it,
+    // which is why JobPilotPage sat in the ratchet for a divergence it never had.
+    // A gate that fires on correct code is a gate people learn to suppress.
+    pattern: /(?:^|[^a-zA-Z])placeholder=["'`]Search\s/i,
+    rule: "§5 — the search slot belongs to <DataViews>, not a page-local input",
   },
   {
     // A bespoke table: TableView/GlideTableView render through <DataViews>.
@@ -73,39 +85,25 @@ const REINVENTIONS = [
 ];
 
 /**
- * THE RATCHET. These pages diverged from the standard BEFORE the gate existed
- * (audit 2026-08-10). The list may only ever SHRINK:
- *   - a page not on this list that diverges → the build fails immediately, so a
- *     new surface can never join the backlog;
- *   - a page on this list that has been fixed → the build fails until its entry
- *     is deleted, so the list can never carry a stale alibi.
- * Burn-down is tracked as TASK-061. When this array is empty, delete it and the
- * subset logic with it.
+ * THE RATCHET IS EMPTY (TASK-061, 2026-09-03). It listed seven pages that
+ * diverged before this gate existed; every one has been routed through the
+ * shell or exempted with a written reason, so the list and its stale-entry test
+ * are DELETED rather than kept as an empty formality — an empty backlog nobody
+ * can add to is what the burn-down was for.
+ *
+ * A page that diverges now fails immediately. There is no list to join.
  */
-const KNOWN_DIVERGENCES = [
-  "ApprovalsPage.tsx: missing <ModuleSurfaceLayout> missing <DataViews>",
-  "OrganizationPage.tsx: missing <ModuleSurfaceLayout>",
-  "RelationshipSubmodulePage.tsx: missing <ModuleSurfaceLayout> missing <DataViews>",
-  "ResearchRunsPage.tsx: missing <ModuleSurfaceLayout> missing <DataViews>",
-  "SecondBrainPage.tsx: missing <ModuleSurfaceLayout>",
-  "JobPilotPage.tsx: §5 — the search slot belongs to <StandardToolbar>/<DataViews>, not a page-local input",
-  "RelationshipHelpdeskPage.tsx: §5 — the search slot belongs to <StandardToolbar>/<DataViews>, not a page-local input",
-  "SettingsPage.tsx: §5 — tabular data renders through <DataViews>, never a raw <table>",
-];
-
 function pageFiles() {
   return readdirSync(PAGES).filter((f) => f.endsWith(".tsx"));
 }
 
-/** The ratchet assertion, shared by both scans. */
+/** The conformance assertion, shared by both scans. */
 function assertRatchet(offenders, what) {
-  const isNew = offenders.filter((o) => !KNOWN_DIVERGENCES.includes(o));
   assert.deepEqual(
-    isNew,
+    offenders,
     [],
-    `NEW ${what}. Use the shared component, or — only with a written reason —\n` +
-      `add the page to EXEMPT. Do NOT add it to KNOWN_DIVERGENCES; that list\n` +
-      `only shrinks:\n  - ${isNew.join("\n  - ")}`,
+    `${what}. Use the shared component, or — only with a written reason — add\n` +
+      `the page to EXEMPT:\n  - ${offenders.join("\n  - ")}`,
   );
   return offenders;
 }
@@ -130,6 +128,10 @@ test("every data-shape page renders through the standard shell (§3, §5)", (t) 
 test("no page re-implements a standardized primitive (§5, §5e)", (t) => {
   const offenders = [];
   for (const file of pageFiles()) {
+    // A page exempted from the shell WITH A REASON cannot then be required to
+    // use the shell's slots: SettingsPage is a preferences form and Helpdesk is
+    // a ticket thread, and neither has a toolbar to put a search box in.
+    if (file in EXEMPT) continue;
     const src = readFileSync(join(PAGES, file), "utf8");
     for (const { pattern, rule } of REINVENTIONS) {
       if (pattern.test(src)) offenders.push(`${file}: ${rule}`);
@@ -139,30 +141,25 @@ test("no page re-implements a standardized primitive (§5, §5e)", (t) => {
   t.diagnostic(`primitive backlog remaining: ${offenders.length}`);
 });
 
-test("the divergence backlog carries no stale entries (it only shrinks)", () => {
-  const live = new Set();
-  for (const file of pageFiles()) {
-    const src = readFileSync(join(PAGES, file), "utf8");
-    if (!(file in EXEMPT)) {
-      const hasLayout = src.includes("ModuleSurfaceLayout");
-      const hasViews = /<DataViews[\s/>]/.test(src);
-      if (!hasLayout || !hasViews) {
-        live.add(
-          `${file}: ${hasLayout ? "" : "missing <ModuleSurfaceLayout> "}${hasViews ? "" : "missing <DataViews>"}`.trim(),
-        );
-      }
-    }
-    for (const { pattern, rule } of REINVENTIONS) {
-      if (pattern.test(src)) live.add(`${file}: ${rule}`);
-    }
-  }
-  const fixed = KNOWN_DIVERGENCES.filter((entry) => !live.has(entry));
-  assert.deepEqual(
-    fixed,
-    [],
-    `These are already fixed — delete them from KNOWN_DIVERGENCES so the backlog\n` +
-      `reflects reality and can never be used as cover again:\n  - ${fixed.join("\n  - ")}`,
+test("there is ONE toolbar, and it is <DataViews>'s (§5, TASK-061)", () => {
+  // StandardToolbar was the second one — §5-conformant, one consumer, and the
+  // reason "which toolbar is canonical?" had two answers. Approvals moved onto
+  // the shell and the file is deleted; a re-introduction fails here.
+  assert.throws(
+    () => read("src/app/components/shared/StandardToolbar.tsx"),
+    /ENOENT/,
+    "A second toolbar component is back. The canonical row lives in <DataViews>.",
   );
+  const shell = read("src/app/dataviews/DataViews.tsx");
+  // §5 slot order, read off the one row that survives. `actions` left the row
+  // for the ⋮ menu on 2026-09-05 — the alignment test below owns that.
+  const order = ["List", "Switch view", "searchPlaceholder", "Filter", "View actions"];
+  let cursor = 0;
+  for (const slot of order) {
+    const at = shell.indexOf(slot, cursor);
+    assert.ok(at > 0, `§5 slot "${slot}" is missing or out of order in the toolbar row.`);
+    cursor = at;
+  }
 });
 
 test("every exemption states a reason (the list cannot rot silently)", () => {
@@ -178,13 +175,9 @@ test("every exemption states a reason (the list cannot rot silently)", () => {
 
 test("dropdowns are built on the one shared primitive (§5e)", () => {
   const shared = join(APP, "components", "shared");
-  const listDropdown = readFileSync(join(shared, "ListDropdown.tsx"), "utf8");
-  assert.match(
-    listDropdown,
-    /StandardDropdown/,
-    "ListDropdown must delegate to StandardDropdown so Add + search stay standard, not per-case.",
-  );
-
+  // `ListDropdown` is gone with the second toolbar that was its only consumer
+  // (TASK-061). The List control lives in <DataViews> on StandardDropdown, so
+  // there is one dropdown primitive rather than one plus a wrapper.
   const standard = readFileSync(join(shared, "StandardDropdown.tsx"), "utf8");
   assert.match(standard, /Search/, "StandardDropdown must provide the search slot (§5e).");
   assert.match(standard, /onAdd/, "StandardDropdown must provide the pinned Add slot (§5e).");
@@ -266,7 +259,7 @@ test("an empty View keeps its chrome and says nothing (§6b, user directive 2026
 
   // The add-row and footer are not gated on having data (nor, since §3a, on
   // the page wiring a create path — see the add-row shape test below).
-  assert.match(table, /\{!draft && \(/);
+  assert.match(table, /bridge-add-row/);
   assert.doesNotMatch(table, /sorted\.length > 0 && <tfoot/);
 
   // Artefacts follows the same rule: an empty body block, no copy.
@@ -287,15 +280,56 @@ test("the macOS header row IS the titlebar — no strip, no repeated Organizatio
   assert.match(layout, /paddingLeft: MAC_TRAFFIC_LIGHT_GUTTER/);
 });
 
-test("the add-row belongs to the table's shape, not to a per-page opt-in (§3a)", () => {
+test("New is always present, states a reason when disabled, and opens the Record page (§3a, TASK-083)", () => {
   const table = read("src/app/dataviews/views/TableView.tsx");
-  // Gating existence on onInsert is the bug: JobPilot and Signals silently
-  // lost a control DealPilot and Relationship had.
-  assert.doesNotMatch(table, /\{onInsert && !draft &&/);
-  assert.match(table, /\{!draft && \(/);
+  // THE DEFECT THIS TEST WAS WRITTEN FOR, unchanged by TASK-083: gating the
+  // control's EXISTENCE on onInsert is what made JobPilot and Signals silently
+  // lose an affordance DealPilot and Relationship had.
+  assert.doesNotMatch(table, /\{onInsert && /);
+  assert.match(table, /bridge-add-row/);
   // It renders disabled with a stated reason instead of vanishing.
-  assert.match(table, /disabled=\{!onInsert\}/);
-  assert.match(table, /insertReason/);
+  assert.match(table, /disabled=\{createReason !== null\}/);
+  assert.match(table, /title=\{createReason \?\? undefined\}/);
+
+  // C-34 (AP-168, reversing C-33): New opens the Database's Record page — no
+  // draft row collects a Record cell by cell in the table any more.
+  assert.doesNotMatch(table, /setDraft|<DraftCell/);
+  assert.match(table, /onRequestCreate\?\.\(\)/);
+
+  // And the page it opens is the shell's, so the table and the Form view
+  // cannot grow two different create surfaces again.
+  const shell = read("src/app/dataviews/DataViews.tsx");
+  assert.match(shell, /<RecordPage/);
+  // The shell owns the create surface either way: it navigates when the caller
+  // gave it a Record route, and renders the same page inline when it did not.
+  assert.match(shell, /setCreating\(true\)/);
+});
+
+test("the Record page shows every field and writes nothing before Save (C-34, TASK-083)", () => {
+  const page = read("src/app/dataviews/RecordPage.tsx");
+  // EVERY field — a formula or locked column is listed with what fills it,
+  // never dropped, or the create page would be a different page from the one
+  // the Record gets afterwards.
+  assert.match(page, /spec\.columns\.map/);
+  assert.match(page, /nonEditableReason/);
+  // Defaults are pre-filled (ADR-259: pre-filling a default is not a write),
+  // and the only write is Save.
+  assert.match(page, /initialRecordDraft/);
+  assert.match(page, /defaultValue/);
+  assert.doesNotMatch(page, /useEffect\([^)]*onSave/);
+});
+
+test("Record Sections are chosen per DATABASE, never per Record (ADR-261, TASK-083)", () => {
+  const shell = read("src/app/dataviews/DataViews.tsx");
+  // The ⋮ entry exists and offers exactly the three resolved Sections.
+  assert.match(shell, /LayoutList className="size-4" \/> Records/);
+  assert.match(shell, /RECORD_SECTION_IDS\.map/);
+
+  const hook = read("src/app/dataviews/useRecordSections.ts");
+  // Keyed by the spec id alone: there is no Record-scoped variant to diverge.
+  assert.match(hook, /useRecordSections\(specId: string\)/);
+  assert.doesNotMatch(hook, /recordId/);
+  assert.match(hook, /RECORD_SECTION_IDS = \["notes", "intelligence", "governance"\]/);
 });
 
 test("every page that cannot insert states WHY (§3a, no silent omission)", () => {
@@ -327,6 +361,22 @@ test("Second Brain has exactly one entry point — Intelligence (ADR-224)", () =
   assert.match(read("src/app/pages/IntelligencePage.tsx"), /<SecondBrainPage embedded \/>/);
 });
 
+test("Approvals belong to Tasks — no standalone page, /approvals only redirects (ADR 2026-09-04, user report 2026-09-05)", () => {
+  const routes = read("src/app/routes.tsx");
+  assert.doesNotMatch(routes, /ApprovalsPage/);
+  assert.match(routes, /path: "approvals",[^\n]*<Navigate to="\/task-manager" replace \/>/);
+  assert.ok(!existsSync(join(PAGES, "ApprovalsPage.tsx")), "the standalone Approvals page must be deleted");
+  // Every link that used to open the page now opens the Task (or the queue).
+  for (const file of readdirSync(PAGES).filter((name) => name.endsWith(".tsx"))) {
+    assert.doesNotMatch(readFileSync(join(PAGES, file), "utf8"), /to="\/approvals"/, `${file} still links to /approvals`);
+  }
+  // Unanchored proposals (a direct Human action has no Automation Run, so no
+  // Task) still have ONE home: the same section the Task page renders.
+  assert.match(read("src/app/pages/TaskManagerPage.tsx"), /<TaskApprovalsSection taskId=\{null\} \/>/);
+  // The dead Egg call the red banner came from is gone with the page.
+  assert.doesNotMatch(read("src/app/data/ledger.ts"), /outstandingMaterializations/);
+});
+
 test("the insights row is ONE component everywhere (§5, user directive 2026-08-10)", () => {
   // DealPilot used to render a bespoke `StatCard` grid inside the kit's
   // insights slot while every other Module used DashboardRow — same slot, two
@@ -339,4 +389,197 @@ test("the insights row is ONE component everywhere (§5, user directive 2026-08-
   }
   assert.deepEqual(offenders, [], `insights slots not using DashboardRow: ${offenders.join(", ")}`);
   assert.doesNotMatch(read("src/app/pages/DealPilotPage.tsx"), /function StatCard/);
+});
+
+test("every data-shape page carries a Governance Section, directly below Intelligence (ADR-248)", () => {
+  // ADR-248 put Governance in ModuleSurfaceLayout's `below` slot immediately after
+  // ModuleIntelligenceSection, on EVERY Module: Intelligence answers what a Module can
+  // do, Governance answers what it may do, and "a capability list a reader cannot see
+  // the limits of is half an answer". Shipped at 14 call sites and ungated until now —
+  // which is exactly how the Second Brain rail entry drifted back.
+  const missing = [];
+  const outOfOrder = [];
+  for (const file of readdirSync(PAGES).filter((name) => name.endsWith(".tsx"))) {
+    if (file in EXEMPT) continue;
+    const src = readFileSync(join(PAGES, file), "utf8");
+    if (!/<DataViews[\s/>]/.test(src)) continue;
+    if (!/<ModuleIntelligenceSection[\s/>]/.test(src)) continue;
+    if (!/<ModuleGovernanceSection[\s/>]/.test(src)) {
+      missing.push(file);
+      continue;
+    }
+    // Governance must FOLLOW Intelligence everywhere both appear.
+    const intelligence = [...src.matchAll(/<ModuleIntelligenceSection[\s/>]/g)].map((m) => m.index);
+    const governance = [...src.matchAll(/<ModuleGovernanceSection[\s/>]/g)].map((m) => m.index);
+    if (intelligence.length !== governance.length) {
+      outOfOrder.push(`${file}: ${intelligence.length} Intelligence vs ${governance.length} Governance`);
+      continue;
+    }
+    for (let i = 0; i < intelligence.length; i += 1) {
+      if (governance[i] < intelligence[i]) outOfOrder.push(`${file}: Governance renders before Intelligence`);
+    }
+  }
+  assert.deepEqual(missing, [], `pages with Intelligence but no Governance Section: ${missing.join(", ")}`);
+  assert.deepEqual(outOfOrder, [], outOfOrder.join("; "));
+});
+
+test("the Governance Section states that an empty policy is not a default-deny (ADR-248)", () => {
+  // Present-not-absent (ADR-001) governs the empty case: a Module declaring no policy
+  // renders the Section with an honest empty state and is never filtered out. The
+  // dangerous misreading is that silence means denial, so the copy has to say otherwise.
+  const src = read("src/app/components/shared/ModuleGovernanceSection.tsx");
+  assert.match(src, /not a default-deny/i, "the empty state must say an empty policy is not a default-deny");
+});
+
+test("derived metadata columns are read-only everywhere, and the shell fills them (TASK-063)", () => {
+  // Nothing can write to them: they are a projection of the Event log, and a
+  // second copy on the Record row could disagree with the append-only source.
+  const form = read("src/app/dataviews/views/FormView.tsx");
+  assert.match(form, /if \(isMetadataColumn\(col\.kind\)\) return false;/);
+  const recordPage = read("src/app/dataviews/RecordPage.tsx");
+  assert.match(recordPage, /isMetadataColumn\(column\.kind\)/);
+  // Change-type must not offer them a type to become.
+  const table = read("src/app/dataviews/views/TableView.tsx");
+  assert.match(table, /isMetadataColumn\(col\.kind\) \? \{\} : \{ columnKind: col\.kind \}/);
+
+  // The SHELL fetches them, so every page through <DataViews> gets them —
+  // a per-page opt-in would be one chance to forget per page.
+  const shell = read("src/app/dataviews/DataViews.tsx");
+  assert.match(shell, /useRecordMetadata\(spec, data, recordEntityType\)/);
+  const hook = read("src/app/dataviews/useRecordMetadata.ts");
+  assert.match(hook, /trpc\.records\.metadata\.query/);
+  // Merged BEFORE search and sort, or sorting by "last edited" would order on
+  // empty cells.
+  assert.ok(
+    shell.indexOf("useRecordMetadata") < shell.indexOf("filterRowsByQuery(withMetadata"),
+  );
+});
+
+test("Share acts instead of explaining, and never invents a URL (TASK-064)", () => {
+  const dataViews = read("src/app/dataviews/DataViews.tsx");
+  // The panel that shipped disabled now issues and revokes real grants.
+  assert.match(dataViews, /Share this list/);
+  assert.match(dataViews, /shareGrants\.createLink/);
+  assert.match(dataViews, /shareGrants\.revoke/);
+
+  const hook = read("src/app/dataviews/useShareGrants.ts");
+  assert.match(hook, /trpc\.view\.share\.grant\.mutate/);
+  assert.match(hook, /trpc\.view\.share\.revoke\.mutate/);
+  // "usable" is the SERVER's answer. A client that computed expiry itself would
+  // eventually disagree with the server about who still has access.
+  assert.doesNotMatch(hook, /Date\.now\(\)/);
+
+  // No fabricated share URL: Bridge has no route that opens a shared View yet,
+  // so the token is shown and nothing pretends to be a link (ADR-247).
+  assert.doesNotMatch(dataViews, /https?:\/\/[^"'`\s]*share/i);
+
+  // The old refusal must be gone from the Form view's Share panel — a stated
+  // reason that outlives its cause trains people to read "disabled" as decor.
+  const form = read("src/app/dataviews/views/FormView.tsx");
+  assert.doesNotMatch(form, /needs a governed share token for Views/);
+});
+
+test("§5's List slot is a real control, not a placeholder (TASK-062)", () => {
+  // The List dropdown shipped with its Add row disabled and a reason naming
+  // this task — the honest form of a capability that did not exist yet
+  // (§3a/AP-021). Persistence exists now, so the placeholder reason must be
+  // GONE: a disabled reason that outlives its cause trains people to read
+  // "disabled" as decoration.
+  const dataViews = read("src/app/dataviews/DataViews.tsx");
+  assert.doesNotMatch(dataViews, /not built yet \(TASK-062\)/);
+  // The slot lists saved Views beside "All", and saving goes through the
+  // durable surface rather than component state.
+  assert.match(dataViews, /savedViews\.views\.map/);
+  assert.match(dataViews, /useSavedViews\(spec\.id\)/);
+  // The shell owns this, so every page that renders through <DataViews> gets
+  // saved Lists — a per-page opt-in would be one chance to forget per page.
+  const hook = read("src/app/dataviews/useSavedViews.ts");
+  assert.match(hook, /trpc\.view\.saved\.list\.query/);
+  assert.match(hook, /trpc\.view\.saved\.save\.mutate/);
+  // Selecting a List restores BOTH halves of what was on screen: the view
+  // config, and the column visibility the shell keeps outside it.
+  assert.match(dataViews, /setHiddenColumns\(new Set\(chosen\.hiddenColumns\)\)/);
+  // Unreachable store => the row stays visible and says why, never vanishes.
+  assert.match(dataViews, /Saved Lists are unavailable/);
+});
+
+test("the toolbar is left dropdowns + search, right Filter + ⋮, and nothing else (user report 2026-09-05)", () => {
+  const shell = read("src/app/dataviews/DataViews.tsx");
+  // §5 slot order after the alignment fix: List, View and Search on the LEFT;
+  // Filter and the ⋮ on the RIGHT, pushed there by `ml-auto` on the second
+  // group. `actions` is no longer a third button between them — it is a
+  // labelled group inside the ⋮ menu, so the row only ever shows these five.
+  const order = ["List", "Switch view", "searchPlaceholder", "ml-auto", "Filter", "View actions"];
+  let cursor = 0;
+  for (const slot of order) {
+    const at = shell.indexOf(slot, cursor);
+    assert.ok(at > 0, `§5 slot "${slot}" is missing or out of order in the toolbar row.`);
+    cursor = at;
+  }
+  // The custom-actions slot renders INSIDE the menu, after its trigger.
+  const trigger = shell.indexOf("View actions");
+  const menuActions = shell.indexOf("{actions}", trigger);
+  assert.ok(menuActions > trigger, "`actions` must render inside the ⋮ menu, not in the row.");
+  assert.match(shell, /Actions<\/div>/, "The moved `actions` need a labelled group in the menu.");
+  // The row still never wraps and still stages its overflow.
+  assert.match(shell, /flex-nowrap/);
+  assert.match(shell, /useToolbarOverflow\(rowRef\)/);
+});
+
+test("a column menu opens on right-click and by keyboard, with no resident ⋮ (user report 2026-09-05)", () => {
+  const menu = read("src/app/components/shared/StandardColumnMenu.tsx");
+  // The always-visible per-column trigger is gone — the user asked not to see
+  // a ⋮ next to every column name.
+  assert.doesNotMatch(menu, /MoreVertical/, "The per-column ⋮ trigger must be gone.");
+  assert.doesNotMatch(menu, /Open \$\{props\.label\} column menu/);
+  // Right-click is the gesture, positioned by the shared clamp.
+  assert.match(menu, /onContextMenu=\{\(event\) => \{/);
+  assert.match(menu, /clampMenuPosition\(\{ x: event\.clientX, y: event\.clientY \}\)/);
+  // Accessibility is not dropped with the button: the header is focusable and
+  // opens the same menu from the keyboard.
+  assert.match(menu, /tabIndex=\{0\}/);
+  assert.match(menu, /aria-haspopup="menu"/);
+  assert.match(menu, /"Enter"/);
+  assert.match(menu, /"ContextMenu"/);
+});
+
+test("table columns are separated by a vertical rule (user report 2026-09-05)", () => {
+  const table = read("src/app/dataviews/views/TableView.tsx");
+  const rules = table.match(/borderRight: "1px solid var\(--color-border\)"/g) ?? [];
+  assert.ok(
+    rules.length >= 2,
+    "Header AND body cells need a right border, or the columns run together.",
+  );
+  // No double line at the last column: the sticky row-actions cell already
+  // draws that edge with its own borderLeft.
+  assert.match(table, /colIndex < columns\.length - 1/);
+});
+
+test("New opens the Record page as a PAGE when the caller can route to one (user report 2026-09-05)", () => {
+  const shell = read("src/app/dataviews/DataViews.tsx");
+  // The caller's navigation wins; the inline Record page stays only as the
+  // fallback for surfaces that have no Record route.
+  assert.match(shell, /onOpenNewRecord/);
+  assert.match(shell, /onRequestCreate=\{onOpenNewRecord \?\? \(\(\) => setCreating\(true\)\)\}/);
+
+  // The standard shell has a route for a new Record of a declared Page.
+  const routes = read("src/app/routes.tsx");
+  assert.match(routes, /module\/:moduleName\/:pageId\/new/);
+  // Declared BEFORE the :recordId route, or "new" is read as a Record id.
+  assert.ok(
+    routes.indexOf(":pageId/new") < routes.indexOf(":pageId/:recordId"),
+    "The new-Record route must precede the :recordId route.",
+  );
+
+  // And the Module Page hands the shell that route, so New lands on a real
+  // page with ONE set of Sections rather than an inline page under the
+  // Module Page's own Intelligence + Governance.
+  const modulePage = read("src/app/pages/ModulePage.tsx");
+  assert.match(modulePage, /onOpenNewRecord=\{/);
+
+  // The new-Record page shows no Record Sections at all: there is no Record
+  // for them to be about until Save, and rendering them under a Module Page
+  // that already shows them is what the user saw twice.
+  const recordPage = read("src/app/dataviews/RecordPage.tsx");
+  assert.doesNotMatch(recordPage, /<RecordSections/);
 });

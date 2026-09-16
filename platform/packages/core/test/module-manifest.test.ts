@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { parseModuleManifest, ModuleManifestValidationError } from "../src/index.js";
+import { parseModuleManifest, moduleStructure, ModuleManifestValidationError } from "../src/index.js";
 
 function rawManifest(overrides: Record<string, unknown> = {}): unknown {
   return {
@@ -264,5 +264,103 @@ test("parseModuleManifest: rejects a Module Skill not owned by a declared capabi
         }),
       ),
     /skill capabilities/,
+  );
+});
+
+// ── Structure: sub-modules and per-Database Sections (TASK-100, ADR 2026-09-04) ──
+
+function structuredManifest(overrides: Record<string, unknown> = {}): unknown {
+  const page = (id: string) => ({
+    id,
+    name: id,
+    route: `/module/academics/${id}`,
+    database_id: id,
+    capability_id: "academics.db",
+  });
+  const column = { id: "title", label: "Title", kind: "text" };
+  return rawManifest({
+    capabilities: [
+      {
+        id: "academics.db",
+        capability_type: "database",
+        permissions: [{ resource_type: "record", action: "read", data_scope: "private", egress: false }],
+        connectors: [],
+      },
+    ],
+    module: {
+      display_name: "Academics",
+      route: "/module/academics",
+      databases: [
+        { id: "courses", name: "Courses", columns: [column] },
+        { id: "exams", name: "Exams", columns: [column], sections: { intelligence: false } },
+        { id: "grades", name: "Grades", columns: [column] },
+      ],
+      pages: [page("courses"), page("exams"), page("grades")],
+      sub_modules: [{ id: "assessment", name: "Assessment", pages: ["exams", "grades"] }],
+      agents: [],
+      automations: [],
+      ...overrides,
+    },
+  });
+}
+
+test("parseModuleManifest: sub_modules group declared Pages; Sections default to all on per Database", () => {
+  const parsed = parseModuleManifest(structuredManifest());
+  assert.deepEqual(parsed.module?.subModules, [{ id: "assessment", name: "Assessment", pages: ["exams", "grades"] }]);
+  assert.deepEqual(parsed.module?.databases?.[0]?.sections, { notes: true, intelligence: true, governance: true });
+  assert.deepEqual(parsed.module?.databases?.[1]?.sections, { notes: true, intelligence: false, governance: true });
+
+  const structure = moduleStructure(parsed);
+  assert.deepEqual(structure.rootPages.map((page) => page.id), ["courses"]);
+  assert.deepEqual(
+    structure.subModules.map((sub) => [sub.id, sub.pages.map((page) => page.id)]),
+    [["assessment", ["exams", "grades"]]],
+  );
+  assert.equal(structure.sections("exams").intelligence, false);
+  assert.equal(structure.sections("nowhere").notes, true, "an undeclared Database still answers the default");
+
+  // A manifest that predates the fields parses unchanged: everything at root, all Sections on.
+  const legacy = parseModuleManifest(structuredManifest({ sub_modules: undefined }));
+  assert.equal(legacy.module?.subModules, undefined);
+  assert.deepEqual(moduleStructure(legacy).rootPages.map((page) => page.id), ["courses", "exams", "grades"]);
+  assert.deepEqual(moduleStructure(legacy).subModules, []);
+});
+
+test("parseModuleManifest: a sub-module naming an unknown Page, or a Page in two sub-modules, is refused", () => {
+  assert.throws(
+    () =>
+      parseModuleManifest(
+        structuredManifest({ sub_modules: [{ id: "assessment", name: "Assessment", pages: ["exams", "labs"] }] }),
+      ),
+    (error: unknown) =>
+      error instanceof ModuleManifestValidationError &&
+      /sub_modules\[0\]\.pages\[1\] labs is not a declared page/.test(error.message),
+  );
+  assert.throws(
+    () =>
+      parseModuleManifest(
+        structuredManifest({
+          sub_modules: [
+            { id: "assessment", name: "Assessment", pages: ["exams"] },
+            { id: "results", name: "Results", pages: ["exams"] },
+          ],
+        }),
+      ),
+    /sub_modules\[1\]\.pages\[0\] exams already belongs to sub-module assessment/,
+  );
+  assert.throws(
+    () => parseModuleManifest(structuredManifest({ sub_modules: [{ id: "Bad Id", name: "x", pages: ["exams"] }] })),
+    /sub_modules\[0\]\.id must be kebab-case/,
+  );
+  assert.throws(
+    () =>
+      parseModuleManifest(
+        structuredManifest({
+          databases: [{ id: "courses", name: "Courses", columns: [{ id: "t", label: "T", kind: "text" }], sections: { notes: "yes" } }],
+          pages: [],
+          sub_modules: [],
+        }),
+      ),
+    /databases\[0\]\.sections\.notes must be a boolean/,
   );
 });

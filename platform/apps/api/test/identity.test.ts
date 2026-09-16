@@ -106,3 +106,37 @@ test("identity: configured verifier rejects a signed token without a subject", a
     );
   });
 });
+
+test("SEC-1 boot notice: silent when a verifier exists, accurate info on the desktop sidecar, loud warn everywhere else", async () => {
+  const { missingVerifierNotice } = await import("../src/identity.js");
+  // Verifier configured: nothing to say, wherever we run.
+  assert.equal(
+    missingVerifierNotice({ verifierConfigured: true, persistent: true, production: true, sidecarToken: undefined }),
+    null,
+  );
+  // Ephemeral dev process without a verifier: also nothing to say.
+  assert.equal(
+    missingVerifierNotice({ verifierConfigured: false, persistent: false, production: false, sidecarToken: undefined }),
+    null,
+  );
+  // Managed desktop sidecar: the token authenticates every request, so the
+  // "every mutation will be REJECTED" warning would be false — say what is true.
+  const desktop = missingVerifierNotice({
+    verifierConfigured: false,
+    persistent: true,
+    production: true,
+    sidecarToken: "sidecar-launch-capability",
+  });
+  assert.equal(desktop?.level, "info");
+  assert.match(desktop?.message ?? "", /sidecar token/);
+  assert.doesNotMatch(desktop?.message ?? "", /REJECTED/);
+  // Persistent deploy with neither verifier nor sidecar token: the original loud warning.
+  const hosted = missingVerifierNotice({
+    verifierConfigured: false,
+    persistent: true,
+    production: false,
+    sidecarToken: undefined,
+  });
+  assert.equal(hosted?.level, "warn");
+  assert.match(hosted?.message ?? "", /REJECTED with 401/);
+});

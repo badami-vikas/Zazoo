@@ -1,11 +1,11 @@
 import { z } from "zod";
 import { PILOT_ORGANIZATION } from "../wiring.js";
 import { authUrl } from "@bridge/integrations-google";
-import { t, procedure, assertGoogleIntegrationOwner } from "../router-shared.js";
+import { assertGoogleIntegrationOwner, authenticatedProcedure, t } from "../router-shared.js";
 
 export const googleRouter = t.router({
   /** Connection + manifest surfaces for the Integrations UI. */
-  list: procedure.query(async ({ ctx }) => {
+  list: authenticatedProcedure.query(async ({ ctx }) => {
     await assertGoogleIntegrationOwner(ctx);
     const info = await ctx.wiring.google.connectionInfo();
     const m = ctx.wiring.googleManifest;
@@ -23,7 +23,7 @@ export const googleRouter = t.router({
   }),
 
   /** The Google consent URL (read AND write scopes, offline). */
-  connectUrl: procedure.mutation(async ({ ctx }) => {
+  connectUrl: authenticatedProcedure.mutation(async ({ ctx }) => {
     await assertGoogleIntegrationOwner(ctx);
     if (!ctx.wiring.googleOAuth) {
       return { url: null as string | null, error: "oauth_not_configured" as const };
@@ -40,14 +40,14 @@ export const googleRouter = t.router({
   }),
 
   /** Revoke locally (delete the local token). */
-  disconnect: procedure.mutation(async ({ ctx }) => {
+  disconnect: authenticatedProcedure.mutation(async ({ ctx }) => {
     await assertGoogleIntegrationOwner(ctx);
     await ctx.wiring.google.disconnect();
     return { ok: true };
   }),
 
   /** Source Gmail through the gate → propose Events/Memories/Signals. */
-  syncGmail: procedure
+  syncGmail: authenticatedProcedure
     .input(z.object({ maxResults: z.number().int().positive().max(100).optional(), query: z.string().optional() }).optional())
     .mutation(async ({ input, ctx }) => {
       await assertGoogleIntegrationOwner(ctx);
@@ -58,7 +58,7 @@ export const googleRouter = t.router({
     }),
 
   /** Source Calendar through the gate → propose Events. */
-  syncCalendar: procedure
+  syncCalendar: authenticatedProcedure
     .input(
       z
         .object({
@@ -79,7 +79,7 @@ export const googleRouter = t.router({
 
   /** Read-only projection: FULL Calendar events for the Calendar surface (gated
    * external:fetch, auto-approved as the user's own view). No Event proposals. */
-  listEvents: procedure
+  listEvents: authenticatedProcedure
     .input(
       z
         .object({
@@ -102,7 +102,7 @@ export const googleRouter = t.router({
   /** Compose an outbound email/event as a DRAFT → external:send proposal (>= L2).
    * For calendar, `action` = create (default) | update | delete. The real Google
    * write runs in the EgressExecutor only after a human approves. */
-  proposeSend: procedure
+  proposeSend: authenticatedProcedure
     .input(
       z.object({
         kind: z.enum(["email", "calendar"]),

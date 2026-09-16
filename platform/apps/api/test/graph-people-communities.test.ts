@@ -27,6 +27,7 @@ import {
   hashTaintValue,
   labelAtSource,
   type Actor,
+  type LedgerEntry,
   type RunCtx,
 } from "@bridge/core";
 import { makeContextFactory } from "../src/context.js";
@@ -2975,6 +2976,104 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
       commitmentsAfterArchive.items.map((item) => item.id),
       [laterPendingCommitmentId],
     );
+  } finally {
+    if (wiring) await wiring.close();
+    if (prior === undefined) delete process.env.BRIDGE_LOCAL_DIR;
+    else process.env.BRIDGE_LOCAL_DIR = prior;
+  }
+});
+
+/**
+ * TASK-086's Constraint, verified IN THE LEDGER rather than by eye: a bulk
+ * delete of 3 Records must produce the same governance decisions as three
+ * single deletes — never one thinner batch write.
+ *
+ * The comparison is a projection of the ledger row, not the whole row: id, seed
+ * and resourceId differ per Record by construction. What must be identical is
+ * everything governance is made of — the action, the resource type, the
+ * attributed Skill, the actor, the decision, the policy verdicts, and the
+ * payload's operation.
+ */
+test("a bulk archive produces one governed decision per Record, identical to a single archive", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-relationship-bulk-archive-test-"));
+  await seedFixtures(dir);
+  const prior = process.env.BRIDGE_LOCAL_DIR;
+  process.env.BRIDGE_LOCAL_DIR = dir;
+  let wiring: Wiring | undefined;
+  try {
+    wiring = await buildWiring();
+    const caller = await makeCaller(wiring);
+
+    const created: string[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      const result = await caller.relationship.createPerson({
+        organizationId: PILOT_ORGANIZATION,
+        values: { displayName: `test_fixture_bulk_person_${i}` },
+      });
+      assert.equal(result.materialization.status, "applied");
+      created.push(result.proposal.request.resourceId as string);
+    }
+
+    /** Everything about a ledger row that governance is made of. */
+    const governanceOf = (entry: LedgerEntry) => ({
+      action: entry.action,
+      resourceType: entry.resourceType,
+      skill: entry.skill,
+      actorType: entry.actorType,
+      actorId: entry.actorId,
+      userDecision: entry.userDecision,
+      operation: (entry.inputs as { operation?: string }).operation,
+      policies: entry.policyResults.map((p) => `${p.policyId}:${p.effect}`).sort(),
+    });
+
+    // The single-Record form, first — this is the shape the bulk path must match.
+    const singleId = created[0] as string;
+    const single = await caller.relationship.archivePerson({
+      organizationId: PILOT_ORGANIZATION,
+      id: singleId,
+    });
+    assert.equal(single.materialization.status, "applied");
+    const singleEntry = await wiring.ledger.get(single.proposal.id);
+    assert.ok(singleEntry, "a single archive must leave a ledger row");
+    const expected = governanceOf(singleEntry);
+    assert.equal(expected.operation, "archive");
+
+    // Now three at once, through the bulk path.
+    const bulkIds = created.slice(1);
+    assert.equal(bulkIds.length, 3);
+    const bulk = await caller.relationship.archiveRecords({
+      organizationId: PILOT_ORGANIZATION,
+      recordType: "person",
+      ids: bulkIds,
+    });
+
+    assert.equal(bulk.results.length, 3, "one result per Record, never one batch result");
+    const proposalIds = bulk.results.map((r) => r.proposalId);
+    assert.equal(new Set(proposalIds).size, 3, "three DISTINCT governed proposals, not one reused");
+
+    for (const result of bulk.results) {
+      assert.equal(result.materialization?.status, "applied");
+      const entry = await wiring.ledger.get(result.proposalId as string);
+      assert.ok(entry, `bulk archive of ${result.id} must leave its own ledger row`);
+      assert.deepEqual(
+        governanceOf(entry),
+        expected,
+        "a bulk delete must be governed exactly as the single-Record form is",
+      );
+      assert.equal(
+        entry.resourceId,
+        result.id,
+        "each decision must name the Record it archived — not a batch id",
+      );
+    }
+
+    // And the Records are actually gone, so the equivalence is not vacuous.
+    for (const id of [singleId, ...bulkIds]) {
+      assert.equal(
+        await caller.relationship.getPerson({ organizationId: PILOT_ORGANIZATION, id }),
+        null,
+      );
+    }
   } finally {
     if (wiring) await wiring.close();
     if (prior === undefined) delete process.env.BRIDGE_LOCAL_DIR;

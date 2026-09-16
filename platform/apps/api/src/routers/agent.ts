@@ -1,7 +1,8 @@
 import { TRPCError } from "@trpc/server";
 import { resolveAuthorizedAgentRoleTemplate } from "../agent-role-templates.js";
-import { type DataScope, type EgressTier, buildAgentCapability } from "@bridge/core";
-import { t, procedure, assertPilotOrganization, assertMembership, agentCreateInput, agentUpdateInput } from "../router-shared.js";
+import type { DataScope, EgressTier } from "@bridge/core";
+import { buildAgentCapability } from "@bridge/core";
+import { agentCreateInput, agentUpdateInput, assertMembership, assertPilotOrganization, procedure, t } from "../router-shared.js";
 
 /** Agent governance — create/update an agent from SERVER-OWNED role templates only.
  * Escalating capability (external:send, governance, full-graph, '*') is still

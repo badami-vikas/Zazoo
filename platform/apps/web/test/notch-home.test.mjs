@@ -196,60 +196,139 @@ test("FREE_BOX matches the collapsed free-mode window size — a correctness pin
   assert.deepEqual(FREE_BOX, { width: 96, height: 96 });
 });
 
+test("he stays behind the notch at rest and comes out on hover or shortcut", async () => {
+  const { companionPresence, companionSummoned, restingNotchBox, NOTCH_REST_PEEK } =
+    await loadNotchHome();
+
+  // User directive 2026-09-08: always present behind the notch; out of it only
+  // on a notch hover or the shortcut.
+  const rest = {
+    pttActive: false,
+    panelOpen: false,
+    chatPose: false,
+    inNotchHome: true,
+    notchHovered: false,
+  };
+  assert.equal(companionSummoned(rest), false);
+  assert.equal(companionSummoned({ ...rest, notchHovered: true }), true);
+  assert.equal(companionSummoned({ ...rest, pttActive: true }), true);
+  // The free-floating home has no notch to hover, so a cursor at the top of
+  // the screen must not drag it on screen.
+  assert.equal(
+    companionSummoned({ ...rest, inNotchHome: false, notchHovered: true }),
+    false,
+  );
+
+  // Resting in the notch is SHOWN but click-through — the strip it occupies is
+  // the menu bar, so a window taking the mouse there would cost the user their
+  // own menus. Resting anywhere else is off screen.
+  assert.equal(
+    companionPresence({ sessionReady: true, inNotchHome: true, summoned: false }),
+    "resting",
+  );
+  assert.equal(
+    companionPresence({ sessionReady: true, inNotchHome: true, summoned: true }),
+    "interactive",
+  );
+  // The dragged-out home rests INTERACTIVE. It used to be "concealed", which
+  // is the 2026-09-09 report: the avatar completed its slide to the corner and
+  // then vanished, because landing sets the home to "free".
+  assert.equal(
+    companionPresence({ sessionReady: true, inNotchHome: false, summoned: false }),
+    "interactive",
+  );
+  assert.equal(
+    companionPresence({ sessionReady: false, inNotchHome: true, summoned: false }),
+    "concealed",
+  );
+
+  // The resting window is the cutout plus the peek, so the top of his head
+  // shows below the notch and the window itself clips the rest of him.
+  const box = restingNotchBox(GEOMETRY);
+  assert.equal(box.width, GEOMETRY.width, "parked exactly over the cutout");
+  assert.equal(box.height, GEOMETRY.height + NOTCH_REST_PEEK);
+  assert.ok(NOTCH_REST_PEEK > 0 && NOTCH_REST_PEEK < 40, "a peek, not a panel");
+});
+
+test("dragged out of the notch, he lands in the corner and STAYS there", async () => {
+  const { companionPresence, companionSummoned, landedWindowRect } = await loadNotchHome();
+
+  // User report 2026-09-09: "The avatar vanished when I pulled it out of
+  // notch, it was meant to slide to bottom right of screen." The slide was
+  // never the problem — `onLanded` sets home to "free", and the free home at
+  // rest resolved to "concealed", so he hid on the last frame of his landing.
+  const landed = { sessionReady: true, inNotchHome: false, summoned: false };
+  assert.notEqual(companionPresence(landed), "concealed", "landing must not hide him");
+
+  // And he must still be usable where he landed. `resting` is click-through —
+  // correct over the menu bar, fatal here, since the free avatar is dragged by
+  // a Tauri drag region and opened by a pointer gesture.
+  assert.equal(companionPresence(landed), "interactive");
+
+  // He is out of the notch, so a cursor at the top of the screen is not a
+  // summons — that is the separate "activates on its own" report, still fixed.
+  assert.equal(
+    companionSummoned({
+      pttActive: false,
+      panelOpen: false,
+      chatPose: false,
+      inNotchHome: false,
+      notchHovered: true,
+    }),
+    false,
+  );
+
+  // "Bottom right of screen", and clear of the Dock.
+  const rect = landedWindowRect(GEOMETRY);
+  assert.ok(rect.x + rect.width >= GEOMETRY.visibleRight - 40, "at the right edge");
+  assert.ok(rect.y + rect.height <= GEOMETRY.visibleBottom, "above the Dock");
+});
+
+test("the resting peek shows his head, not the empty margin above it", async () => {
+  const { restingAvatarY, NOTCH_REST_PEEK, avatarDrawnHeight } = await loadNotchHome();
+  // The rig draws nothing in the top ~25% of its box, so parking the BOX top
+  // at the cutout edge showed a plain black strip (seen in overlay.html?lab=1).
+  // His crown, not his bounding box, belongs at the cutout's lower edge.
+  const width = 72;
+  const y = restingAvatarY(GEOMETRY.height, width);
+  assert.ok(y < GEOMETRY.height, "the box starts ABOVE the cutout edge");
+  const crown = y + avatarDrawnHeight(width) * (76.16 / 310);
+  assert.ok(
+    Math.abs(crown - GEOMETRY.height) <= 1,
+    `the crown should land on the cutout's lower edge, got ${crown}`,
+  );
+  assert.ok(
+    crown + NOTCH_REST_PEEK <= GEOMETRY.height + NOTCH_REST_PEEK,
+    "the whole peek strip is filled with head",
+  );
+});
+
 // ---------------------------------------------------------------------------
-// Visibility contract (user directive 2026-09-08): hidden in the notch unless
-// hovered, shortcut-summoned, or deliberately dragged out.
-// ---------------------------------------------------------------------------
-
-const AT_REST = {
-  home: "notch",
-  sessionReady: true,
-  notchHover: false,
-  notchDomHover: false,
-  notchPose: "bed",
-  panel: "none",
-};
-
-test("an un-summoned companion in the notch is not on screen", async () => {
-  const { companionWindowVisible } = await loadNotchHome();
-  assert.equal(companionWindowVisible(AT_REST), false);
-});
-
-test("each way of wanting him puts him on screen", async () => {
-  const { companionWindowVisible } = await loadNotchHome();
-  for (const summon of [
-    { notchHover: true },
-    { notchDomHover: true },
-    { notchPose: "chat" },
-    { panel: "ask" },
-    { panel: "chat" },
-  ]) {
-    assert.equal(
-      companionWindowVisible({ ...AT_REST, ...summon }),
-      true,
-      `expected ${JSON.stringify(summon)} to reveal the companion`,
-    );
-  }
-});
-
-// The regression this fix exists for: the geometry probe gives up, and the
-// companion is left permanently on the desktop with nothing able to conceal it.
-// Geometry is not an input here at all, which is what makes that impossible.
-test("losing the notch geometry cannot make an un-summoned companion visible", async () => {
-  const { companionWindowVisible } = await loadNotchHome();
-  assert.equal(companionWindowVisible(AT_REST), false);
-  // ⌘⇧Space still reaches him with no geometry — the summon path that does not
-  // depend on the Rust hover signal.
-  assert.equal(companionWindowVisible({ ...AT_REST, panel: "ask" }), true);
-});
-
-test("dragging him out is the opt-out — a free companion stays visible", async () => {
-  const { companionWindowVisible } = await loadNotchHome();
-  assert.equal(companionWindowVisible({ ...AT_REST, home: "free" }), true);
-});
-
-test("nothing is on screen before the session is ready, in either home", async () => {
-  const { companionWindowVisible } = await loadNotchHome();
-  assert.equal(companionWindowVisible({ ...AT_REST, sessionReady: false, notchHover: true }), false);
-  assert.equal(companionWindowVisible({ ...AT_REST, sessionReady: false, home: "free" }), false);
+// The notch is HOME — he is in it at every launch (user directive 2026-09-11:
+// "But why is he not going into the notch or sitting inside it at launch?").
+//
+// A source assertion rather than a behavioural one, because the implementation
+// IS the absence of persistence: `home` starts at "notch" and nothing restores
+// a previous value. No function is left to call, so the only thing that can
+// regress is someone re-adding the storage — which is what this watches for.
+// Same shape as the accounting suite's "does not import pdfjs at module scope".
+test("the companion's home is never restored from storage — the notch is where he wakes", () => {
+  const source = readFileSync(
+    new URL("../src/app/avatar/OverlayApp.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    source,
+    /useState<AvatarHome>\("notch"\)/,
+    "home must initialise to the notch, not to a persisted value",
+  );
+  // A comment may still NAME the stale key, so this looks for real calls.
+  assert.ok(
+    !/localStorage\.(get|set)Item\(\s*HOME_STORAGE_KEY/.test(source),
+    "the companion's home must not be read back from storage",
+  );
+  assert.ok(
+    !/localStorage\.(get|set)Item\(\s*['"`]bridge\.avatar\.home/.test(source),
+    "the companion's home must not be written to storage",
+  );
 });

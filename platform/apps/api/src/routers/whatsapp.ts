@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { PILOT_ORGANIZATION, whatsAppCaptureSignalId } from "../wiring.js";
-import { hashTaintValue, labelAtSource, uuidv7, captureAllowed, recordSignal as recordCaptureSignal, whatsAppMessageCaptureSignal } from "@bridge/core";
+import { advance, hashTaintValue, labelAtSource, uuidv7 } from "@bridge/core";
+import { captureAllowed, recordSignal as recordCaptureSignal, whatsAppMessageCaptureSignal } from "@bridge/core";
 import { mapExtraction as mapWhatsAppExtraction, personIndexFrom as whatsAppPersonIndexFrom, advanceCursor as advanceWhatsAppCursor, mapMessages as mapWhatsAppMessages, newMessagesSince as newWhatsAppMessagesSince, readSyncState as readWhatsAppSyncState, summarizeSync as summarizeWhatsAppSync, syncedThreads as whatsAppSyncedThreads, type RawMessage as RawWhatsAppMessage, WHATSAPP_ANNOTATIONS_NAMESPACE, readAnnotationState, addTags as addWhatsAppTags, removeTag as removeWhatsAppTag, addNote as addWhatsAppNote, removeNote as removeWhatsAppNote, listAnnotations as listWhatsAppAnnotations, tagCounts as whatsAppTagCounts, WHATSAPP_AUDIT_NAMESPACE, readAuditState, auditEventFromOutcome, listAuditEvents, summarizeAudit, type AuditEventKind as WhatsAppAuditEventKind, WHATSAPP_AUTOMATION_NAMESPACE, assignmentLedgerOf as whatsAppAssignmentLedger, ruleLedgerOf as whatsAppRuleLedger, scheduleLedgerOf as whatsAppScheduleLedger, withLedgers as whatsAppWithLedgers, readAutomationState as readWhatsAppAutomationState, addRule as addWhatsAppRule, deleteRule as deleteWhatsAppRule, draftAutomationRule as draftWhatsAppRule, planAutomationRun as planWhatsAppAutomationRun, setRuleEnabled as setWhatsAppRuleEnabled, assignAgent as assignWhatsAppAgent, unassignAgent as unassignWhatsAppAgent, cancelAction as cancelWhatsAppAction, cancelActionsForRule as cancelWhatsAppActionsForRule, scheduleFromPolicy as scheduleWhatsAppFromPolicy, resolveChatLink as resolveWhatsAppChatLink, duplicateSignalId as whatsAppDuplicateSignalId, possibleDuplicatePayload as whatsAppPossibleDuplicatePayload, identityKindOfDedupeKey as whatsAppIdentityKindOfDedupeKey } from "@bridge/whatsapp";
-import { t, WHATSAPP_SOURCE, WHATSAPP_SYNC_NAMESPACE, readCaptureConsentState, recordWhatsAppAudit, whatsAppAutomationSubjectSchema, whatsAppModuleAgents, requireWhatsAppHuman, whatsAppAutomationUpdate, procedure, assertMembership } from "../router-shared.js";
+import { WHATSAPP_SOURCE, WHATSAPP_SYNC_NAMESPACE, assertMembership, authenticatedProcedure, procedure, readCaptureConsentState, recordWhatsAppAudit, requireWhatsAppHuman, t, whatsAppAutomationSubjectSchema, whatsAppAutomationUpdate, whatsAppModuleAgents } from "../router-shared.js";
 
 /**
  * WhatsApp Module — staging a Contact Extractor run.
@@ -13,7 +14,7 @@ import { t, WHATSAPP_SOURCE, WHATSAPP_SYNC_NAMESPACE, readCaptureConsentState, r
  * to cloud canonical; promoting an identity is a separate, explicit act.
  */
 export const whatsappRouter = t.router({
-  stageExtraction: procedure
+  stageExtraction: authenticatedProcedure
     .input(
       z.object({
         runId: z.string().min(1).max(128),
@@ -173,7 +174,7 @@ export const whatsappRouter = t.router({
    * window, which costs a round trip and loses nothing — the opposite order
    * would skip those messages permanently.
    */
-  ingestMessages: procedure
+  ingestMessages: authenticatedProcedure
     .input(
       z.object({
         chatId: z.string().min(1).max(128),
@@ -329,7 +330,7 @@ export const whatsappRouter = t.router({
     }),
 
   /** Which threads have been synced, and how much history is actually held. */
-  syncState: procedure.query(async ({ ctx }) => {
+  syncState: authenticatedProcedure.query(async ({ ctx }) => {
     const organizationId = PILOT_ORGANIZATION;
     await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
     const state = readWhatsAppSyncState(
@@ -343,7 +344,7 @@ export const whatsappRouter = t.router({
   }),
 
   /** One thread, oldest first — what the message list renders. */
-  thread: procedure
+  thread: authenticatedProcedure
     .input(
       z.object({
         chatId: z.string().min(1).max(128),
@@ -373,7 +374,7 @@ export const whatsappRouter = t.router({
     }),
 
   /** Full-text (or fuzzy) search across captured message bodies. */
-  searchMessages: procedure
+  searchMessages: authenticatedProcedure
     .input(
       z.object({
         text: z.string().trim().min(1).max(500),
@@ -420,7 +421,7 @@ export const whatsappRouter = t.router({
    * Returns real rows or an empty list — a chat with no Person reads as
    * `unlinked`, never as a placeholder Person.
    */
-  relationshipLinks: procedure.query(async ({ ctx }) => {
+  relationshipLinks: authenticatedProcedure.query(async ({ ctx }) => {
     const organizationId = PILOT_ORGANIZATION;
     await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
     const localPlane = ctx.wiring.localPlane;
@@ -462,7 +463,7 @@ export const whatsappRouter = t.router({
   }),
 
   /** The Relationship subject for one chat. */
-  chatLink: procedure
+  chatLink: authenticatedProcedure
     .input(z.object({ chatId: z.string().min(1).max(128) }))
     .query(async ({ input, ctx }) => {
       const organizationId = PILOT_ORGANIZATION;
@@ -495,7 +496,7 @@ export const whatsappRouter = t.router({
   // the LOCAL plane, invisible to the counterparty and with no promote path.
 
   /** Everything annotated, plus the tag vocabulary actually in use. */
-  annotations: procedure.query(async ({ ctx }) => {
+  annotations: authenticatedProcedure.query(async ({ ctx }) => {
     const organizationId = PILOT_ORGANIZATION;
     await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
     const state = readAnnotationState(
@@ -507,7 +508,7 @@ export const whatsappRouter = t.router({
   }),
 
   /** Add one or more tags to a subject. Idempotent. */
-  addTags: procedure
+  addTags: authenticatedProcedure
     .input(
       z.object({
         kind: z.enum(["chat", "person", "community"]),
@@ -535,7 +536,7 @@ export const whatsappRouter = t.router({
       );
     }),
 
-  removeTag: procedure
+  removeTag: authenticatedProcedure
     .input(
       z.object({
         kind: z.enum(["chat", "person", "community"]),
@@ -568,7 +569,7 @@ export const whatsappRouter = t.router({
    * client-supplied field — a note's provenance is the one thing about it a
    * caller must not be able to choose.
    */
-  addNote: procedure
+  addNote: authenticatedProcedure
     .input(
       z.object({
         kind: z.enum(["chat", "person", "community"]),
@@ -598,7 +599,7 @@ export const whatsappRouter = t.router({
       );
     }),
 
-  removeNote: procedure
+  removeNote: authenticatedProcedure
     .input(
       z.object({
         kind: z.enum(["chat", "person", "community"]),
@@ -642,7 +643,7 @@ export const whatsappRouter = t.router({
    * as a success — but it also cannot use this to send anything, because
    * nothing here touches a transport.
    */
-  recordSendOutcome: procedure
+  recordSendOutcome: authenticatedProcedure
     .input(
       z.object({
         recipientKey: z.string().min(1).max(300),
@@ -719,7 +720,7 @@ export const whatsappRouter = t.router({
    * message count, and no backfill, because there would be nothing honest to
    * backfill from.
    */
-  auditLog: procedure
+  auditLog: authenticatedProcedure
     .input(
       z
         .object({
@@ -782,7 +783,7 @@ export const whatsappRouter = t.router({
   // that is what makes the audit trail mean something.
   automation: t.router({
     /** Every ledger, plus what the panels need to render honest choices. */
-    state: procedure.query(async ({ ctx }) => {
+    state: authenticatedProcedure.query(async ({ ctx }) => {
       const organizationId = PILOT_ORGANIZATION;
       await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
       const state = readWhatsAppAutomationState(
@@ -809,7 +810,7 @@ export const whatsappRouter = t.router({
       };
     }),
 
-    createRule: procedure
+    createRule: authenticatedProcedure
       .input(
         z.object({
           name: z.string().trim().min(1).max(120),
@@ -886,7 +887,7 @@ export const whatsappRouter = t.router({
         return { rule };
       }),
 
-    setRuleEnabled: procedure
+    setRuleEnabled: authenticatedProcedure
       .input(
         z.object({
           ruleId: z.string().min(1).max(128),
@@ -919,7 +920,7 @@ export const whatsappRouter = t.router({
      * its queued Agent Runs behind would leave the owner watching actions
      * fire from an automation they believe they removed.
      */
-    deleteRule: procedure
+    deleteRule: authenticatedProcedure
       .input(z.object({ ruleId: z.string().min(1).max(128) }))
       .mutation(async ({ input, ctx }) => {
         const who = requireWhatsAppHuman(ctx.identity);
@@ -943,7 +944,7 @@ export const whatsappRouter = t.router({
         return { ruleId: input.ruleId, cancelledActions };
       }),
 
-    assignAgent: procedure
+    assignAgent: authenticatedProcedure
       .input(
         z.object({
           subject: whatsAppAutomationSubjectSchema,
@@ -971,7 +972,7 @@ export const whatsappRouter = t.router({
         return { subject: input.subject, agentId: input.agentId };
       }),
 
-    unassignAgent: procedure
+    unassignAgent: authenticatedProcedure
       .input(z.object({ subject: whatsAppAutomationSubjectSchema }))
       .mutation(async ({ input, ctx }) => {
         const who = requireWhatsAppHuman(ctx.identity);
@@ -989,7 +990,7 @@ export const whatsappRouter = t.router({
         return { subject: input.subject };
       }),
 
-    cancelAction: procedure
+    cancelAction: authenticatedProcedure
       .input(z.object({ actionId: z.string().min(1).max(128) }))
       .mutation(async ({ input, ctx }) => {
         const who = requireWhatsAppHuman(ctx.identity);
@@ -1021,7 +1022,7 @@ export const whatsappRouter = t.router({
      * recipient has never written in can never fire, and the owner should
      * learn that from this check rather than from silence.
      */
-    check: procedure.mutation(async ({ ctx }) => {
+    check: authenticatedProcedure.mutation(async ({ ctx }) => {
       const organizationId = PILOT_ORGANIZATION;
       await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
       const now = new Date().toISOString();

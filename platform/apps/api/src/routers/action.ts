@@ -4,13 +4,15 @@ import { databaseUuidSchema } from "@bridge/db";
 import { applyApprovedRelationshipMaterialization, isRelationshipSignalEvidence, proposalFromResolvedRelationshipLedger, relationshipOwnerFromLedger, relationshipSignalEvidencePayloadSchema } from "../relationship-materializer.js";
 import { isRelationshipMutation, validateRelationshipMutationEdit } from "../relationship-record-materializer.js";
 import { isGoogleLinkedInteractionIntake, parseGoogleLinkedInteractionIntake, validateGoogleInteractionEdit } from "../relationship-intake-materializer.js";
-import { OUTREACH_AGENT, PILOT_ORGANIZATION } from "../wiring.js";
-import { type Action, type DataScope, type ResourceType, AgentFloorDeniedError, AlreadyResolvedError, KERNEL_PASSTHROUGH_SKILL, NotPendingProposalError, labelFromLegacyTrustOrigin, declassifyTaintLabel, deriveDeclassifiedLabel, hashTaintValue, labelAtSource, type Proposal, type LedgerEntry } from "@bridge/core";
-import { t, type OutreachDraftResult, outreachDraftsInFlight, stableOutreachProposalId, emitGoogleCaptureSignals, procedure, resolveClientOnBehalfOf, cleanContext, assertPilotOrganization, isPrivateProposalInputs, provisionOutreachDraftTask, assertMembership, proposeInput, decideInput, captureProposalInputSchema, captureProposalOutputSchema, isCaptureProposal, assertPrivateProposalOwner, materializeApprovedCapture, recordRejectedCapture, outreachDraftInput, chatCreateTaskOutputSchema, moduleInstallIdFromProposal, activateApprovedModuleInstallation, validateDealPilotDecision, materializeDealPilotApproval, assertCultureProposalBindingValid, reconcileApprovedExternalEffect, chatOwnerScope, recordChatTaskResult, entryClaimsChatTaskProposal, requireChatTaskProposalBinding, finishChatTaskDecision } from "../router-shared.js";
+import { OUTREACH_AGENT, PILOT_ORGANIZATION, type Wiring } from "../wiring.js";
+import { describeProposal } from "./proposal-copy.js";
+import type { Action, DataScope, ResourceType } from "@bridge/core";
+import { AgentFloorDeniedError, AlreadyResolvedError, KERNEL_PASSTHROUGH_SKILL, NotPendingProposalError, labelFromLegacyTrustOrigin, declassifyTaintLabel, deriveDeclassifiedLabel, hashTaintValue, labelAtSource, type Proposal, type LedgerEntry } from "@bridge/core";
+import { activateApprovedModuleInstallation, assertCultureProposalBindingValid, assertMembership, assertPilotOrganization, assertPrivateProposalOwner, authenticatedProcedure, captureProposalInputSchema, captureProposalOutputSchema, chatCreateTaskOutputSchema, chatOwnerScope, cleanContext, decideInput, emitGoogleCaptureSignals, entryClaimsChatTaskProposal, finishChatTaskDecision, isCaptureProposal, isPrivateProposalInputs, materializeApprovedCapture, materializeDealPilotApproval, moduleInstallIdFromProposal, organizationGuard, outreachDraftInput, outreachDraftsInFlight, procedure, proposeInput, provisionOutreachDraftTask, reconcileApprovedExternalEffect, recordChatTaskResult, recordRejectedCapture, requireChatTaskProposalBinding, resolveClientOnBehalfOf, stableOutreachProposalId, t, validateDealPilotDecision, type OutreachDraftResult } from "../router-shared.js";
 
 export const actionRouter = t.router({
   /** Propose a governed mutation → Proposal (pending_review | applied | rejected). */
-  propose: procedure.input(proposeInput).mutation(async ({ input, ctx }) => {
+  propose: procedure.input(proposeInput).use(organizationGuard).mutation(async ({ input, ctx }) => {
     if (ctx.wiring.publicCloudOnly && input.dataScope !== "public") {
       throw new TRPCError({
         code: "PRECONDITION_FAILED",
@@ -62,9 +64,9 @@ export const actionRouter = t.router({
   /** A constrained browser request for the server-owned Outreach Agent to draft
    * one relationship Event. The caller controls the content, never Agent
    * identity, Skill, governed resource/action, or approval policy. */
-  proposeOutreachDraft: procedure
+  proposeOutreachDraft: authenticatedProcedure
     .input(outreachDraftInput)
-    .mutation(async ({ input, ctx }) => {
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
       if (ctx.identity.type !== "user") {
         throw new TRPCError({
           code: "FORBIDDEN",
@@ -196,7 +198,7 @@ export const actionRouter = t.router({
    * describe the CALLER'S actually-visible set, not a page that could
    * under-fill once private proposals exist.
    */
-  listPending: procedure
+  listPending: authenticatedProcedure
     .input(
       z
         .object({
@@ -206,7 +208,7 @@ export const actionRouter = t.router({
         })
         .default({ organizationId: PILOT_ORGANIZATION }),
     )
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       // TASK-010 review round-4 item 2 + TASK-008 RM4: `privateOwnerUserId`
       // is enforced at the STORE level (`privateProposalOwnerScope` in
       // packages/db/src/ledger-store.ts / `ledgerEntryVisibleToPrivateOwner`
@@ -221,7 +223,34 @@ export const actionRouter = t.router({
         offset: input.offset,
         privateOwnerUserId: ctx.identity.id,
       });
-      return { items, total, hasMore: input.offset + items.length < total };
+      // Every row carries its plain-language sentence (directive 2026-09-05).
+      return {
+        items: items.map((entry) => ({ ...entry, copy: describeProposal(entry.request) })),
+        total,
+        hasMore: input.offset + items.length < total,
+      };
+    }),
+
+  /** Every undecided proposal that belongs to one Task (ADR 2026-09-04
+   * "Approvals belong to Tasks"): an Automation Run is anchored to a Task, and
+   * a proposal remembers its Run, so the Task Page can show and decide what
+   * waits on it. Bounded by the same pending list Approvals reads. `taskId:
+   * null` lists the proposals with no Task behind them (a direct Human action
+   * has no Run), which the Task Manager index shows at its top. */
+  listPendingForTask: authenticatedProcedure
+    .input(z.object({ organizationId: z.string().min(1), taskId: z.string().min(1).nullable() }))
+    .use(organizationGuard).query(async ({ input, ctx }) => {
+      const { items } = await ctx.wiring.pipeline.listPending(input.organizationId, {
+        limit: 200,
+        offset: 0,
+        privateOwnerUserId: ctx.identity.id,
+      });
+      const located = await Promise.all(items.map((entry) => pendingProposalTask(ctx.wiring, entry)));
+      return {
+        items: items
+          .map((entry, index) => ({ ...entry, task: located[index], copy: describeProposal(entry.request) }))
+          .filter((entry) => (entry.task?.taskId ?? null) === input.taskId),
+      };
     }),
 
   /** Bounded Execution Ledger history through the authenticated server seam.
@@ -229,7 +258,7 @@ export const actionRouter = t.router({
    * TASK-010 review round-5/6: also the replacement for `apps/web/src/app/data/ledger.ts`'s
    * `loadLedger()` direct-Supabase read (docs/BUGS.md 2026-07-17) — the SAME
    * `privateOwnerUserId` store-level filter protects red-flag correction proposals here too. */
-  listHistory: procedure
+  listHistory: authenticatedProcedure
     .input(
       z.object({
         organizationId: z.string().min(1),
@@ -237,7 +266,7 @@ export const actionRouter = t.router({
         offset: z.number().int().min(0).default(0),
       }),
     )
-    .query(async ({ input, ctx }) => {
+    .use(organizationGuard).query(async ({ input, ctx }) => {
       const { items, total } = await ctx.wiring.ledger.listHistory(
         input.organizationId,
         {
@@ -256,7 +285,7 @@ export const actionRouter = t.router({
    * otherwise a member could infer a private red-flag correction's existence
    * and eventual approve/veto decision just by guessing/observing its
    * proposalId, even though they could never see or resolve it themselves. */
-  resolution: procedure
+  resolution: authenticatedProcedure
     .input(z.object({ proposalId: z.string().min(1) }))
     .query(async ({ input, ctx }) => {
       const proposal = await ctx.wiring.ledger.get(input.proposalId);
@@ -279,7 +308,7 @@ export const actionRouter = t.router({
       return { status: "pending" as const, decision: null };
     }),
 
-  taintTrace: procedure
+  taintTrace: authenticatedProcedure
     .input(z.object({ proposalId: databaseUuidSchema }))
     .query(async ({ input, ctx }) => {
       const proposal = await ctx.wiring.ledger.get(input.proposalId);
@@ -318,7 +347,7 @@ export const actionRouter = t.router({
       };
     }),
 
-  declassifyInstructionRisk: procedure
+  declassifyInstructionRisk: authenticatedProcedure
     .input(
       z.object({
         proposalId: z.string().uuid(),
@@ -412,7 +441,7 @@ export const actionRouter = t.router({
    * was raised `onBehalfOf` — a non-owning member (even though they pass
    * the ordinary organization-membership gate) is rejected FORBIDDEN, never
    * merely filtered from a list. */
-  decide: procedure.input(decideInput).mutation(async ({ input, ctx }) => {
+  decide: authenticatedProcedure.input(decideInput).mutation(async ({ input, ctx }) => {
     // Decider is the SERVER-RESOLVED identity (ctx.identity), never the client's
     // claimed actor — the agent-floor in decide() blocks any agent from approving.
     const original = await ctx.wiring.ledger.get(input.proposalId);
@@ -1102,7 +1131,7 @@ export const actionRouter = t.router({
    * or a Module install approval (`packages.reconcileApproved`) — see
    * `reconcileApprovedExternalEffect` above for the full rationale. Never
    * creates a second review decision; the human approval is immutable. */
-  reconcileApproved: procedure
+  reconcileApproved: authenticatedProcedure
     .input(z.object({ proposalId: z.string().min(1) }))
     .mutation(async ({ input, ctx }) => {
       const original = await ctx.wiring.ledger.get(input.proposalId);
@@ -1112,3 +1141,19 @@ export const actionRouter = t.router({
       return reconcileApprovedExternalEffect(ctx, input.proposalId);
     }),
 });
+
+/** The Task a pending proposal waits under, through the Automation Run that
+ * proposed it. Null for proposals with no Run (a direct Human action) or a Run
+ * with no anchor Task. */
+export async function pendingProposalTask(
+  wiring: Wiring,
+  entry: Pick<Proposal, "request">,
+): Promise<{ taskId: string; title: string; automationId: string } | null> {
+  const { organizationId, context } = entry.request;
+  if (!context || context.type !== "automation" || !context.runId) return null;
+  const run = await wiring.automationRunRecorder.get(organizationId, context.runId);
+  if (!run?.taskId) return null;
+  const task = await wiring.goalTasks.getTask(organizationId, run.taskId);
+  const goal = task ? await wiring.goalTasks.getGoal(organizationId, task.goalId) : null;
+  return { taskId: run.taskId, title: goal?.title ?? task?.type ?? run.taskId, automationId: context.id };
+}

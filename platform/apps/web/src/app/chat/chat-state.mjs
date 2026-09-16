@@ -34,3 +34,16 @@ export function canApplyChatResponse({
   if (generation !== currentGeneration || desiredThreadId !== threadId) return false;
   return selectsThread || activeThreadId === threadId;
 }
+
+/**
+ * A per-message cloud grant discloses the exact prompt Bridge is about to
+ * send to a model provider, so it only means anything when BRIDGE is the one
+ * sending. An agentic backend (Claude Code) declares `plane: "cloud"` because
+ * it does reach a cloud model, but it assembles and sends its own context in
+ * its own subprocess — the send path never touches a model provider. Asking
+ * for a grant there refuses the turn with "No authorized cloud model provider
+ * is configured" on a machine that needs no such provider (BUGS 2026-09-07).
+ */
+export function needsCloudGrant(thread) {
+  return thread?.plane === "cloud" && (thread.backend ?? "bridge") === "bridge";
+}

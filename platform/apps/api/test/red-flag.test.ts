@@ -30,16 +30,7 @@ import {
 } from "@bridge/core";
 import { appRouter, deterministicUuid, anchorLineageKey } from "../src/router.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, LEARNING_AGENT, PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE, PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE, type Wiring } from "../src/wiring.js";
-
-function makeRun(): RunCtx {
-  const clock = new SystemClock();
-  const rng = new SeededRng(1);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
-}
-
-async function makeCaller(wiring: Wiring, identity: { type: "user" | "team"; id: string } = { type: "user", id: PILOT_USER }) {
-  return appRouter.createCaller({ wiring, run: makeRun(), identity, authenticated: true, verifying: false });
-}
+import { makeCaller, makeRun } from "./caller.js";
 
 /** A second REAL, seeded organization member — distinct from PILOT_USER — for
  * IDOR/cross-owner/private-proposal tests. */
@@ -600,7 +591,7 @@ test("SAGA: create rejects a second, DIFFERENT operationId targeting an anchor t
   }
 });
 
-test("redFlag: a direct Human invocation of the governed learning skill fails closed even with a valid goalTaskRef", async () => {
+test("redFlag/AP-182: a direct Human invocation of the governed learning skill is flagged on the ledger, not refused", async () => {
   const wiring = await buildWiring();
   try {
     const recordId = await seedJobApplication(wiring);
@@ -622,11 +613,23 @@ test("redFlag: a direct Human invocation of the governed learning skill fails cl
         inputs: { kind: "red_flag_correction_proposal" },
         skill: "learning.proposePreferenceAdjustment",
         goalTaskRef: { goalId: goal!.id, taskId: task!.id },
+        // The old test was refused at the AGS1 gate before the taint sink ever
+        // ran; now the request reaches the skill, so it carries the label a
+        // genuine authenticated turn carries (the taint sink is still a gate).
+        taintLabel: labelAtSource("human_input", {
+          ref: "red-flag:direct-human-invocation",
+          valueHash: hashTaintValue("red_flag_correction_proposal"),
+          sensitivity: "organization",
+          instructionRisk: "none",
+        }),
       },
       makeRun(),
     );
-    assert.equal(proposal.status, "rejected");
-    assert.match(proposal.rejectionReason ?? "", /may only be invoked by an eligible Agent Run/);
+    assert.notEqual(proposal.status, "rejected", proposal.rejectionReason);
+    assert.ok(
+      proposal.policyResults.some((r) => r.policyId === "governance.flag" && /invoked directly by a user actor/.test(r.reason)),
+      "the direct Human invocation must be recorded as a governance flag",
+    );
   } finally {
     await wiring.close();
   }
