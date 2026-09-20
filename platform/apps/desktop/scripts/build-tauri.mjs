@@ -66,7 +66,38 @@ export function updaterBundleConfig(environment = process.env) {
     : { bundle: { createUpdaterArtifacts: false } };
 }
 
+/** Device nodes of mounted disk images whose file is a Bridge dmg. Tauri's
+ * `bundle_dmg.sh` mounts a volume named after the app and fails outright when
+ * one is still attached — a leftover from an interrupted build, or a build in
+ * a sibling worktree — so every build detaches those first. Parses `hdiutil
+ * info` text so it stays host-testable. */
+export function staleBridgeImages(hdiutilInfo) {
+  const stale = [];
+  let current = null;
+  for (const line of hdiutilInfo.split("\n")) {
+    const image = line.match(/^image-path\s*:\s*(.+)$/);
+    if (image) {
+      current = /Bridge_[^/]*\.dmg$/.test(image[1].trim()) ? image[1].trim() : null;
+      continue;
+    }
+    if (line.startsWith("=====")) current = null;
+    const device = line.match(/^(\/dev\/disk\d+)(?:s\d+)?\s/);
+    if (current && device && !stale.includes(device[1])) stale.push(device[1]);
+  }
+  return stale;
+}
+
+function detachStaleImages() {
+  if (process.platform !== "darwin") return;
+  const info = spawnSync("hdiutil", ["info"], { encoding: "utf8" }).stdout ?? "";
+  for (const device of staleBridgeImages(info)) {
+    console.log(`[build-tauri] detaching stale Bridge disk image ${device}`);
+    spawnSync("hdiutil", ["detach", device, "-force"], { stdio: "inherit" });
+  }
+}
+
 function build() {
+  detachStaleImages();
   const localIdentity =
     process.platform === "darwin" && !process.env.APPLE_SIGNING_IDENTITY?.trim()
       ? detectLocalSigningIdentity(
@@ -114,6 +145,12 @@ function build() {
     env: {
       ...process.env,
       ...(signingIdentity ? { APPLE_SIGNING_IDENTITY: signingIdentity } : {}),
+      // The dmg step's Finder-styling AppleScript leaves the volume "in use",
+      // so `hdiutil detach` fails and the whole build is reported red after a
+      // complete .app was written (2026-09-20). `CI=true` makes tauri-bundler pass
+      // `--skip-jenkins` to its bundle_dmg.sh (a plain dmg, no icon layout);
+      // TAURI_BUNDLER_DMG_IGNORE_CI=1 restores the styled dmg for a release.
+      CI: process.env.CI ?? "true",
     },
     stdio: "inherit",
   });

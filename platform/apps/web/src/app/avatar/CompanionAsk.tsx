@@ -22,6 +22,8 @@ import { readAllowControl } from "./DoRun";
 import { appendAskTurn } from "../chat/ask-history";
 import { ResearchRun } from "./ResearchRun";
 import { DoRun } from "./DoRun";
+import { FieldsRun } from "./FieldsRun";
+import { fieldsIntent } from "./field-match";
 
 export const AVATAR_SHARE_SCREEN_KEY = "bridge:avatar:share_screen";
 export const AVATAR_SPEAK_ANSWERS_KEY = "bridge:avatar:speak_answers";
@@ -138,7 +140,7 @@ export function CompanionAsk({
 }) {
   const [capabilities, setCapabilities] = useState<CompanionCapabilities | null>(null);
   const [question, setQuestion] = useState("");
-  const [mode, setMode] = useState<"ask" | "research" | "do">("ask");
+  const [mode, setMode] = useState<"ask" | "research" | "do" | "fields">("ask");
   const researchMode = mode === "research";
   const setResearchMode = (on: boolean) => setMode(on ? "research" : "ask");
   // Shared with Settings → Avatar, but screen egress must also be visible and
@@ -305,6 +307,10 @@ export function CompanionAsk({
     lastAutoQuestionRef.current = autoQuestion.nonce;
     onAutoQuestionConsumed?.();
     setQuestion(autoQuestion.text);
+    if (fieldsIntent(autoQuestion.text)) {
+      setMode("fields");
+      return;
+    }
     if (!shareScreen) {
       setError({
         code: "COMPANION_SCREEN_SHARING_DISABLED",
@@ -468,8 +474,35 @@ export function CompanionAsk({
       >
         Do
       </button>
+      <button
+        type="button"
+        aria-pressed={mode === "fields"}
+        disabled={busy !== "idle"}
+        onClick={() => setMode("fields")}
+        className={`rounded-[var(--radius-button)] px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${
+          mode === "fields"
+            ? "bg-[var(--color-navy)] text-[var(--color-background)]"
+            : "text-[var(--color-navy-mid)] hover:bg-[var(--color-surface)]"
+        }`}
+      >
+        Fields
+      </button>
     </div>
   );
+
+  if (mode === "fields") {
+    return (
+      <div className="flex flex-col" style={{ minHeight: 0, overflowY: "auto" }}>
+        {modeControls}
+        <FieldsRun
+          name={name}
+          accessibility={Boolean(capabilities?.accessibility)}
+          initialText={fieldsIntent(question) ? question : ""}
+          onSaid={(text, emotion) => onAnswered?.(text, emotion, false)}
+        />
+      </div>
+    );
+  }
 
   if (researchMode) {
     return (
@@ -567,6 +600,8 @@ export function CompanionAsk({
             event.preventDefault();
             if (isExplicitResearch(question)) {
               setResearchMode(true);
+            } else if (fieldsIntent(question)) {
+              setMode("fields");
             } else if (isExplicitDo(question)) {
               setMode("do");
             } else {
@@ -630,6 +665,8 @@ export function CompanionAsk({
           onClick={() => {
             if (isExplicitResearch(question)) {
               setResearchMode(true);
+            } else if (fieldsIntent(question)) {
+              setMode("fields");
             } else if (isExplicitDo(question)) {
               setMode("do");
             } else {

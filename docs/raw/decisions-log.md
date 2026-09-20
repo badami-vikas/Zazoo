@@ -7460,3 +7460,21 @@ Read-only was never decided. Manifests are immutable (ADR-178), nothing held a u
 **Alternatives rejected.** An `enabled` toggle on a Skill or a connector — nothing in the runtime reads such a flag today, and a switch that silently changes nothing is ADR-045's failure again; it becomes a row in the table when the runtime can honour it. Making `permissions` editable — that is the claim `scanCommonsModule` scanned, and editing it here would change what was scanned without re-scanning it. Four per-kind pages — three more places for the rules to drift.
 
 **Consequences.** A cadence on an Automation the Module gave no schedule is refused with its reason rather than stored as a no-op (found while verifying live, fixed before landing). A connector composed by two capabilities is ONE Integration: the same connection, one answer. Locked fields holding objects (a Skill's permissions) render as `read · record · all`, not `[object Object]` — also found live. Verified in a running app against a real API: an Agent renamed on its page, the new name on the Intelligence Section; a Skill's description edited and reset; the Automation and Integration pages opened; nine api tests, the resolve one seen failing unfixed.
+
+## 2026-09-20 — The Avatar reads fields through Accessibility and fills only what the user approved (attach: TASK-115)
+
+**Context.** User directive 2026-09-20, verbatim: *"By avatar, I meant desktop avatar, give this capability existing version of avatar itself so when I say copy all fields, it copies and later should be able to map and fill. And while filling, how about asking users if it should fill exact match only, etc etc so the onus is on user"*, after a look at Gaya.ai's Super Copy / Super Paste for insurance agents.
+
+**Decision.**
+
+1. **Reading is the Accessibility tree, not a screenshot.** The labelled controls of the app in front are read through `AXUIElement` (role, title/description/title-node/placeholder/preceding static text, value, frame). Nothing leaves the machine, no provider key is needed, and the result is exact rather than inferred. Secure text fields are dropped at the tree. A browser window keeps only the page's fields once a page is present. The Privacy Guard runs before every read, as it does before every capture.
+
+2. **The mapping is shown and the policy is the user's.** The panel computes a tier per target control — exact (same label or known synonym), close (token overlap, or an unambiguous subset), none — and the user picks "exact only", "close too", or "ask me each"; every row can be ticked or unticked. `fields_fill` receives only ticked rows with target labels and matches them to live controls by exact label. No unreviewed fill exists.
+
+3. **Filling is the hands, with the same gates as Do.** Glide, click, ⌘A, type for text; click for a toggle that differs; a radio is never clicked off; a drop-down is reported and left to the hand. Control consent, the Accessibility grant, the per-app allowlist and takeover-stops-the-run are reused, not re-declared.
+
+4. **The record is Local and inspectable.** `{app_data_dir}/bridge/clipboard.json`, newest 20 records, never synced — the same shape as `companion.json`.
+
+**Alternatives rejected.** Vision extraction through the existing screenshot pipeline — one Groq call per copy and per fill, positions at cell precision, values guessed from pixels; kept as the fallback for apps whose tree is empty. Setting `AXValue` directly instead of typing — faster and invisible, which is the wrong tell; the visible cursor is how the user knows what the Avatar touched. A model-backed label mapper — not until a real portal defeats the synonym table. Storing the record as Engine Memory now — the Memory write path from the overlay is not wired; noted as NOT LANDED rather than faked.
+
+**Consequences.** The Avatar has a form clipboard that works in any app exposing an Accessibility tree, including Chromium once `AXEnhancedUserInterface` is set. Native date pickers and popups are the known gaps. The standalone Chrome extension built earlier the same day (`Tools/avatar-clipboard/`) keeps its demo forms as the fixtures for the prototype test and is otherwise superseded.

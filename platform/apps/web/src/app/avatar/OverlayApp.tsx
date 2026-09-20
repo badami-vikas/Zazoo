@@ -37,6 +37,7 @@ import {
 } from "react";
 import { ChatView } from "../chat/ChatView";
 import { CompanionAsk } from "./CompanionAsk";
+import { fieldsIntent } from "./field-match";
 import { CompanionComposer } from "./CompanionComposer";
 import { CompanionZazooFace } from "./zazoo/CompanionZazooFace";
 import { ZazooDirector } from "./zazoo/director";
@@ -778,6 +779,14 @@ export function OverlayApp() {
    * message from the hover bar are the same act on the same thread — the one
    * the app's side panel and the Chief of Staff Page are already showing. */
   function openChatWith(text: string) {
+    // "copy all fields" / "fill this form" are for the fields clipboard, not
+    // the conversation: open the ask panel on its Fields body instead.
+    if (fieldsIntent(text)) {
+      setAskSeed({ text, nonce: Date.now() });
+      setPinned(false);
+      setPanel("ask");
+      return;
+    }
     setChatSeed({ text, nonce: Date.now() });
     setPinned(false);
     setPanel("chat");

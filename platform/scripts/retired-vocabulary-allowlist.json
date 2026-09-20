@@ -309,6 +309,12 @@
    "pathPrefix": "apps/api/test/research-executor.test.ts",
    "reason": "LLM tool-calling, not the retired Bridge product noun. These fixtures drive the research planner's {\"tool\":\"search\"|\"read\"} contract and assert the tool field on persisted step evidence — the same model-owned vocabulary already exempted for packages/research and packages/core/src/research-run.ts. Renaming it would rename the model's own function-calling field, not a Bridge identifier.",
    "reviewed": "AP-096 · 2026-09-03 · TASK-028 (kernel-executor bridge)"
+  },
+  {
+   "family": "element",
+   "pathPrefix": "apps/desktop/src-tauri/src/fields.rs",
+   "reason": "Apple Accessibility C ABI, not the retired Bridge product noun — the same case AP-148 reviewed for accessibility.rs and AP-157 for input_tap.rs. The fields clipboard walks the app in front through ApplicationServices' own exported symbols (AXUIElementCreateApplication, AXUIElementCopyAttributeValue, AXUIElementSetAttributeValue) and Apple's documented attribute-key strings (\"AXTitleUIElement\"); a linker symbol and a framework's attribute key are not ours to rename. Every identifier that IS ours uses `el`/`node`, never the retired noun.",
+   "reviewed": "in-session directive 2026-09-20 · TASK-115 (precedent: AP-148 · accessibility.rs)"
   }
  ]
 }

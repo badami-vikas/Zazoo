@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Bridge desktop shell (Tauri v2) — the first-built of the three thin clients (Notion model). HOSTS apps/web (devUrl in dev, apps/web/dist in prod) and adds what only a native shell can: the Rust capture core implementing the @bridge/sensors context-provider SPI (desktop subset) + the overlay avatar. No kernel logic lives here.",
+  "description": "Bridge desktop shell (Tauri v2) \u2014 the first-built of the three thin clients (Notion model). HOSTS apps/web (devUrl in dev, apps/web/dist in prod) and adds what only a native shell can: the Rust capture core implementing the @bridge/sensors context-provider SPI (desktop subset) + the overlay avatar. No kernel logic lives here.",
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
@@ -11,7 +11,7 @@
     "prepare:bundle": "node scripts/prepare-bundle.mjs",
     "verify:bundle-inputs": "node scripts/prepare-bundle.mjs --verify-only",
     "verify:macos-bundle": "node scripts/verify-macos-bundle.mjs",
-    "test:bundle": "node --test scripts/prepare-bundle.test.mjs",
+    "test:bundle": "node --test scripts/prepare-bundle.test.mjs scripts/build-tauri.test.mjs",
     "check": "cargo check --manifest-path src-tauri/Cargo.toml",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "build:tauri": "node scripts/build-tauri.mjs",
