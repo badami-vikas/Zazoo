@@ -91,7 +91,7 @@ pub(crate) fn frontmost_app_with_title() -> Option<(String, String, Option<Strin
 /// bundleIdentifier, pid). Wrapped in an autorelease pool since this runs off
 /// the main thread on a fresh Cocoa call each poll tick. The pid feeds the
 /// K7 window-title read (accessibility::focused_window_title).
-fn frontmost_app() -> Option<(String, String, i32)> {
+pub(crate) fn frontmost_app() -> Option<(String, String, i32)> {
     autoreleasepool(|_| {
         let app_manager = NSWorkspace::sharedWorkspace();
         let app = app_manager.frontmostApplication()?;

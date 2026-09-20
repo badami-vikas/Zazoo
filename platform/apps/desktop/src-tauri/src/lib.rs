@@ -31,6 +31,7 @@ mod annotate;
 mod api_sidecar;
 mod chase;
 mod companion;
+mod fields;
 mod jobs;
 mod notch;
 mod model_supervisor;
@@ -754,6 +755,11 @@ pub fn run() {
             act::act_stop,
             act::act_type_text,
             act::act_paused,
+            fields::fields_copy,
+            fields::fields_recall,
+            fields::fields_forget,
+            fields::fields_read_target,
+            fields::fields_fill,
             annotate::annotate_scribble_begin,
             annotate::annotate_scribble_cancel,
             annotate::annotate_scribble_done,

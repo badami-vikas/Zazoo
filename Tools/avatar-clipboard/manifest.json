@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Bridge Avatar Clipboard",
+  "version": "0.1.0",
+  "description": "Ask the Avatar to copy the details on a page; ask it to recall and paste them into another. Everything stays on this machine.",
+  "permissions": ["sidePanel", "storage", "activeTab", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "action": { "default_title": "Open the Avatar" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [{ "matches": ["<all_urls>"], "js": ["match.js", "content.js"], "run_at": "document_idle" }],
+  "incognito": "not_allowed"
+}
